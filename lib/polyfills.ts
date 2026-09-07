@@ -2,38 +2,28 @@ import 'react-native-get-random-values';
 import { Buffer } from 'buffer';
 import { TextEncoder, TextDecoder } from 'text-encoding';
 
-// 1. Setup Buffer & Text Encoding on all global targets
-const targetGlobals = [
+// 1. Assign Buffer and TextEncoder to all global scopes immediately
+const targets = [
   typeof global !== 'undefined' ? global : null,
   typeof globalThis !== 'undefined' ? globalThis : null,
   typeof window !== 'undefined' ? window : null,
 ].filter(Boolean);
 
-for (const g of targetGlobals) {
-  if (g) {
-    (g as any).Buffer = Buffer;
-    (g as any).TextEncoder = TextEncoder;
-    (g as any).TextDecoder = TextDecoder;
+for (const target of targets) {
+  if (target) {
+    (target as any).Buffer = Buffer;
+    (target as any).TextEncoder = TextEncoder;
+    (target as any).TextDecoder = TextDecoder;
 
-    // Hermes safeguard: guarantee static methods exist
-    if (!(g as any).Buffer.alloc) (g as any).Buffer.alloc = Buffer.alloc;
-    if (!(g as any).Buffer.from) (g as any).Buffer.from = Buffer.from;
-    if (!(g as any).Buffer.concat) (g as any).Buffer.concat = Buffer.concat;
+    // Guarantee static methods exist
+    if (!(target as any).Buffer.alloc) (target as any).Buffer.alloc = Buffer.alloc;
+    if (!(target as any).Buffer.from) (target as any).Buffer.from = Buffer.from;
+    if (!(target as any).Buffer.concat) (target as any).Buffer.concat = Buffer.concat;
   }
 }
 
-// 2. Setup crypto & crypto.randomBytes
-// react-native-get-random-values polyfills getRandomValues on global.crypto.
-// We must ensure globalThis.crypto and global.crypto are unified and provide randomBytes.
-const resolvedCrypto = (typeof globalThis !== 'undefined' && (globalThis as any).crypto)
-  ? (globalThis as any).crypto
-  : (typeof global !== 'undefined' && (global as any).crypto)
-  ? (global as any).crypto
-  : {};
-
-if (!resolvedCrypto.getRandomValues && (global as any).crypto?.getRandomValues) {
-  resolvedCrypto.getRandomValues = (global as any).crypto.getRandomValues;
-}
+// 2. Setup crypto.randomBytes using react-native-get-random-values
+const resolvedCrypto = (globalThis as any).crypto || (global as any).crypto || {};
 
 if (!resolvedCrypto.randomBytes) {
   resolvedCrypto.randomBytes = (size: number): Buffer => {
@@ -47,8 +37,8 @@ if (!resolvedCrypto.randomBytes) {
   };
 }
 
-for (const g of targetGlobals) {
-  if (g) {
-    (g as any).crypto = resolvedCrypto;
+for (const target of targets) {
+  if (target) {
+    (target as any).crypto = resolvedCrypto;
   }
 }

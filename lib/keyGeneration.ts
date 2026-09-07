@@ -3,7 +3,7 @@ import * as bip39 from 'bip39';
 import { derivePath } from 'ed25519-hd-key';
 import { Keypair } from '@solana/web3.js';
 import { mnemonicNew, mnemonicToWalletKey } from '@ton/crypto';
-import { WalletContractV4 } from '@ton/ton/dist/wallets/WalletContractV4';
+import { WalletContractV4 } from '@ton/ton';
 // @ts-expect-error tronweb has no declaration file
 import TronWeb from 'tronweb';
 
