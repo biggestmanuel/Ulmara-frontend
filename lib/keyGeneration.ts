@@ -1,11 +1,8 @@
-import { HDNodeWallet, Mnemonic as EthersMnemonic } from 'ethers';
+import { HDNodeWallet, Mnemonic as EthersMnemonic, getBytes, sha256 } from 'ethers';
 import * as bip39 from 'bip39';
 import { derivePath } from 'ed25519-hd-key';
 import { Keypair } from '@solana/web3.js';
 import { mnemonicNew, mnemonicToWalletKey } from '@ton/crypto';
-import { WalletContractV4 } from '@ton/ton';
-// @ts-expect-error tronweb has no declaration file
-import TronWeb from 'tronweb';
 
 import type { ChainId } from '../types/chain';
 
@@ -13,6 +10,52 @@ import type { ChainId } from '../types/chain';
 const EVM_PATH = "m/44'/60'/0'/0/0";
 const TRON_PATH = "m/44'/195'/0'/0/0";
 const SOL_PATH = "m/44'/501'/0'/0'";
+
+const ALPHABET = '123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz';
+
+function toBase58(buffer: Uint8Array): string {
+  const digits = [0];
+  for (let i = 0; i < buffer.length; i++) {
+    for (let j = 0; j < digits.length; j++) digits[j] <<= 8;
+    digits[0] += buffer[i];
+    let carry = 0;
+    for (let j = 0; j < digits.length; j++) {
+      digits[j] += carry;
+      carry = (digits[j] / 58) | 0;
+      digits[j] %= 58;
+    }
+    while (carry) {
+      digits.push(carry % 58);
+      carry = (carry / 58) | 0;
+    }
+  }
+  let result = '';
+  for (let i = 0; i < buffer.length && buffer[i] === 0; i++) {
+    result += ALPHABET[0];
+  }
+  for (let i = digits.length - 1; i >= 0; i--) {
+    result += ALPHABET[digits[i]];
+  }
+  return result;
+}
+
+/**
+ * Standard TRON Base58Check address derivation from an EVM-format address.
+ * Tron address = Base58Check( 0x41 + 20-byte-eth-address )
+ */
+function toTronAddress(ethAddress: string): string {
+  const clean = ethAddress.replace(/^0x/, '').toLowerCase();
+  const addressBytes = getBytes('0x41' + clean);
+  const hash1 = getBytes(sha256(addressBytes));
+  const hash2 = getBytes(sha256(hash1));
+  const checksum = hash2.slice(0, 4);
+
+  const combined = new Uint8Array(25);
+  combined.set(addressBytes);
+  combined.set(checksum, 21);
+
+  return toBase58(combined);
+}
 
 export interface DerivedChainKey {
   chain: ChainId;
@@ -33,18 +76,13 @@ export interface GeneratedWallet {
  * secureStorage and register only the derived addresses with the backend.
  */
 export async function generateWallet(): Promise<GeneratedWallet> {
-  // One 12-word BIP39 mnemonic drives EVM chains + TRON (both secp256k1).
-  const evmMnemonic = bip39.generateMnemonic(128); // 12 words
-
-  // Solana gets its own BIP39 mnemonic
+  const evmMnemonic = bip39.generateMnemonic(128);
   const solMnemonic = bip39.generateMnemonic(128);
-
-  // TON uses its own native 24-word mnemonic format (not BIP39-compatible).
   const tonMnemonic = await mnemonicNew(24);
 
   const keys: DerivedChainKey[] = [];
 
-  // --- EVM: eth, bsc, base, polygon share one address ---
+  // --- EVM: eth, bsc, base, polygon ---
   const evmWallet = HDNodeWallet.fromMnemonic(EthersMnemonic.fromPhrase(evmMnemonic), EVM_PATH);
   for (const chain of ['eth', 'bsc', 'base', 'polygon'] as ChainId[]) {
     keys.push({
@@ -54,9 +92,9 @@ export async function generateWallet(): Promise<GeneratedWallet> {
     });
   }
 
-  // --- TRON: same curve family, different path + base58check address ---
+  // --- TRON: same curve, BIP44 path 195, Base58Check address ---
   const tronWallet = HDNodeWallet.fromMnemonic(EthersMnemonic.fromPhrase(evmMnemonic), TRON_PATH);
-  const tronAddress = TronWeb.address.fromPrivateKey(tronWallet.privateKey.replace(/^0x/, ''));
+  const tronAddress = toTronAddress(tronWallet.address);
   keys.push({
     chain: 'tron',
     address: tronAddress,
@@ -74,6 +112,7 @@ export async function generateWallet(): Promise<GeneratedWallet> {
   });
 
   // --- TON: native mnemonic -> wallet key -> V4 wallet contract address ---
+  const { WalletContractV4 } = await import('@ton/ton');
   const tonKeyPair = await mnemonicToWalletKey(tonMnemonic);
   const tonWallet = WalletContractV4.create({ workchain: 0, publicKey: tonKeyPair.publicKey });
   keys.push({
@@ -85,9 +124,6 @@ export async function generateWallet(): Promise<GeneratedWallet> {
   return { evmMnemonic, solMnemonic, tonMnemonic, keys };
 }
 
-/**
- * Extracts only the public, transmittable portion of a generated wallet.
- */
 export function toPublicAddresses(wallet: GeneratedWallet) {
   return wallet.keys.map(({ chain, address }) => ({ chain, address }));
 }
