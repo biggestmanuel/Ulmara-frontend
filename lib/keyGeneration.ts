@@ -3,6 +3,7 @@ import * as bip39 from 'bip39';
 import { derivePath } from 'ed25519-hd-key';
 import { Keypair } from '@solana/web3.js';
 import { mnemonicToWalletKey } from '@ton/crypto';
+import { Cell, beginCell, contractAddress } from '@ton/core';
 import { Buffer } from 'buffer';
 
 import type { ChainId } from '../types/chain';
@@ -53,6 +54,9 @@ function toTronAddress(ethAddress: string): string {
 
   return toBase58(combined);
 }
+
+// Standard Wallet V4 R2 compiled code cell base64
+const WALLET_V4R2_CODE_B64 = 'te6ccgECFAEAAtQAART/APSkE/S88sgLAQIBIAIDAgFIBAUE+PKDCNcYINMf0x/THwL4I7vyZO1E0NMf0x/T//QE0VFDuvKhUVG68qIF+QFUEGT5EPKj+AAkpMjLH1JAyx9SMMv/UhD0AMntVPgPAdMHIcAAn2xRkyDXSpbTB9QC+wDoMOAhwAHjACHAAuMAAcADkTDjDQOkyMsfEssfy/8QERITAubQAdDTAyFxsJJfBOAi10nBIJJfBOAC0x8hghBwbHVnvSKCEGRzdHK9sJJfBeAD+kAwIPpEAcjKB8v/ydDtRNCBAUDXIfQEMFyBAQj0Cm+hMbOSXwfgBdM/yCWCEHBsdWe6kjgw4w0DghBkc3RyupJfBuMNBgcCASAICQB4AfoA9AQw+CdvIjBQCqEhvvLgUIIQcGx1Z4MesXCAGFAEywUmzxZY+gIZ9ADLaRfLH1Jgyz8gyYBA+wAGAIpQBIEBCPRZMO1E0IEBQNcgyAHPFvQAye1UAXKwjiOCEGRzdHKDHrFwgBhQBcsFUAPPFiP6AhPLassfyz/JgED7AJJfA+ICASAKCwBZvSQrb2omhAgKBrkPoCGEcNQICEekk30pkQzmkD6f+YN4EoAbeBAUiYcVnzGEAgFYDA0AEbjJftRNDXCx+AA9sp37UTQgQFA1yH0BDACyMoHy//J0AGBAQj0Cm+hMYAIBIA4PABmtznaiaEAga5Drhf/AABmvHfaiaEAQa5DrhY/AAG7SB/oA1NQi+QAFyMoHFcv/ydB3dIAYyMsFywIizxZQBfoCFMtrEszMyXP7AMhAFIEBCPRR8qcCAHCBAQjXGPoA0z/IVCBHgQEI9FHyp4IQbm90ZXB0gBjIywXLAlAGzxZQBPoCFMtqEssfyz/Jc/sAAgBsgQEI1xj6ANM/MFIkgQEI9Fnyp4IQZHN0cnB0gBjIywXLAlAFzxZQA/oCE8tqyx8Syz/Jc/sAAAr0AMntVA==';
 
 export interface DerivedChainKey {
   chain: ChainId;
@@ -121,24 +125,27 @@ export async function generateWallet(): Promise<GeneratedWallet> {
   });
 
   console.log('[KeyGen] 5. Deriving TON...');
-  // Force Buffer and Buffer.alloc onto the global scope right before loading @ton/ton
-  (global as any).Buffer = Buffer;
-  (globalThis as any).Buffer = Buffer;
-  if (!(global as any).Buffer.alloc) {
-    (global as any).Buffer.alloc = Buffer.alloc;
-    (globalThis as any).Buffer.alloc = Buffer.alloc;
-  }
-
-  const { WalletContractV4 } = await import('@ton/ton');
   const tonKeyPair = await mnemonicToWalletKey(tonMnemonic);
-  const tonWallet = WalletContractV4.create({ workchain: 0, publicKey: tonKeyPair.publicKey });
-  const tonAddress = tonWallet.address.toString({ bounceable: false });
+
+  // Build Wallet V4 R2 directly using @ton/core (NO @ton/ton dependency!)
+  const workchain = 0;
+  const walletId = 698983191 + workchain;
+  const code = Cell.fromBoc(Buffer.from(WALLET_V4R2_CODE_B64, 'base64'))[0];
+  const data = beginCell()
+    .storeUint(0, 32) // seqno
+    .storeUint(walletId, 32)
+    .storeBuffer(Buffer.from(tonKeyPair.publicKey))
+    .storeBit(0) // empty plugins dict
+    .endCell();
+
+  const address = contractAddress(workchain, { code, data });
+  const tonAddress = address.toString({ bounceable: false });
   console.log('[KeyGen] TON Address:', tonAddress);
 
   keys.push({
     chain: 'ton',
     address: tonAddress,
-    privateKeyOrSeed: tonKeyPair.secretKey.toString('hex'),
+    privateKeyOrSeed: Buffer.from(tonKeyPair.secretKey).toString('hex'),
   });
 
   console.log('[KeyGen] SUCCESS! All 7 chains generated!');
