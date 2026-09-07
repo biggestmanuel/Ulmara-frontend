@@ -2,7 +2,11 @@ import 'react-native-get-random-values';
 import { Buffer } from 'buffer';
 import { TextEncoder, TextDecoder } from 'text-encoding';
 
-// 1. Assign Buffer and TextEncoder to all global scopes immediately
+// CRITICAL FIX: When compiled CommonJS code does `require('buffer').Buffer`,
+// but Metro resolves to the Buffer constructor function directly,
+// buffer_1.Buffer evaluated to undefined! Self-referencing Buffer on itself fixes this.
+(Buffer as any).Buffer = Buffer;
+
 const targets = [
   typeof global !== 'undefined' ? global : null,
   typeof globalThis !== 'undefined' ? globalThis : null,
@@ -15,16 +19,15 @@ for (const target of targets) {
     (target as any).TextEncoder = TextEncoder;
     (target as any).TextDecoder = TextDecoder;
 
-    // Guarantee static methods exist
     if (!(target as any).Buffer.alloc) (target as any).Buffer.alloc = Buffer.alloc;
     if (!(target as any).Buffer.from) (target as any).Buffer.from = Buffer.from;
     if (!(target as any).Buffer.concat) (target as any).Buffer.concat = Buffer.concat;
+    (target as any).Buffer.Buffer = Buffer;
   }
 }
 
-// 2. Setup crypto.randomBytes using react-native-get-random-values
+// Ensure crypto.randomBytes is available
 const resolvedCrypto = (globalThis as any).crypto || (global as any).crypto || {};
-
 if (!resolvedCrypto.randomBytes) {
   resolvedCrypto.randomBytes = (size: number): Buffer => {
     const bytes = new Uint8Array(size);
