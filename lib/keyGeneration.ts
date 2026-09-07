@@ -1,4 +1,4 @@
-import { HDNodeWallet, Mnemonic as EthersMnemonic, getBytes, sha256 } from 'ethers';
+import { HDNodeWallet, getBytes, sha256 } from 'ethers';
 import * as bip39 from 'bip39';
 import { derivePath } from 'ed25519-hd-key';
 import { Keypair } from '@solana/web3.js';
@@ -39,10 +39,6 @@ function toBase58(buffer: Uint8Array): string {
   return result;
 }
 
-/**
- * Standard TRON Base58Check address derivation from an EVM-format address.
- * Tron address = Base58Check( 0x41 + 20-byte-eth-address )
- */
 function toTronAddress(ethAddress: string): string {
   const clean = ethAddress.replace(/^0x/, '').toLowerCase();
   const addressBytes = getBytes('0x41' + clean);
@@ -60,22 +56,20 @@ function toTronAddress(ethAddress: string): string {
 export interface DerivedChainKey {
   chain: ChainId;
   address: string;
-  privateKeyOrSeed: string; // hex, chain-dependent — never transmitted
+  privateKeyOrSeed: string;
 }
 
 export interface GeneratedWallet {
-  evmMnemonic: string; // covers eth, bsc, base, polygon, tron
+  evmMnemonic: string;
   solMnemonic: string;
-  tonMnemonic: string[]; // TON mnemonics are 24-word arrays, not a single BIP39 string
+  tonMnemonic: string[];
   keys: DerivedChainKey[];
 }
 
-/**
- * Generates a fresh, non-custodial wallet covering all 7 supported chains.
- * Call this exactly once per account, then persist the mnemonics via
- * secureStorage and register only the derived addresses with the backend.
- */
 export async function generateWallet(): Promise<GeneratedWallet> {
+  console.log('[KeyGen] Starting wallet generation...');
+
+  // 1. Generate mnemonics
   const evmMnemonic = bip39.generateMnemonic(128);
   const solMnemonic = bip39.generateMnemonic(128);
   const tonMnemonic = await mnemonicNew(24);
@@ -83,7 +77,10 @@ export async function generateWallet(): Promise<GeneratedWallet> {
   const keys: DerivedChainKey[] = [];
 
   // --- EVM: eth, bsc, base, polygon ---
-  const evmWallet = HDNodeWallet.fromMnemonic(EthersMnemonic.fromPhrase(evmMnemonic), EVM_PATH);
+  // In ethers v6, use HDNodeWallet.fromPhrase(phrase, password, path)
+  const evmWallet = HDNodeWallet.fromPhrase(evmMnemonic, undefined, EVM_PATH);
+  console.log('[KeyGen] EVM Address derived:', evmWallet.address);
+
   for (const chain of ['eth', 'bsc', 'base', 'polygon'] as ChainId[]) {
     keys.push({
       chain,
@@ -92,35 +89,44 @@ export async function generateWallet(): Promise<GeneratedWallet> {
     });
   }
 
-  // --- TRON: same curve, BIP44 path 195, Base58Check address ---
-  const tronWallet = HDNodeWallet.fromMnemonic(EthersMnemonic.fromPhrase(evmMnemonic), TRON_PATH);
+  // --- TRON: same mnemonic, TRON derivation path ---
+  const tronWallet = HDNodeWallet.fromPhrase(evmMnemonic, undefined, TRON_PATH);
   const tronAddress = toTronAddress(tronWallet.address);
+  console.log('[KeyGen] TRON Address derived:', tronAddress);
+
   keys.push({
     chain: 'tron',
     address: tronAddress,
     privateKeyOrSeed: tronWallet.privateKey,
   });
 
-  // --- Solana: ed25519 derivation, keypair built via @solana/web3.js ---
+  // --- Solana ---
   const solSeed = await bip39.mnemonicToSeed(solMnemonic);
   const { key: solDerivedSeed } = derivePath(SOL_PATH, solSeed.toString('hex'));
   const solKeypair = Keypair.fromSeed(solDerivedSeed);
+  const solAddress = solKeypair.publicKey.toBase58();
+  console.log('[KeyGen] Solana Address derived:', solAddress);
+
   keys.push({
     chain: 'sol',
-    address: solKeypair.publicKey.toBase58(),
+    address: solAddress,
     privateKeyOrSeed: Buffer.from(solKeypair.secretKey).toString('hex'),
   });
 
-  // --- TON: native mnemonic -> wallet key -> V4 wallet contract address ---
+  // --- TON ---
   const { WalletContractV4 } = await import('@ton/ton');
   const tonKeyPair = await mnemonicToWalletKey(tonMnemonic);
   const tonWallet = WalletContractV4.create({ workchain: 0, publicKey: tonKeyPair.publicKey });
+  const tonAddress = tonWallet.address.toString({ bounceable: false });
+  console.log('[KeyGen] TON Address derived:', tonAddress);
+
   keys.push({
     chain: 'ton',
-    address: tonWallet.address.toString({ bounceable: false }),
+    address: tonAddress,
     privateKeyOrSeed: tonKeyPair.secretKey.toString('hex'),
   });
 
+  console.log('[KeyGen] All 7 chains derived successfully!');
   return { evmMnemonic, solMnemonic, tonMnemonic, keys };
 }
 
