@@ -1,3 +1,5 @@
+// tronweb does not currently ship TypeScript declarations.
+// @ts-expect-error Missing declaration file for the tronweb package.
 import TronWeb from 'tronweb';
 
 const rpcUrl = process.env.EXPO_PUBLIC_RPC_TRON ?? '';

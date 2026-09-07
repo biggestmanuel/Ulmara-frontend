@@ -1,4 +1,12 @@
-import type { ChainConfig, ChainId } from '@/types/chain';
+export type ChainId = 'ton' | 'bsc' | 'eth' | 'sol' | 'base' | 'polygon' | 'tron';
+
+export interface ChainConfig {
+  id: ChainId;
+  name: string;
+  symbol: string;
+  isEvm: boolean;
+  decimals: number;
+}
 
 export const CHAINS: Record<ChainId, ChainConfig> = {
   ton: { id: 'ton', name: 'TON', symbol: 'TON', isEvm: false, decimals: 9 },

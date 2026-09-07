@@ -24,6 +24,9 @@ import { derivePath } from 'ed25519-hd-key';
 import { Keypair } from '@solana/web3.js';
 import { mnemonicNew, mnemonicToWalletKey } from '@ton/crypto';
 import { WalletContractV4 } from '@ton/ton';
+// tronweb does not ship TypeScript declarations in the installed version.
+// Keep the dependency typed locally until a compatible declaration is added.
+// @ts-expect-error tronweb has no declaration file
 import TronWeb from 'tronweb';
 
 import type { ChainId } from '../types/chain';

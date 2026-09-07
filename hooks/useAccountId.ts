@@ -1,6 +1,15 @@
 import { useCallback, useState } from 'react';
-import { useUserStore } from '@/stores/userStore';
-import { resolveAccountId as resolveAccountIdApi } from '@/lib/api/accountId';
+import { useUserStore } from '../stores/userStore';
+
+async function resolveAccountIdApi(id: string): Promise<ResolvedProfile> {
+  const response = await fetch(`/api/account-id/${encodeURIComponent(id)}`);
+
+  if (!response.ok) {
+    throw new Error('Failed to resolve Account ID');
+  }
+
+  return (await response.json()) as ResolvedProfile;
+}
 
 // Assumes userStore exposes: accountId, profile, hydrate()
 // Assumes lib/api/accountId exports resolveAccountId(id: string)
@@ -13,8 +22,7 @@ interface ResolvedProfile {
 }
 
 export function useAccountId() {
-  const accountId = useUserStore((s) => s.accountId);
-  const profile = useUserStore((s) => s.profile);
+  const { accountId, profile } = useUserStore();
 
   const [resolving, setResolving] = useState(false);
   const [resolveError, setResolveError] = useState<string | null>(null);

@@ -75,7 +75,9 @@ export default function VerifyPhone() {
           {code.map((digit, idx) => (
             <TextInput
               key={idx}
-              ref={(r) => (inputs.current[idx] = r)}
+              ref={(r) => {
+                inputs.current[idx] = r;
+              }}
               style={styles.codeBox}
               value={digit}
               onChangeText={(v) => onChangeDigit(v, idx)}

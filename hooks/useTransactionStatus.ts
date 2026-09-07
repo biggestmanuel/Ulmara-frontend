@@ -1,19 +1,18 @@
 import { useEffect, useRef, useState } from 'react';
-import { useTxStore } from '@/stores/txStore';
-import { getTransactionById } from '@/lib/api/transactions';
+import { fetchTransactionById } from '../lib/api/transactions';
 
 // Assumes txStore exposes: transactions, upsertTransaction(tx)
 // Polls the API while a tx is in a non-final state (Processing)
 
-type TxStatus = 'Processing' | 'Complete' | 'Failed';
+type TxStatus = 'processing' | 'complete' | 'failed';
 
 const POLL_INTERVAL_MS = 4000;
 
 export function useTransactionStatus(txId: string) {
-  const cached = useTxStore((s) => s.transactions.find((t) => t.id === txId));
-  const upsertTransaction = useTxStore((s) => s.upsertTransaction);
-
-  const [status, setStatus] = useState<TxStatus | undefined>(cached?.status);
+  const [transaction, setTransaction] = useState<
+    Awaited<ReturnType<typeof fetchTransactionById>> | undefined
+  >();
+  const [status, setStatus] = useState<TxStatus | undefined>();
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   useEffect(() => {
@@ -21,10 +20,10 @@ export function useTransactionStatus(txId: string) {
 
     const poll = async () => {
       try {
-        const tx = await getTransactionById(txId);
-        upsertTransaction(tx);
+        const tx = await fetchTransactionById(txId);
+        setTransaction(tx);
         setStatus(tx.status);
-        if (tx.status !== 'Processing' && intervalRef.current) {
+        if (tx.status !== 'processing' && intervalRef.current) {
           clearInterval(intervalRef.current);
           intervalRef.current = null;
         }
@@ -35,19 +34,16 @@ export function useTransactionStatus(txId: string) {
 
     poll();
 
-    if (cached?.status !== 'Complete' && cached?.status !== 'Failed') {
-      intervalRef.current = setInterval(poll, POLL_INTERVAL_MS);
-    }
+    intervalRef.current = setInterval(poll, POLL_INTERVAL_MS);
 
     return () => {
       if (intervalRef.current) clearInterval(intervalRef.current);
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [txId]);
 
   return {
-    transaction: cached,
+    transaction,
     status,
-    isPending: status === 'Processing',
+    isPending: status === 'processing',
   };
 }
