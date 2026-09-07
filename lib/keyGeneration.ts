@@ -22,8 +22,11 @@ import { HDNodeWallet, Mnemonic as EthersMnemonic } from 'ethers';
 import * as bip39 from 'bip39';
 import { derivePath } from 'ed25519-hd-key';
 import { Keypair } from '@solana/web3.js';
-import { mnemonicNew, mnemonicToWalletKey } from '@ton/crypto';
-import { WalletContractV4 } from '@ton/ton';
+// TEMP DIAGNOSTIC — commented out to isolate whether @ton/ton itself is the
+// crash source, separate from the other 6 chains. REMINDER: uncomment these
+// two lines (and the TON block below) once the other 6 chains are confirmed working.
+// import { mnemonicNew, mnemonicToWalletKey } from '@ton/crypto';
+// import { WalletContractV4 } from '@ton/ton';
 // tronweb does not ship TypeScript declarations in the installed version.
 // Keep the dependency typed locally until a compatible declaration is added.
 // @ts-expect-error tronweb has no declaration file
@@ -63,7 +66,9 @@ export async function generateWallet(): Promise<GeneratedWallet> {
   const solMnemonic = bip39.generateMnemonic(128);
 
   // TON uses its own native 24-word mnemonic format (not BIP39-compatible).
-  const tonMnemonic = await mnemonicNew(24);
+  // TEMP DIAGNOSTIC: disabled along with the @ton/crypto import above.
+  // const tonMnemonic = await mnemonicNew(24);
+  const tonMnemonic: string[] = [];
 
   const keys: DerivedChainKey[] = [];
 
@@ -100,13 +105,17 @@ export async function generateWallet(): Promise<GeneratedWallet> {
   });
 
   // --- TON: native mnemonic -> wallet key -> V4 wallet contract address ---
-  const tonKeyPair = await mnemonicToWalletKey(tonMnemonic);
-  const tonWallet = WalletContractV4.create({ workchain: 0, publicKey: tonKeyPair.publicKey });
-  keys.push({
-    chain: 'ton',
-    address: tonWallet.address.toString({ bounceable: false }),
-    privateKeyOrSeed: tonKeyPair.secretKey.toString('hex'),
-  });
+  // TEMP DIAGNOSTIC: disabled along with the @ton/crypto and @ton/ton imports
+  // above, to isolate whether @ton/ton is the actual crash source.
+  // REMINDER: uncomment this block once the other 6 chains are confirmed
+  // working, and re-enable the two imports + tonMnemonic line above it.
+  // const tonKeyPair = await mnemonicToWalletKey(tonMnemonic);
+  // const tonWallet = WalletContractV4.create({ workchain: 0, publicKey: tonKeyPair.publicKey });
+  // keys.push({
+  //   chain: 'ton',
+  //   address: tonWallet.address.toString({ bounceable: false }),
+  //   privateKeyOrSeed: tonKeyPair.secretKey.toString('hex'),
+  // });
 
   return { evmMnemonic, solMnemonic, tonMnemonic, keys };
 }
