@@ -1,6 +1,5 @@
-// Must stay the very first import in this file — see lib/polyfills.ts for
-// why an inline version here doesn't actually run before other imports.
-import '../lib/polyfills';
+// Must stay the very first thing executed in this file
+require('../lib/polyfills');
 
 import { useEffect } from 'react';
 import { Slot, useRouter, useSegments } from 'expo-router';
@@ -28,8 +27,7 @@ export default function RootLayout() {
     checkAuthGate().finally(() => SplashScreen.hideAsync());
   }, [checkAuthGate]);
 
-  // Whenever gate flips to authed (either at boot, or right after
-  // onboarding/login persists the required keys), hydrate user + wallet.
+  // Whenever gate flips to authed, hydrate user + wallet.
   useEffect(() => {
     if (gateStatus === 'authed') {
       Promise.all([hydrateUser(), hydrateWallet()]).catch((err) =>
@@ -47,8 +45,6 @@ export default function RootLayout() {
     if (gateStatus === 'guest' && !inAuthGroup) {
       router.replace('/(auth)/welcome');
     } else if (gateStatus === 'locked' && !onVerifyPin) {
-      // Session + account id already exist on this device — just needs this
-      // launch's PIN check, not the full onboarding flow.
       router.replace('/(auth)/verify-pin');
     } else if (gateStatus === 'authed' && inAuthGroup) {
       router.replace('/(tabs)/home');

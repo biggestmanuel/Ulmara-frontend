@@ -1,25 +1,29 @@
-// Must be the FIRST import in app/_layout.tsx (before every other import,
-// including relative ones like stores/*). ES module imports are hoisted to
-// the top of the file at execution time regardless of where they're written
-// in source, so putting this code inline in _layout.tsx does NOT guarantee
-// it runs before other imports in that same file — any import listed above
-// or below it still executes first. Isolating it in its own module and
-// making that module the first import is what actually guarantees order:
-// this file's imports/side effects run, then control returns and the next
-// import in _layout.tsx begins.
+import 'react-native-get-random-values';
 import { Buffer } from 'buffer';
-
-// Unconditional — if anything else set a partial/stub global.Buffer before
-// this line runs, `global.Buffer = global.Buffer || Buffer` would keep that
-// stub and silently drop methods like .alloc, which @ton/core calls at
-// module-load time (Cell.EMPTY = new Cell()), causing "undefined is not a
-// function" deep in its dependency chain with no clear error at the actual
-// point of failure.
-global.Buffer = Buffer;
-
 import { TextEncoder, TextDecoder } from 'text-encoding';
 
-global.TextEncoder = TextEncoder;
-global.TextDecoder = TextDecoder;
+// Ensure Buffer and its static methods are on both global and globalThis
+const targetGlobals = [
+  typeof global !== 'undefined' ? global : null,
+  typeof globalThis !== 'undefined' ? globalThis : null,
+  typeof window !== 'undefined' ? window : null,
+].filter(Boolean);
 
-import 'react-native-get-random-values';
+for (const g of targetGlobals) {
+  if (g) {
+    (g as any).Buffer = Buffer;
+    (g as any).TextEncoder = TextEncoder;
+    (g as any).TextDecoder = TextDecoder;
+
+    // Hermes safeguard: guarantee static methods are attached
+    if (!(g as any).Buffer.alloc) {
+      (g as any).Buffer.alloc = Buffer.alloc;
+    }
+    if (!(g as any).Buffer.from) {
+      (g as any).Buffer.from = Buffer.from;
+    }
+    if (!(g as any).Buffer.concat) {
+      (g as any).Buffer.concat = Buffer.concat;
+    }
+  }
+}

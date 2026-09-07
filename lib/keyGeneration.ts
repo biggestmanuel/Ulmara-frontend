@@ -1,34 +1,9 @@
-/**
- * DESTINATION: lib/keyGeneration.ts (new file)
- *
- * Client-side, non-custodial key generation for Zomavi.
- * Generates mnemonics and derives addresses for every supported chain.
- * Private keys / mnemonics NEVER leave the device — only public addresses
- * are sent to the backend via registerWallets().
- *
- * Chain groups:
- *  - EVM (eth, bsc, base, polygon): one BIP39 mnemonic, standard BIP44 secp256k1 derivation via ethers
- *  - tron: same curve as EVM, separate derivation path + base58check address
- *  - sol: ed25519, separate BIP39 mnemonic, derived via ed25519-hd-key, keypair built with
- *    @solana/web3.js (already a project dependency)
- *  - ton: separate 24-word TON-native mnemonic via @ton/crypto, WalletContractV4
- *
- * NEW DEPENDENCIES REQUIRED (not currently in package.json):
- *   npm install bip39 ed25519-hd-key
- * Everything else (ethers, tronweb, @ton/crypto, @ton/ton, @solana/web3.js) is already installed.
- */
-
 import { HDNodeWallet, Mnemonic as EthersMnemonic } from 'ethers';
 import * as bip39 from 'bip39';
 import { derivePath } from 'ed25519-hd-key';
 import { Keypair } from '@solana/web3.js';
-// TEMP DIAGNOSTIC — commented out to isolate whether @ton/ton itself is the
-// crash source, separate from the other 6 chains. REMINDER: uncomment these
-// two lines (and the TON block below) once the other 6 chains are confirmed working.
-// import { mnemonicNew, mnemonicToWalletKey } from '@ton/crypto';
-// import { WalletContractV4 } from '@ton/ton';
-// tronweb does not ship TypeScript declarations in the installed version.
-// Keep the dependency typed locally until a compatible declaration is added.
+import { mnemonicNew, mnemonicToWalletKey } from '@ton/crypto';
+import { WalletContractV4 } from '@ton/ton';
 // @ts-expect-error tronweb has no declaration file
 import TronWeb from 'tronweb';
 
@@ -61,18 +36,15 @@ export async function generateWallet(): Promise<GeneratedWallet> {
   // One 12-word BIP39 mnemonic drives EVM chains + TRON (both secp256k1).
   const evmMnemonic = bip39.generateMnemonic(128); // 12 words
 
-  // Solana gets its own BIP39 mnemonic (kept separate so a chain-specific
-  // compromise doesn't cascade across curve families).
+  // Solana gets its own BIP39 mnemonic
   const solMnemonic = bip39.generateMnemonic(128);
 
   // TON uses its own native 24-word mnemonic format (not BIP39-compatible).
-  // TEMP DIAGNOSTIC: disabled along with the @ton/crypto import above.
-  // const tonMnemonic = await mnemonicNew(24);
-  const tonMnemonic: string[] = [];
+  const tonMnemonic = await mnemonicNew(24);
 
   const keys: DerivedChainKey[] = [];
 
-  // --- EVM: eth, bsc, base, polygon share one address (same derivation, same curve) ---
+  // --- EVM: eth, bsc, base, polygon share one address ---
   const evmWallet = HDNodeWallet.fromMnemonic(EthersMnemonic.fromPhrase(evmMnemonic), EVM_PATH);
   for (const chain of ['eth', 'bsc', 'base', 'polygon'] as ChainId[]) {
     keys.push({
@@ -84,9 +56,6 @@ export async function generateWallet(): Promise<GeneratedWallet> {
 
   // --- TRON: same curve family, different path + base58check address ---
   const tronWallet = HDNodeWallet.fromMnemonic(EthersMnemonic.fromPhrase(evmMnemonic), TRON_PATH);
-  // NOTE: verify this static call against your installed tronweb@5.3.0 — some
-  // versions expose address utils only on an instantiated TronWeb instance
-  // (e.g. `new TronWeb({fullHost}).address.fromPrivateKey(...)`) rather than statically.
   const tronAddress = TronWeb.address.fromPrivateKey(tronWallet.privateKey.replace(/^0x/, ''));
   keys.push({
     chain: 'tron',
@@ -105,25 +74,19 @@ export async function generateWallet(): Promise<GeneratedWallet> {
   });
 
   // --- TON: native mnemonic -> wallet key -> V4 wallet contract address ---
-  // TEMP DIAGNOSTIC: disabled along with the @ton/crypto and @ton/ton imports
-  // above, to isolate whether @ton/ton is the actual crash source.
-  // REMINDER: uncomment this block once the other 6 chains are confirmed
-  // working, and re-enable the two imports + tonMnemonic line above it.
-  // const tonKeyPair = await mnemonicToWalletKey(tonMnemonic);
-  // const tonWallet = WalletContractV4.create({ workchain: 0, publicKey: tonKeyPair.publicKey });
-  // keys.push({
-  //   chain: 'ton',
-  //   address: tonWallet.address.toString({ bounceable: false }),
-  //   privateKeyOrSeed: tonKeyPair.secretKey.toString('hex'),
-  // });
+  const tonKeyPair = await mnemonicToWalletKey(tonMnemonic);
+  const tonWallet = WalletContractV4.create({ workchain: 0, publicKey: tonKeyPair.publicKey });
+  keys.push({
+    chain: 'ton',
+    address: tonWallet.address.toString({ bounceable: false }),
+    privateKeyOrSeed: tonKeyPair.secretKey.toString('hex'),
+  });
 
   return { evmMnemonic, solMnemonic, tonMnemonic, keys };
 }
 
 /**
- * Extracts only the public, transmittable portion of a generated wallet —
- * the shape expected by registerWallets() before it maps to the backend's
- * uppercase Chain enum.
+ * Extracts only the public, transmittable portion of a generated wallet.
  */
 export function toPublicAddresses(wallet: GeneratedWallet) {
   return wallet.keys.map(({ chain, address }) => ({ chain, address }));
