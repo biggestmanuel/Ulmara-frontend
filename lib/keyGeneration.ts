@@ -3,6 +3,7 @@ import * as bip39 from 'bip39';
 import { derivePath } from 'ed25519-hd-key';
 import { Keypair } from '@solana/web3.js';
 import { mnemonicToWalletKey } from '@ton/crypto';
+import { Buffer } from 'buffer';
 
 import type { ChainId } from '../types/chain';
 
@@ -76,7 +77,6 @@ export async function generateWallet(): Promise<GeneratedWallet> {
   const solMnemonic = bip39.generateMnemonic(128);
 
   // TON: 24 words generated via BIP-39 (256-bit entropy)
-  // Replaces @ton/crypto's mnemonicNew which crashes with "cannot read property derive of null" in RN
   const tonMnemonicPhrase = bip39.generateMnemonic(256);
   const tonMnemonic = tonMnemonicPhrase.split(' ');
 
@@ -121,6 +121,14 @@ export async function generateWallet(): Promise<GeneratedWallet> {
   });
 
   console.log('[KeyGen] 5. Deriving TON...');
+  // Force Buffer and Buffer.alloc onto the global scope right before loading @ton/ton
+  (global as any).Buffer = Buffer;
+  (globalThis as any).Buffer = Buffer;
+  if (!(global as any).Buffer.alloc) {
+    (global as any).Buffer.alloc = Buffer.alloc;
+    (globalThis as any).Buffer.alloc = Buffer.alloc;
+  }
+
   const { WalletContractV4 } = await import('@ton/ton');
   const tonKeyPair = await mnemonicToWalletKey(tonMnemonic);
   const tonWallet = WalletContractV4.create({ workchain: 0, publicKey: tonKeyPair.publicKey });
