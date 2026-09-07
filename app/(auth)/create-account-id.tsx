@@ -63,6 +63,11 @@ export default function CreateAccountId() {
       // Dynamic import: registerWallets.ts (and keyGeneration.ts beneath it)
       // must not load at screen-mount time, or @ton/ton crashes before this
       // component even renders — see lib/registerWallets.ts for details.
+      // TEMP DIAGNOSTIC — remove once the Buffer/TextEncoder crash is solved.
+      console.log('[DIAG] typeof Buffer:', typeof Buffer);
+      console.log('[DIAG] typeof Buffer.alloc:', typeof (Buffer as any)?.alloc);
+      console.log('[DIAG] global.Buffer === Buffer:', (global as any).Buffer === Buffer);
+      console.log('[DIAG] typeof global.TextEncoder:', typeof (global as any).TextEncoder);
       const { setupNonCustodialWallet } = await import('../../lib/registerWallets');
       await setupNonCustodialWallet();
 
