@@ -56,29 +56,36 @@ function toTronAddress(ethAddress: string): string {
 export interface DerivedChainKey {
   chain: ChainId;
   address: string;
-  privateKeyOrSeed: string;
+  privateKeyOrSeed: string; // hex, chain-dependent — never transmitted
 }
 
 export interface GeneratedWallet {
-  evmMnemonic: string;
+  evmMnemonic: string; // covers eth, bsc, base, polygon, tron
   solMnemonic: string;
-  tonMnemonic: string[];
+  tonMnemonic: string[]; // TON mnemonics are 24-word arrays
   keys: DerivedChainKey[];
 }
 
+/**
+ * Generates a fresh, non-custodial wallet covering all 7 supported chains.
+ * Call this exactly once per account, then persist the mnemonics via
+ * secureStorage and register only the derived addresses with the backend.
+ */
 export async function generateWallet(): Promise<GeneratedWallet> {
   console.log('[KeyGen] Starting wallet generation...');
 
   // 1. Generate mnemonics
-  const evmMnemonic = bip39.generateMnemonic(128);
-  const solMnemonic = bip39.generateMnemonic(128);
+  const evmMnemonic = bip39.generateMnemonic(128); // 12 words
+  const solMnemonic = bip39.generateMnemonic(128); // 12 words
   const tonMnemonic = await mnemonicNew(24);
 
   const keys: DerivedChainKey[] = [];
 
   // --- EVM: eth, bsc, base, polygon ---
-  // In ethers v6, use HDNodeWallet.fromPhrase(phrase, password, path)
-  const evmWallet = HDNodeWallet.fromPhrase(evmMnemonic, undefined, EVM_PATH);
+  // bip39.mnemonicToSeed gives a 64-byte Buffer which is 100% reliable on Hermes
+  const evmSeed = await bip39.mnemonicToSeed(evmMnemonic);
+  const rootNode = HDNodeWallet.fromSeed(evmSeed);
+  const evmWallet = rootNode.derivePath(EVM_PATH);
   console.log('[KeyGen] EVM Address derived:', evmWallet.address);
 
   for (const chain of ['eth', 'bsc', 'base', 'polygon'] as ChainId[]) {
@@ -89,8 +96,8 @@ export async function generateWallet(): Promise<GeneratedWallet> {
     });
   }
 
-  // --- TRON: same mnemonic, TRON derivation path ---
-  const tronWallet = HDNodeWallet.fromPhrase(evmMnemonic, undefined, TRON_PATH);
+  // --- TRON: same root node, TRON derivation path ---
+  const tronWallet = rootNode.derivePath(TRON_PATH);
   const tronAddress = toTronAddress(tronWallet.address);
   console.log('[KeyGen] TRON Address derived:', tronAddress);
 
