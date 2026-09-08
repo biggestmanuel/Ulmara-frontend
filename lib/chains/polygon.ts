@@ -3,7 +3,7 @@ import { EvmChainConfig, getEvmProvider, getEvmNativeBalance, isValidEvmAddress,
 export const polygonConfig: EvmChainConfig = {
   id: 'polygon',
   label: 'Polygon',
-  rpcUrl: process.env.EXPO_PUBLIC_RPC_POLYGON ?? '',
+  rpcUrl: process.env.EXPO_PUBLIC_RPC_POLYGON || 'https://polygon-rpc.com',
   chainId: 137,
   nativeSymbol: 'POL',
   decimals: 18,
@@ -11,5 +11,5 @@ export const polygonConfig: EvmChainConfig = {
 
 export const getProvider = () => getEvmProvider(polygonConfig);
 export const getBalance = (address: string) => getEvmNativeBalance(polygonConfig, address);
-export const isValidAddress = isValidEvmAddress;
-export const estimateGasFee = () => estimateEvmGasFee(polygonConfig);
+export const isValidAddress = (address: string) => isValidEvmAddress(address);
+export const estimateFee = () => estimateEvmGasFee(polygonConfig);

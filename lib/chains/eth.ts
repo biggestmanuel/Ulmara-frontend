@@ -3,7 +3,7 @@ import { EvmChainConfig, getEvmProvider, getEvmNativeBalance, isValidEvmAddress,
 export const ethConfig: EvmChainConfig = {
   id: 'eth',
   label: 'Ethereum',
-  rpcUrl: process.env.EXPO_PUBLIC_RPC_ETH ?? '',
+  rpcUrl: process.env.EXPO_PUBLIC_RPC_ETH || 'https://cloudflare-eth.com',
   chainId: 1,
   nativeSymbol: 'ETH',
   decimals: 18,
@@ -11,5 +11,5 @@ export const ethConfig: EvmChainConfig = {
 
 export const getProvider = () => getEvmProvider(ethConfig);
 export const getBalance = (address: string) => getEvmNativeBalance(ethConfig, address);
-export const isValidAddress = isValidEvmAddress;
-export const estimateGasFee = () => estimateEvmGasFee(ethConfig);
+export const isValidAddress = (address: string) => isValidEvmAddress(address);
+export const estimateFee = () => estimateEvmGasFee(ethConfig);

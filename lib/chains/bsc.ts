@@ -3,7 +3,7 @@ import { EvmChainConfig, getEvmProvider, getEvmNativeBalance, isValidEvmAddress,
 export const bscConfig: EvmChainConfig = {
   id: 'bsc',
   label: 'BNB Smart Chain',
-  rpcUrl: process.env.EXPO_PUBLIC_RPC_BSC ?? '',
+  rpcUrl: process.env.EXPO_PUBLIC_RPC_BSC || 'https://binance.llamarpc.com',
   chainId: 56,
   nativeSymbol: 'BNB',
   decimals: 18,
@@ -11,5 +11,5 @@ export const bscConfig: EvmChainConfig = {
 
 export const getProvider = () => getEvmProvider(bscConfig);
 export const getBalance = (address: string) => getEvmNativeBalance(bscConfig, address);
-export const isValidAddress = isValidEvmAddress;
-export const estimateGasFee = () => estimateEvmGasFee(bscConfig);
+export const isValidAddress = (address: string) => isValidEvmAddress(address);
+export const estimateFee = () => estimateEvmGasFee(bscConfig);

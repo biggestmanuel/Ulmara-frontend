@@ -1,6 +1,6 @@
-import { TonClient, Address, fromNano } from '@ton/ton';
+import axios from 'axios';
 
-const rpcUrl = process.env.EXPO_PUBLIC_RPC_TON ?? '';
+const rpcUrl = process.env.EXPO_PUBLIC_RPC_TON || 'https://toncenter.com/api/v2/jsonRPC';
 
 export const tonConfig = {
   id: 'ton',
@@ -9,27 +9,24 @@ export const tonConfig = {
   decimals: 9,
 };
 
-let client: TonClient | null = null;
-export function getClient(): TonClient {
-  if (!client) client = new TonClient({ endpoint: rpcUrl });
-  return client;
-}
-
 export async function getBalance(address: string): Promise<string> {
-  const tonClient = getClient();
-  const balance = await tonClient.getBalance(Address.parse(address));
-  return fromNano(balance);
-}
-
-export function isValidAddress(address: string): boolean {
   try {
-    Address.parse(address);
-    return true;
-  } catch {
-    return false;
-  }
-}
+    const response = await axios.post(
+      rpcUrl,
+      {
+        id: 1,
+        jsonrpc: '2.0',
+        method: 'getAddressInformation',
+        params: { address },
+      },
+      { headers: { 'Content-Type': 'application/json' } }
+    );
 
-export async function estimateGasFee(): Promise<string> {
-  return '0.01'; // placeholder flat estimate for a standard wallet transfer
+    const balanceNano = response.data?.result?.balance ?? '0';
+    const tonBalance = Number(balanceNano) / 1e9;
+    return tonBalance.toString();
+  } catch (err) {
+    console.error('[TON] Balance check failed:', err);
+    return '0';
+  }
 }
