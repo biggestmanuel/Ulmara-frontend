@@ -1,29 +1,13 @@
-import { useState } from 'react';
 import { View, Text, StyleSheet, Pressable, Switch, ScrollView } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { router } from 'expo-router';
-
-// TODO: persist via stores/userStore + lib/api/client notification preferences endpoint
-type Prefs = {
-  pushTransactions: boolean;
-  pushSecurity: boolean;
-  pushPriceAlerts: boolean;
-  emailReceipts: boolean;
-  emailProduct: boolean;
-};
-
-const DEFAULT_PREFS: Prefs = {
-  pushTransactions: true,
-  pushSecurity: true,
-  pushPriceAlerts: false,
-  emailReceipts: true,
-  emailProduct: false,
-};
+import { usePreferencesStore, type NotificationPrefs } from '../../stores/preferencesStore';
 
 export default function Notifications() {
-  const [prefs, setPrefs] = useState<Prefs>(DEFAULT_PREFS);
+  const prefs = usePreferencesStore((s) => s.notifications);
+  const setNotification = usePreferencesStore((s) => s.setNotification);
 
-  const toggle = (key: keyof Prefs) => setPrefs((p) => ({ ...p, [key]: !p[key] }));
+  const toggle = (key: keyof NotificationPrefs) => setNotification(key, !prefs[key]);
 
   return (
     <SafeAreaView style={styles.container}>
@@ -58,8 +42,12 @@ export default function Notifications() {
             last
           />
         </View>
+        <Text style={styles.footNote}>
+          Push delivery isn't wired up server-side yet — these choices are saved and will take
+          effect once notification infrastructure ships.
+        </Text>
 
-        <Text style={styles.sectionTitle}>Email</Text>
+        <Text style={[styles.sectionTitle, { marginTop: 8 }]}>Email</Text>
         <View style={styles.card}>
           <ToggleRow
             label="Transaction Receipts"
@@ -109,9 +97,10 @@ const styles = StyleSheet.create({
   headerTitle: { color: '#FFFFFF', fontSize: 17, fontWeight: '700' },
   body: { paddingHorizontal: 20, paddingTop: 12, paddingBottom: 32 },
   sectionTitle: { color: '#9A9AA5', fontSize: 13, fontWeight: '500', marginBottom: 10 },
+  footNote: { color: '#5C5C66', fontSize: 11, marginTop: 8, marginBottom: 24, lineHeight: 16 },
   card: {
     backgroundColor: '#17171D', borderRadius: 14, borderWidth: 1, borderColor: '#26262E',
-    overflow: 'hidden', marginBottom: 24,
+    overflow: 'hidden', marginBottom: 8,
   },
   toggleRow: {
     flexDirection: 'row', alignItems: 'center', paddingHorizontal: 16, paddingVertical: 14,

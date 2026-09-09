@@ -1,35 +1,64 @@
-import { useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { View, Text, TextInput, StyleSheet, Pressable, KeyboardAvoidingView, Platform, ActivityIndicator } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { router } from 'expo-router';
+import { useWalletStore } from '../../stores/walletStore';
+import { getUsdPrices, usdToNgn, type PriceSymbol } from '../../lib/prices/coingecko';
 
-// TODO: replace with hooks/useBalance
-const MOCK_BALANCES: Record<string, number> = { USDT: 420.5, BTC: 0.012, ETH: 0.31, SOL: 4.2, TON: 210 };
-const ASSETS = Object.keys(MOCK_BALANCES) as (keyof typeof MOCK_BALANCES)[];
-const MOCK_RATE_NGN_PER_USDT = 1650;
+const CHAIN_LABELS: Record<string, string> = {
+  eth: 'Ethereum', bsc: 'BSC', base: 'Base', polygon: 'Polygon',
+  sol: 'Solana', tron: 'TRON', ton: 'TON',
+};
 
-// TODO: replace with lib/ramp/bachs.ts withdrawal call
+// TODO: replace with lib/ramp/paystack.ts withdrawal call once that's wired
 function fakeWithdraw(): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, 1200));
 }
 
 export default function Withdraw() {
-  const [asset, setAsset] = useState<(typeof ASSETS)[number]>('USDT');
+  const balances = useWalletStore((s) => s.balances);
+  const isLoadingBalances = useWalletStore((s) => s.isLoadingBalances);
+
+  const [selectedId, setSelectedId] = useState<string | null>(null);
   const [amount, setAmount] = useState('');
   const [bankName, setBankName] = useState('');
   const [accountNumber, setAccountNumber] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [done, setDone] = useState(false);
+  const [prices, setPrices] = useState<Record<PriceSymbol, number>>({} as any);
+  const [loadingRate, setLoadingRate] = useState(false);
 
-  const balance = MOCK_BALANCES[asset];
+  useEffect(() => {
+    if (!selectedId && balances.length > 0) setSelectedId(balances[0].id);
+  }, [balances, selectedId]);
+
+  const selected = useMemo(() => balances.find((b) => b.id === selectedId) ?? null, [balances, selectedId]);
+
+  useEffect(() => {
+    if (!selected) return;
+    setLoadingRate(true);
+    getUsdPrices([selected.symbol as PriceSymbol])
+      .then(setPrices)
+      .catch((err) => console.error('Failed to fetch price:', err))
+      .finally(() => setLoadingRate(false));
+  }, [selected?.symbol]);
+
   const amt = parseFloat(amount) || 0;
-  const estimatedNgn = amt * MOCK_RATE_NGN_PER_USDT;
+  const balanceNum = selected ? parseFloat(selected.balance) || 0 : 0;
+  const usdValue = selected ? amt * (prices[selected.symbol as PriceSymbol] ?? 0) : 0;
+  const [estimatedNgn, setEstimatedNgn] = useState(0);
+
+  useEffect(() => {
+    if (usdValue <= 0) return setEstimatedNgn(0);
+    usdToNgn(usdValue).then(setEstimatedNgn).catch(() => setEstimatedNgn(0));
+  }, [usdValue]);
 
   const handleWithdraw = async () => {
     setError(null);
+    if (!selected) return setError('Select an asset to withdraw');
     if (!amt || amt <= 0) return setError('Enter a valid amount');
-    if (amt > balance) return setError(`Insufficient ${asset} balance`);
+    if (amt > balanceNum) return setError(`Insufficient ${selected.symbol} balance`);
     if (bankName.trim().length < 2) return setError('Enter your bank name');
     if (accountNumber.replace(/\D/g, '').length !== 10) return setError('Enter a valid 10-digit account number');
 
@@ -72,18 +101,28 @@ export default function Withdraw() {
 
         <View style={styles.body}>
           <Text style={styles.label}>From</Text>
-          <View style={styles.chipRow}>
-            {ASSETS.map((a) => (
-              <Pressable
-                key={a}
-                style={[styles.chip, asset === a && styles.chipActive]}
-                onPress={() => setAsset(a)}
-              >
-                <Text style={[styles.chipText, asset === a && styles.chipTextActive]}>{a}</Text>
-              </Pressable>
-            ))}
-          </View>
-          <Text style={styles.balanceText}>Available: {balance} {asset}</Text>
+          {isLoadingBalances ? (
+            <ActivityIndicator color="#6C5CE7" style={{ marginVertical: 12 }} />
+          ) : balances.length === 0 ? (
+            <Text style={styles.balanceText}>No balances found yet</Text>
+          ) : (
+            <View style={styles.chipRow}>
+              {balances.map((b) => (
+                <Pressable
+                  key={b.id}
+                  style={[styles.chip, selectedId === b.id && styles.chipActive]}
+                  onPress={() => setSelectedId(b.id)}
+                >
+                  <Text style={[styles.chipText, selectedId === b.id && styles.chipTextActive]}>
+                    {b.symbol} · {CHAIN_LABELS[b.chainId] ?? b.chainId}
+                  </Text>
+                </Pressable>
+              ))}
+            </View>
+          )}
+          {selected && (
+            <Text style={styles.balanceText}>Available: {selected.balance} {selected.symbol}</Text>
+          )}
 
           <Text style={[styles.label, { marginTop: 20 }]}>Amount</Text>
           <TextInput
@@ -95,7 +134,11 @@ export default function Withdraw() {
             onChangeText={setAmount}
           />
           {amt > 0 && (
-            <Text style={styles.estimate}>≈ ₦{estimatedNgn.toLocaleString('en-NG', { maximumFractionDigits: 0 })}</Text>
+            loadingRate ? (
+              <Text style={styles.estimate}>Fetching live rate…</Text>
+            ) : (
+              <Text style={styles.estimate}>≈ ₦{estimatedNgn.toLocaleString('en-NG', { maximumFractionDigits: 0 })}</Text>
+            )
           )}
 
           <Text style={[styles.label, { marginTop: 20 }]}>Bank Name</Text>

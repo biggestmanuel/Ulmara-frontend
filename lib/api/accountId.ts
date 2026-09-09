@@ -47,7 +47,7 @@ export async function updateSettings(
     photoUrl: string;
     defaultCurrency: string;
     defaultLanguage: string;
-    defaultNetwork: string;
+    defaultNetwork: string | null;
   }>
 ): Promise<any> {
   const { data } = await apiClient.patch<ApiEnvelope<any>>('/api/account/settings', patch);

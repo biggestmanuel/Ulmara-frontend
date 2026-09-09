@@ -1,18 +1,74 @@
-import { useState } from 'react';
-import { View, Text, StyleSheet, Pressable, Switch, ScrollView, Alert } from 'react-native';
+import { useEffect, useState, useCallback } from 'react';
+import {
+  View, Text, StyleSheet, Pressable, Switch, ScrollView, Alert,
+  TextInput, KeyboardAvoidingView, Platform, ActivityIndicator,
+} from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { router } from 'expo-router';
+import * as LocalAuthentication from 'expo-local-authentication';
 
-// TODO: replace with lib/storage/secureStorage + real session list from lib/api/client
-const MOCK_SESSIONS = [
-  { id: '1', device: 'iPhone 14 Pro', location: 'Port Harcourt, NG', current: true },
-  { id: '2', device: 'Chrome on Windows', location: 'Lagos, NG', current: false },
-];
+import { useUserStore } from '../../stores/userStore';
+import { changePin, listSessions, revokeSession, type SessionInfo } from '../../lib/api/auth';
+import type { ApiErrorShape } from '../../lib/api/client';
+
+function formatSessionLabel(s: SessionInfo): string {
+  const ua = s.userAgent ?? '';
+  if (/iphone|ios/i.test(ua)) return 'iPhone';
+  if (/android/i.test(ua)) return 'Android device';
+  if (/chrome/i.test(ua)) return 'Chrome browser';
+  if (/safari/i.test(ua)) return 'Safari browser';
+  return 'Unknown device';
+}
 
 export default function Security() {
-  const [biometrics, setBiometrics] = useState(true);
-  const [twoFactor, setTwoFactor] = useState(false);
-  const [sessions, setSessions] = useState(MOCK_SESSIONS);
+  const biometricEnabled = useUserStore((s) => s.biometricEnabled);
+  const setBiometricEnabled = useUserStore((s) => s.setBiometricEnabled);
+
+  const [sessions, setSessions] = useState<SessionInfo[]>([]);
+  const [loadingSessions, setLoadingSessions] = useState(true);
+  const [changingPin, setChangingPin] = useState(false);
+  const [currentPin, setCurrentPin] = useState('');
+  const [newPin, setNewPin] = useState('');
+  const [pinError, setPinError] = useState<string | null>(null);
+  const [savingPin, setSavingPin] = useState(false);
+
+  const loadSessions = useCallback(async () => {
+    setLoadingSessions(true);
+    try {
+      const data = await listSessions();
+      setSessions(data);
+    } catch (err) {
+      console.error('Failed to load sessions:', err);
+    } finally {
+      setLoadingSessions(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    loadSessions();
+  }, [loadSessions]);
+
+  const handleBiometricToggle = async (value: boolean) => {
+    if (!value) {
+      await setBiometricEnabled(false);
+      return;
+    }
+    const hasHardware = await LocalAuthentication.hasHardwareAsync();
+    const isEnrolled = await LocalAuthentication.isEnrolledAsync();
+    if (!hasHardware || !isEnrolled) {
+      Alert.alert(
+        'Not available',
+        'No Face ID / Fingerprint is set up on this device yet. Set one up in your device settings first.'
+      );
+      return;
+    }
+    const result = await LocalAuthentication.authenticateAsync({
+      promptMessage: 'Confirm to enable biometric unlock',
+    });
+    if (result.success) {
+      await setBiometricEnabled(true);
+    }
+  };
 
   const handleRevoke = (id: string) => {
     Alert.alert('Revoke session', 'End this session on the selected device?', [
@@ -20,9 +76,36 @@ export default function Security() {
       {
         text: 'Revoke',
         style: 'destructive',
-        onPress: () => setSessions((prev) => prev.filter((s) => s.id !== id)),
+        onPress: async () => {
+          try {
+            await revokeSession(id);
+            setSessions((prev) => prev.filter((s) => s.id !== id));
+          } catch (err) {
+            Alert.alert('Error', (err as ApiErrorShape).message ?? 'Could not revoke session');
+          }
+        },
       },
     ]);
+  };
+
+  const handleSavePin = async () => {
+    setPinError(null);
+    if (currentPin.length !== 6) return setPinError('Enter your current 6-digit PIN');
+    if (newPin.length !== 6) return setPinError('Enter a new 6-digit PIN');
+    if (newPin === currentPin) return setPinError('New PIN must be different from current PIN');
+
+    setSavingPin(true);
+    try {
+      await changePin(currentPin, newPin);
+      setChangingPin(false);
+      setCurrentPin('');
+      setNewPin('');
+      Alert.alert('PIN updated', 'Your PIN has been changed successfully.');
+    } catch (err) {
+      setPinError((err as ApiErrorShape).message ?? 'Could not change PIN');
+    } finally {
+      setSavingPin(false);
+    }
   };
 
   return (
@@ -35,58 +118,108 @@ export default function Security() {
         <View style={{ width: 24 }} />
       </View>
 
-      <ScrollView contentContainerStyle={styles.body}>
-        <Pressable style={styles.actionRow} onPress={() => router.push('/(auth)/create-pin')}>
-          <Text style={styles.actionLabel}>Change PIN</Text>
-          <Text style={styles.chevron}>›</Text>
-        </Pressable>
-
-        <View style={styles.card}>
-          <View style={styles.toggleRow}>
-            <View style={{ flex: 1 }}>
-              <Text style={styles.toggleLabel}>Biometric Unlock</Text>
-              <Text style={styles.toggleDesc}>Use Face ID / Fingerprint to open the app</Text>
-            </View>
-            <Switch
-              value={biometrics}
-              onValueChange={setBiometrics}
-              trackColor={{ false: '#26262E', true: '#6C5CE7' }}
-              thumbColor="#FFFFFF"
-            />
-          </View>
-          <View style={[styles.toggleRow, styles.toggleRowLast]}>
-            <View style={{ flex: 1 }}>
-              <Text style={styles.toggleLabel}>Two-Factor Authentication</Text>
-              <Text style={styles.toggleDesc}>Extra verification step for sensitive actions</Text>
-            </View>
-            <Switch
-              value={twoFactor}
-              onValueChange={setTwoFactor}
-              trackColor={{ false: '#26262E', true: '#6C5CE7' }}
-              thumbColor="#FFFFFF"
-            />
-          </View>
-        </View>
-
-        <Text style={styles.sectionTitle}>Active Sessions</Text>
-        <View style={styles.card}>
-          {sessions.map((s, idx) => (
-            <View key={s.id} style={[styles.sessionRow, idx === sessions.length - 1 && styles.toggleRowLast]}>
-              <View style={{ flex: 1 }}>
-                <Text style={styles.toggleLabel}>
-                  {s.device} {s.current ? '(This device)' : ''}
-                </Text>
-                <Text style={styles.toggleDesc}>{s.location}</Text>
+      <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={{ flex: 1 }}>
+        <ScrollView contentContainerStyle={styles.body}>
+          {!changingPin ? (
+            <Pressable style={styles.actionRow} onPress={() => setChangingPin(true)}>
+              <Text style={styles.actionLabel}>Change PIN</Text>
+              <Text style={styles.chevron}>›</Text>
+            </Pressable>
+          ) : (
+            <View style={styles.card}>
+              <View style={styles.pinFieldWrap}>
+                <Text style={styles.pinLabel}>Current PIN</Text>
+                <TextInput
+                  style={styles.pinInput}
+                  value={currentPin}
+                  onChangeText={(v) => setCurrentPin(v.replace(/\D/g, '').slice(0, 6))}
+                  keyboardType="number-pad"
+                  secureTextEntry
+                  maxLength={6}
+                  placeholder="••••••"
+                  placeholderTextColor="#5C5C66"
+                />
               </View>
-              {!s.current && (
-                <Pressable onPress={() => handleRevoke(s.id)}>
-                  <Text style={styles.revokeText}>Revoke</Text>
+              <View style={styles.pinFieldWrap}>
+                <Text style={styles.pinLabel}>New PIN</Text>
+                <TextInput
+                  style={styles.pinInput}
+                  value={newPin}
+                  onChangeText={(v) => setNewPin(v.replace(/\D/g, '').slice(0, 6))}
+                  keyboardType="number-pad"
+                  secureTextEntry
+                  maxLength={6}
+                  placeholder="••••••"
+                  placeholderTextColor="#5C5C66"
+                />
+              </View>
+              {pinError && <Text style={styles.error}>{pinError}</Text>}
+              <View style={styles.pinActionsRow}>
+                <Pressable
+                  style={styles.pinCancelBtn}
+                  onPress={() => { setChangingPin(false); setCurrentPin(''); setNewPin(''); setPinError(null); }}
+                >
+                  <Text style={styles.pinCancelText}>Cancel</Text>
                 </Pressable>
-              )}
+                <Pressable style={styles.pinSaveBtn} onPress={handleSavePin} disabled={savingPin}>
+                  {savingPin ? <ActivityIndicator color="#fff" /> : <Text style={styles.pinSaveText}>Save</Text>}
+                </Pressable>
+              </View>
             </View>
-          ))}
-        </View>
-      </ScrollView>
+          )}
+
+          <View style={styles.card}>
+            <View style={styles.toggleRow}>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.toggleLabel}>Biometric Unlock</Text>
+                <Text style={styles.toggleDesc}>Use Face ID / Fingerprint to open the app</Text>
+              </View>
+              <Switch
+                value={biometricEnabled}
+                onValueChange={handleBiometricToggle}
+                trackColor={{ false: '#26262E', true: '#6C5CE7' }}
+                thumbColor="#FFFFFF"
+              />
+            </View>
+            <View style={[styles.toggleRow, styles.toggleRowLast]}>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.toggleLabel}>Two-Factor Authentication</Text>
+                <Text style={styles.toggleDesc}>Coming soon — not yet available</Text>
+              </View>
+              <Switch value={false} disabled trackColor={{ false: '#26262E', true: '#6C5CE7' }} thumbColor="#5C5C66" />
+            </View>
+          </View>
+
+          <Text style={styles.sectionTitle}>Active Sessions</Text>
+          <View style={styles.card}>
+            {loadingSessions ? (
+              <View style={styles.sessionRow}>
+                <ActivityIndicator color="#6C5CE7" />
+              </View>
+            ) : sessions.length === 0 ? (
+              <View style={styles.sessionRow}>
+                <Text style={styles.toggleDesc}>No active sessions found</Text>
+              </View>
+            ) : (
+              sessions.map((s, idx) => (
+                <View key={s.id} style={[styles.sessionRow, idx === sessions.length - 1 && styles.toggleRowLast]}>
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.toggleLabel}>
+                      {formatSessionLabel(s)} {s.current ? '(This device)' : ''}
+                    </Text>
+                    <Text style={styles.toggleDesc}>{s.ipAddress ?? 'Unknown location'}</Text>
+                  </View>
+                  {!s.current && (
+                    <Pressable onPress={() => handleRevoke(s.id)}>
+                      <Text style={styles.revokeText}>Revoke</Text>
+                    </Pressable>
+                  )}
+                </View>
+              ))
+            )}
+          </View>
+        </ScrollView>
+      </KeyboardAvoidingView>
     </SafeAreaView>
   );
 }
@@ -109,10 +242,27 @@ const styles = StyleSheet.create({
   chevron: { color: '#5C5C66', fontSize: 20 },
   card: {
     backgroundColor: '#17171D', borderRadius: 14, borderWidth: 1, borderColor: '#26262E',
-    overflow: 'hidden', marginBottom: 24,
+    overflow: 'hidden', marginBottom: 24, padding: 16,
   },
+  pinFieldWrap: { marginBottom: 14 },
+  pinLabel: { color: '#9A9AA5', fontSize: 12, marginBottom: 6, fontWeight: '500' },
+  pinInput: {
+    backgroundColor: '#0B0B0F', borderRadius: 10, paddingHorizontal: 14, paddingVertical: 12,
+    color: '#FFFFFF', fontSize: 18, letterSpacing: 4, borderWidth: 1, borderColor: '#26262E',
+  },
+  pinActionsRow: { flexDirection: 'row', gap: 10, marginTop: 4 },
+  pinCancelBtn: {
+    flex: 1, paddingVertical: 12, borderRadius: 10, alignItems: 'center',
+    borderWidth: 1, borderColor: '#26262E',
+  },
+  pinCancelText: { color: '#9A9AA5', fontWeight: '600' },
+  pinSaveBtn: {
+    flex: 1, paddingVertical: 12, borderRadius: 10, alignItems: 'center', backgroundColor: '#6C5CE7',
+  },
+  pinSaveText: { color: '#FFFFFF', fontWeight: '600' },
+  error: { color: '#FF6B6B', fontSize: 13, marginBottom: 8 },
   toggleRow: {
-    flexDirection: 'row', alignItems: 'center', paddingHorizontal: 16, paddingVertical: 14,
+    flexDirection: 'row', alignItems: 'center', paddingVertical: 8,
     borderBottomWidth: 1, borderBottomColor: '#1D1D24',
   },
   toggleRowLast: { borderBottomWidth: 0 },
@@ -120,7 +270,7 @@ const styles = StyleSheet.create({
   toggleDesc: { color: '#9A9AA5', fontSize: 12, marginTop: 3 },
   sectionTitle: { color: '#9A9AA5', fontSize: 13, fontWeight: '500', marginBottom: 10 },
   sessionRow: {
-    flexDirection: 'row', alignItems: 'center', paddingHorizontal: 16, paddingVertical: 14,
+    flexDirection: 'row', alignItems: 'center', paddingVertical: 14,
     borderBottomWidth: 1, borderBottomColor: '#1D1D24',
   },
   revokeText: { color: '#FF6B6B', fontSize: 13, fontWeight: '600' },

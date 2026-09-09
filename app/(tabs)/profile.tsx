@@ -1,9 +1,7 @@
 import { View, Text, StyleSheet, Pressable, ScrollView, Alert } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { router } from 'expo-router';
-
-// TODO: replace with stores/userStore
-const MOCK_USER = { name: 'Manuel', email: 'manuel@example.com', accountId: '4821 093 471' };
+import { useUserStore } from '../../stores/userStore';
 
 const MENU_ITEMS = [
   { label: 'Security', route: '/settings/security' },
@@ -12,14 +10,26 @@ const MENU_ITEMS = [
 ] as const;
 
 export default function Profile() {
+  const accountId = useUserStore((s) => s.accountId);
+  const profile = useUserStore((s) => s.profile);
+  const logout = useUserStore((s) => s.logout);
+
+  const displayName = profile?.name?.trim() || 'Ulmara User';
+  const email = profile?.email ?? '';
+  const initial = displayName.charAt(0).toUpperCase();
+
   const handleLogout = () => {
     Alert.alert('Log out', 'Are you sure you want to log out?', [
       { text: 'Cancel', style: 'cancel' },
       {
         text: 'Log out',
         style: 'destructive',
-        onPress: () => {
-          // TODO: clear stores + secureStorage session, then redirect
+        onPress: async () => {
+          // logout() clears SecureStore (token + account id) and resets
+          // pinVerified — this is what actually ends the session, unlike
+          // a plain navigation which left the token in place and let
+          // _layout.tsx's redirect bounce you straight back in.
+          await logout();
           router.replace('/(auth)/welcome');
         },
       },
@@ -33,17 +43,17 @@ export default function Profile() {
 
         <View style={styles.profileCard}>
           <View style={styles.avatar}>
-            <Text style={styles.avatarText}>{MOCK_USER.name.charAt(0)}</Text>
+            <Text style={styles.avatarText}>{initial}</Text>
           </View>
           <View style={{ flex: 1 }}>
-            <Text style={styles.name}>{MOCK_USER.name}</Text>
-            <Text style={styles.email}>{MOCK_USER.email}</Text>
+            <Text style={styles.name}>{displayName}</Text>
+            {!!email && <Text style={styles.email}>{email}</Text>}
           </View>
         </View>
 
         <View style={styles.idCard}>
           <Text style={styles.idLabel}>Account ID</Text>
-          <Text style={styles.idValue}>{MOCK_USER.accountId}</Text>
+          <Text style={styles.idValue}>{accountId ?? '—'}</Text>
         </View>
 
         <View style={styles.menu}>

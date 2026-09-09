@@ -1,11 +1,19 @@
 import { create } from 'zustand';
 import { getSecureItem, setSecureItem, clearAllSecureItems, SecureStorageKeys } from '../lib/storage/secureStorage';
-import { resolveAccountId, AccountIdProfile } from '../lib/api/accountId';
+import { getMe } from '../lib/api/accountId';
 import { useAuthGateStore } from './authGateStore';
+
+// Own-profile shape from GET /api/account/me — richer than the public
+// AccountIdProfile lookup (which only exposes name/photoUrl for other users).
+export interface OwnProfile {
+  name?: string | null;
+  email?: string;
+  photoUrl?: string | null;
+}
 
 interface UserState {
   accountId: string | null;
-  profile: AccountIdProfile | null;
+  profile: OwnProfile | null;
   biometricEnabled: boolean;
   isHydrated: boolean;
 
@@ -32,9 +40,11 @@ export const useUserStore = create<UserState>((set, get) => ({
       return;
     }
 
-    let profile: AccountIdProfile | null = null;
+    let profile: OwnProfile | null = null;
     try {
-      profile = await resolveAccountId(accountId);
+      // Own profile — includes email, unlike the public account-id lookup.
+      const me = await getMe();
+      profile = { name: me?.name, email: me?.email, photoUrl: me?.photoUrl };
     } catch (err) {
       console.error('Failed to fetch profile during hydrate:', err);
     }

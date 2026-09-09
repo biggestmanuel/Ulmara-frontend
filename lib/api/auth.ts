@@ -77,3 +77,29 @@ export async function verifyPin(pin: string): Promise<{ valid: boolean }> {
   });
   return data.data;
 }
+
+export async function changePin(currentPin: string, newPin: string): Promise<{ success: boolean }> {
+  const { data } = await apiClient.post<ApiEnvelope<{ success: boolean }>>('/api/auth/change-pin', {
+    currentPin,
+    newPin,
+  });
+  return data.data;
+}
+
+export interface SessionInfo {
+  id: string;
+  userAgent?: string | null;
+  ipAddress?: string | null;
+  createdAt: string;
+  current: boolean;
+}
+
+export async function listSessions(): Promise<SessionInfo[]> {
+  const { data } = await apiClient.get<ApiEnvelope<SessionInfo[]>>('/api/auth/sessions');
+  return data.data;
+}
+
+export async function revokeSession(id: string): Promise<{ success: boolean }> {
+  const { data } = await apiClient.delete<ApiEnvelope<{ success: boolean }>>(`/api/auth/sessions/${id}`);
+  return data.data;
+}

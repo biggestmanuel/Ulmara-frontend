@@ -10,6 +10,7 @@ import * as SplashScreen from 'expo-splash-screen';
 import { useUserStore } from '../stores/userStore';
 import { useWalletStore } from '../stores/walletStore';
 import { useAuthGateStore } from '../stores/authGateStore';
+import { usePreferencesStore } from '../stores/preferencesStore';
 
 // Keep splash screen visible while we check auth state
 SplashScreen.preventAutoHideAsync();
@@ -21,11 +22,13 @@ export default function RootLayout() {
   const checkAuthGate = useAuthGateStore((s) => s.check);
   const hydrateUser = useUserStore((s) => s.hydrate);
   const hydrateWallet = useWalletStore((s) => s.hydrate);
+  const hydratePreferences = usePreferencesStore((s) => s.hydrate);
 
   // Run once on mount to establish initial gate status.
   useEffect(() => {
     checkAuthGate().finally(() => SplashScreen.hideAsync());
-  }, [checkAuthGate]);
+    hydratePreferences();
+  }, [checkAuthGate, hydratePreferences]);
 
   // Whenever gate flips to authed, hydrate user + wallet.
   useEffect(() => {
