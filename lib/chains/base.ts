@@ -3,7 +3,7 @@ import { EvmChainConfig, getEvmProvider, getEvmNativeBalance, isValidEvmAddress,
 export const baseConfig: EvmChainConfig = {
   id: 'base',
   label: 'Base',
-  rpcUrl: process.env.EXPO_PUBLIC_RPC_BASE || 'https://mainnet.base.org',
+  rpcUrl: process.env.EXPO_PUBLIC_RPC_BASE || 'https://base-rpc.publicnode.com',
   chainId: 8453,
   nativeSymbol: 'ETH',
   decimals: 18,

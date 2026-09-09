@@ -3,7 +3,7 @@ import { EvmChainConfig, getEvmProvider, getEvmNativeBalance, isValidEvmAddress,
 export const ethConfig: EvmChainConfig = {
   id: 'eth',
   label: 'Ethereum',
-  rpcUrl: process.env.EXPO_PUBLIC_RPC_ETH || 'https://cloudflare-eth.com',
+  rpcUrl: process.env.EXPO_PUBLIC_RPC_ETH || 'https://ethereum-rpc.publicnode.com',
   chainId: 1,
   nativeSymbol: 'ETH',
   decimals: 18,

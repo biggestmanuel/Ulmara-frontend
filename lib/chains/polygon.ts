@@ -3,7 +3,7 @@ import { EvmChainConfig, getEvmProvider, getEvmNativeBalance, isValidEvmAddress,
 export const polygonConfig: EvmChainConfig = {
   id: 'polygon',
   label: 'Polygon',
-  rpcUrl: process.env.EXPO_PUBLIC_RPC_POLYGON || 'https://rpc.ankr.com/polygon',
+  rpcUrl: process.env.EXPO_PUBLIC_RPC_POLYGON || 'https://polygon-bor-rpc.publicnode.com',
   chainId: 137,
   nativeSymbol: 'POL',
   decimals: 18,

@@ -3,7 +3,7 @@ import { EvmChainConfig, getEvmProvider, getEvmNativeBalance, isValidEvmAddress,
 export const bscConfig: EvmChainConfig = {
   id: 'bsc',
   label: 'BNB Smart Chain',
-  rpcUrl: process.env.EXPO_PUBLIC_RPC_BSC || 'https://binance.llamarpc.com',
+  rpcUrl: process.env.EXPO_PUBLIC_RPC_BSC || 'https://bsc-rpc.publicnode.com',
   chainId: 56,
   nativeSymbol: 'BNB',
   decimals: 18,
