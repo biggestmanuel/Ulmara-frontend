@@ -1,34 +1,40 @@
 import { View, Text, StyleSheet, Pressable, ScrollView, Alert } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { router } from 'expo-router';
+import * as Clipboard from 'expo-clipboard';
+
 import { useUserStore } from '../../stores/userStore';
+import { useThemeStore } from '../../lib/theme';
 
-const MENU_ITEMS = [
-  { label: 'Security', route: '/settings/security' },
-  { label: 'Notifications', route: '/settings/notifications' },
-  { label: 'Preferences', route: '/settings/preferences' },
-] as const;
+function formatAccountId(id?: string | null): string {
+  if (!id) return '---- --- ---';
+  return id.replace(/(\d{4})(\d{3})(\d{3})/, '$1 $2 $3');
+}
 
-export default function Profile() {
+export default function ProfileScreen() {
+  const { colors, isDark } = useThemeStore();
   const accountId = useUserStore((s) => s.accountId);
   const profile = useUserStore((s) => s.profile);
   const logout = useUserStore((s) => s.logout);
 
-  const displayName = profile?.name?.trim() || 'Ulmara User';
-  const email = profile?.email ?? '';
+  const displayName = profile?.name?.trim() || 'Biggest Manuel';
+  const email = profile?.email || 'user@ulmara.io';
   const initial = displayName.charAt(0).toUpperCase();
 
+  const handleCopyId = async () => {
+    if (accountId) {
+      await Clipboard.setStringAsync(accountId);
+      Alert.alert('Copied', 'Account ID copied to clipboard');
+    }
+  };
+
   const handleLogout = () => {
-    Alert.alert('Log out', 'Are you sure you want to log out?', [
+    Alert.alert('Log Out', 'Are you sure you want to log out of Ulmara?', [
       { text: 'Cancel', style: 'cancel' },
       {
-        text: 'Log out',
+        text: 'Log Out',
         style: 'destructive',
         onPress: async () => {
-          // logout() clears SecureStore (token + account id) and resets
-          // pinVerified — this is what actually ends the session, unlike
-          // a plain navigation which left the token in place and let
-          // _layout.tsx's redirect bounce you straight back in.
           await logout();
           router.replace('/(auth)/welcome');
         },
@@ -37,40 +43,49 @@ export default function Profile() {
   };
 
   return (
-    <SafeAreaView style={styles.container}>
+    <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]}>
       <ScrollView contentContainerStyle={styles.scroll}>
-        <Text style={styles.title}>Profile</Text>
+        <Text style={[styles.screenHeading, { color: colors.textPrimary }]}>Profile</Text>
 
-        <View style={styles.profileCard}>
-          <View style={styles.avatar}>
-            <Text style={styles.avatarText}>{initial}</Text>
+        {/* User Card */}
+        <View style={[styles.profileCard, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+          <View style={[styles.avatarBig, { backgroundColor: colors.primary }]}>
+            <Text style={styles.avatarBigText}>{initial}</Text>
           </View>
-          <View style={{ flex: 1 }}>
-            <Text style={styles.name}>{displayName}</Text>
-            {!!email && <Text style={styles.email}>{email}</Text>}
-          </View>
+          <Text style={[styles.profileName, { color: colors.textPrimary }]}>{displayName}</Text>
+          <Text style={[styles.profileEmail, { color: colors.textMuted }]}>{email}</Text>
+
+          {/* Account ID Pill */}
+          <Pressable
+            style={[styles.idCardPill, { backgroundColor: isDark ? colors.surfaceElevated : colors.primaryLight }]}
+            onPress={handleCopyId}
+          >
+            <Text style={[styles.idCardPillText, { color: colors.primary }]}>
+              ID: {formatAccountId(accountId)} ❐
+            </Text>
+          </Pressable>
         </View>
 
-        <View style={styles.idCard}>
-          <Text style={styles.idLabel}>Account ID</Text>
-          <Text style={styles.idValue}>{accountId ?? '—'}</Text>
+        {/* Menu Items */}
+        <View style={[styles.menuCard, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+          <Pressable
+            style={styles.menuRow}
+            onPress={() => router.push('/settings' as any)}
+          >
+            <View style={styles.menuLeft}>
+              <Text style={{ fontSize: 18 }}>⚙️</Text>
+              <Text style={[styles.menuLabel, { color: colors.textPrimary }]}>Settings</Text>
+            </View>
+            <Text style={[styles.arrow, { color: colors.textMuted }]}>→</Text>
+          </Pressable>
         </View>
 
-        <View style={styles.menu}>
-          {MENU_ITEMS.map((item) => (
-            <Pressable
-              key={item.label}
-              style={styles.menuRow}
-              onPress={() => router.push(item.route as any)}
-            >
-              <Text style={styles.menuLabel}>{item.label}</Text>
-              <Text style={styles.chevron}>›</Text>
-            </Pressable>
-          ))}
-        </View>
-
-        <Pressable style={styles.logoutBtn} onPress={handleLogout}>
-          <Text style={styles.logoutText}>Log Out</Text>
+        {/* Log out */}
+        <Pressable
+          style={[styles.logoutBtn, { borderColor: colors.error }]}
+          onPress={handleLogout}
+        >
+          <Text style={[styles.logoutText, { color: colors.error }]}>Log Out</Text>
         </Pressable>
       </ScrollView>
     </SafeAreaView>
@@ -78,40 +93,51 @@ export default function Profile() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#0B0B0F' },
-  scroll: { paddingHorizontal: 20, paddingTop: 12, paddingBottom: 32 },
-  title: { fontSize: 24, fontWeight: '700', color: '#FFFFFF', marginBottom: 20 },
+  container: { flex: 1 },
+  scroll: { paddingHorizontal: 18, paddingVertical: 20 },
+  screenHeading: { fontSize: 24, fontWeight: '800', marginBottom: 18 },
   profileCard: {
-    flexDirection: 'row', alignItems: 'center', gap: 14,
-    backgroundColor: '#17171D', borderRadius: 16, borderWidth: 1, borderColor: '#26262E',
-    padding: 18, marginBottom: 16,
+    borderRadius: 24,
+    borderWidth: 1,
+    padding: 24,
+    alignItems: 'center',
+    marginBottom: 20,
   },
-  avatar: {
-    width: 52, height: 52, borderRadius: 26, backgroundColor: '#6C5CE7',
-    alignItems: 'center', justifyContent: 'center',
+  avatarBig: {
+    width: 72,
+    height: 72,
+    borderRadius: 36,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 12,
   },
-  avatarText: { color: '#FFFFFF', fontWeight: '700', fontSize: 20 },
-  name: { color: '#FFFFFF', fontSize: 17, fontWeight: '700' },
-  email: { color: '#9A9AA5', fontSize: 13, marginTop: 2 },
-  idCard: {
-    backgroundColor: '#17171D', borderRadius: 16, borderWidth: 1, borderColor: '#26262E',
-    padding: 18, marginBottom: 24,
+  avatarBigText: { color: '#FFFFFF', fontSize: 28, fontWeight: '800' },
+  profileName: { fontSize: 18, fontWeight: '800' },
+  profileEmail: { fontSize: 13, marginTop: 4 },
+  idCardPill: {
+    paddingHorizontal: 14,
+    paddingVertical: 6,
+    borderRadius: 12,
+    marginTop: 14,
   },
-  idLabel: { color: '#9A9AA5', fontSize: 12, fontWeight: '500' },
-  idValue: { color: '#FFFFFF', fontSize: 18, fontWeight: '700', marginTop: 4, letterSpacing: 0.5 },
-  menu: {
-    backgroundColor: '#17171D', borderRadius: 16, borderWidth: 1, borderColor: '#26262E',
-    marginBottom: 24, overflow: 'hidden',
-  },
+  idCardPillText: { fontSize: 13, fontWeight: '800', letterSpacing: 0.5 },
+  menuCard: { borderRadius: 20, borderWidth: 1, overflow: 'hidden', marginBottom: 20 },
   menuRow: {
-    flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
-    paddingHorizontal: 18, paddingVertical: 16, borderBottomWidth: 1, borderBottomColor: '#1D1D24',
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: 18,
+    paddingVertical: 18,
   },
-  menuLabel: { color: '#FFFFFF', fontSize: 15, fontWeight: '500' },
-  chevron: { color: '#5C5C66', fontSize: 20 },
+  menuLeft: { flexDirection: 'row', alignItems: 'center', gap: 14 },
+  menuLabel: { fontSize: 15, fontWeight: '700' },
+  arrow: { fontSize: 16, fontWeight: '700' },
   logoutBtn: {
-    borderRadius: 14, paddingVertical: 16, alignItems: 'center',
-    borderWidth: 1, borderColor: '#3A2020', backgroundColor: '#1A1212',
+    paddingVertical: 16,
+    borderRadius: 16,
+    borderWidth: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
-  logoutText: { color: '#FF6B6B', fontSize: 15, fontWeight: '600' },
+  logoutText: { fontSize: 15, fontWeight: '800' },
 });

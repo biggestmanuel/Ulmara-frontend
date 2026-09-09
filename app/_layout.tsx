@@ -11,6 +11,7 @@ import { useUserStore } from '../stores/userStore';
 import { useWalletStore } from '../stores/walletStore';
 import { useAuthGateStore } from '../stores/authGateStore';
 import { usePreferencesStore } from '../stores/preferencesStore';
+import { useThemeStore } from '../lib/theme';
 
 // Keep splash screen visible while we check auth state
 SplashScreen.preventAutoHideAsync();
@@ -23,12 +24,14 @@ export default function RootLayout() {
   const hydrateUser = useUserStore((s) => s.hydrate);
   const hydrateWallet = useWalletStore((s) => s.hydrate);
   const hydratePreferences = usePreferencesStore((s) => s.hydrate);
+  const hydrateTheme = useThemeStore((s) => s.hydrateTheme);
 
-  // Run once on mount to establish initial gate status.
+  // Run once on mount to establish initial gate status and load preferences + theme.
   useEffect(() => {
     checkAuthGate().finally(() => SplashScreen.hideAsync());
     hydratePreferences();
-  }, [checkAuthGate, hydratePreferences]);
+    hydrateTheme();
+  }, [checkAuthGate, hydratePreferences, hydrateTheme]);
 
   // Whenever gate flips to authed, hydrate user + wallet.
   useEffect(() => {
@@ -61,4 +64,4 @@ export default function RootLayout() {
       </SafeAreaProvider>
     </GestureHandlerRootView>
   );
-}
+} 

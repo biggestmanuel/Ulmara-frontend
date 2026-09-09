@@ -3,23 +3,25 @@ import { View, Text, StyleSheet, Pressable, ScrollView, ActivityIndicator } from
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { router } from 'expo-router';
 import { getMe, updateSettings } from '../../lib/api/accountId';
+import { useThemeStore, ThemeMode } from '../../lib/theme';
+
+const THEME_OPTIONS: { label: string; value: ThemeMode }[] = [
+  { label: 'Dark Mode', value: 'dark' },
+  { label: 'Light Mode', value: 'light' },
+  { label: 'System Default', value: 'system' },
+];
 
 const CURRENCIES = ['USD', 'NGN', 'EUR', 'GBP'] as const;
 const LANGUAGES = [
   { label: 'English', code: 'en' },
   { label: 'French', code: 'fr' },
-  { label: 'Portuguese', code: 'pt' },
+  { label: 'Spanish', code: 'es' },
 ] as const;
-const NETWORKS = ['AUTO', 'TON', 'BSC', 'ETH', 'SOL', 'BASE', 'POLYGON', 'TRON'] as const;
-const NETWORK_LABELS: Record<(typeof NETWORKS)[number], string> = {
-  AUTO: 'Auto (Recommended)', TON: 'TON', BSC: 'BSC', ETH: 'ETH',
-  SOL: 'SOL', BASE: 'Base', POLYGON: 'Polygon', TRON: 'TRON',
-};
 
 export default function Preferences() {
+  const { colors, mode, setMode } = useThemeStore();
   const [currency, setCurrency] = useState<(typeof CURRENCIES)[number]>('USD');
   const [languageCode, setLanguageCode] = useState('en');
-  const [defaultNetwork, setDefaultNetworkState] = useState<(typeof NETWORKS)[number]>('AUTO');
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
 
@@ -27,9 +29,8 @@ export default function Preferences() {
     (async () => {
       try {
         const me = await getMe();
-        if (me.defaultCurrency) setCurrency(me.defaultCurrency);
+        if (me.defaultCurrency) setCurrency(me.defaultCurrency as any);
         if (me.defaultLanguage) setLanguageCode(me.defaultLanguage);
-        if (me.defaultNetwork) setDefaultNetworkState(me.defaultNetwork);
       } catch (err) {
         console.error('Failed to load preferences:', err);
       } finally {
@@ -38,74 +39,92 @@ export default function Preferences() {
     })();
   }, []);
 
-  const save = async (patch: Partial<{ defaultCurrency: string; defaultLanguage: string; defaultNetwork: string | null }>) => {
+  const save = async (patch: any) => {
     setSaving(true);
     try {
       await updateSettings(patch);
     } catch (err) {
-      console.error('Failed to save preference:', err);
+      console.error('Failed to save preferences:', err);
     } finally {
       setSaving(false);
     }
   };
 
-  if (loading) {
-    return (
-      <SafeAreaView style={[styles.container, styles.centered]}>
-        <ActivityIndicator color="#6C5CE7" />
-      </SafeAreaView>
-    );
-  }
-
   return (
-    <SafeAreaView style={styles.container}>
-      <View style={styles.header}>
-        <Pressable onPress={() => router.back()}>
-          <Text style={styles.back}>‹</Text>
+    <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]}>
+      <View style={[styles.header, { borderBottomColor: colors.textMuted }]}>
+        <Pressable onPress={() => router.back()} style={styles.backBtn} hitSlop={10}>
+          <Text style={[styles.backText, { color: colors.textMuted }]}>← Back</Text>
         </Pressable>
-        <Text style={styles.headerTitle}>Preferences</Text>
-        {saving ? <ActivityIndicator color="#6C5CE7" /> : <View style={{ width: 24 }} />}
+        <Text style={[styles.headerTitle, { color: colors.primary }]}>Preferences</Text>
+        <View style={{ width: 50 }}>{saving && <ActivityIndicator size="small" color={colors.primary} />}</View>
       </View>
 
-      <ScrollView contentContainerStyle={styles.body}>
-        <Text style={styles.sectionTitle}>Display Currency</Text>
-        <View style={styles.chipRow}>
-          {CURRENCIES.map((c) => (
+      <ScrollView contentContainerStyle={styles.scroll}>
+        {/* Appearance / Theme */}
+        <Text style={[styles.sectionTitle, { color: colors.textMuted }]}>APPEARANCE</Text>
+        <View style={[styles.card, { backgroundColor: colors.background, borderColor: colors.textMuted }]}>
+          {THEME_OPTIONS.map((opt, idx) => (
             <Pressable
-              key={c}
-              style={[styles.chip, currency === c && styles.chipActive]}
-              onPress={() => { setCurrency(c); save({ defaultCurrency: c }); }}
+              key={opt.value}
+              style={[
+                styles.optionRow,
+                idx < THEME_OPTIONS.length - 1 && { borderBottomWidth: 1, borderBottomColor: colors.textMuted },
+              ]}
+              onPress={() => setMode(opt.value)}
             >
-              <Text style={[styles.chipText, currency === c && styles.chipTextActive]}>{c}</Text>
+              <Text style={[styles.optionText, { color: colors.primary }]}>{opt.label}</Text>
+              <View style={[styles.radio, { borderColor: colors.primary }]}>
+                {mode === opt.value && <View style={[styles.radioFill, { backgroundColor: colors.primary }]} />}
+              </View>
             </Pressable>
           ))}
         </View>
 
-        <Text style={[styles.sectionTitle, { marginTop: 28 }]}>Language</Text>
-        <View style={styles.card}>
-          {LANGUAGES.map((l, idx) => (
+        {/* Currency */}
+        <Text style={[styles.sectionTitle, { color: colors.textMuted }]}>DEFAULT CURRENCY</Text>
+        <View style={[styles.card, { backgroundColor: colors.background, borderColor: colors.textMuted }]}>
+          {CURRENCIES.map((curr, idx) => (
             <Pressable
-              key={l.code}
-              style={[styles.optionRow, idx === LANGUAGES.length - 1 && styles.optionRowLast]}
-              onPress={() => { setLanguageCode(l.code); save({ defaultLanguage: l.code }); }}
+              key={curr}
+              style={[
+                styles.optionRow,
+                idx < CURRENCIES.length - 1 && { borderBottomWidth: 1, borderBottomColor: colors.textMuted },
+              ]}
+              onPress={() => {
+                setCurrency(curr);
+                save({ defaultCurrency: curr });
+              }}
             >
-              <Text style={styles.optionLabel}>{l.label}</Text>
-              {languageCode === l.code && <Text style={styles.checkmark}>✓</Text>}
+              <Text style={[styles.optionText, { color: colors.primary }]}>{curr}</Text>
+              <View style={[styles.radio, { borderColor: colors.primary }]}>
+                {currency === curr && <View style={[styles.radioFill, { backgroundColor: colors.primary }]} />}
+              </View>
             </Pressable>
           ))}
         </View>
 
-        <Text style={[styles.sectionTitle, { marginTop: 28 }]}>Default Network</Text>
-        <Text style={styles.helperText}>Used as the starting choice when sending crypto</Text>
-        <View style={styles.card}>
-          {NETWORKS.map((n, idx) => (
+        {/* Language */}
+        <Text style={[styles.sectionTitle, { color: colors.textMuted }]}>LANGUAGE</Text>
+        <View style={[styles.card, { backgroundColor: colors.background, borderColor: colors.textMuted }]}>
+          {LANGUAGES.map((lang, idx) => (
             <Pressable
-              key={n}
-              style={[styles.optionRow, idx === NETWORKS.length - 1 && styles.optionRowLast]}
-              onPress={() => { setDefaultNetworkState(n); save({ defaultNetwork: n === 'AUTO' ? null : n }); }}
+              key={lang.code}
+              style={[
+                styles.optionRow,
+                idx < LANGUAGES.length - 1 && { borderBottomWidth: 1, borderBottomColor: colors.textMuted },
+              ]}
+              onPress={() => {
+                setLanguageCode(lang.code);
+                save({ defaultLanguage: lang.code });
+              }}
             >
-              <Text style={styles.optionLabel}>{NETWORK_LABELS[n]}</Text>
-              {defaultNetwork === n && <Text style={styles.checkmark}>✓</Text>}
+              <Text style={[styles.optionText, { color: colors.primary }]}>{lang.label}</Text>
+              <View style={[styles.radio, { borderColor: colors.primary }]}>
+                {languageCode === lang.code && (
+                  <View style={[styles.radioFill, { backgroundColor: colors.primary }]} />
+                )}
+              </View>
             </Pressable>
           ))}
         </View>
@@ -115,34 +134,36 @@ export default function Preferences() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#0B0B0F' },
-  centered: { alignItems: 'center', justifyContent: 'center' },
+  container: { flex: 1 },
   header: {
-    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
-    paddingHorizontal: 20, paddingTop: 12, paddingBottom: 8,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 20,
+    paddingVertical: 16,
+    borderBottomWidth: 1,
   },
-  back: { color: '#FFFFFF', fontSize: 28 },
-  headerTitle: { color: '#FFFFFF', fontSize: 17, fontWeight: '700' },
-  body: { paddingHorizontal: 20, paddingTop: 12, paddingBottom: 32 },
-  sectionTitle: { color: '#9A9AA5', fontSize: 13, fontWeight: '500', marginBottom: 10 },
-  helperText: { color: '#5C5C66', fontSize: 12, marginBottom: 10, marginTop: -4 },
-  chipRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
-  chip: {
-    paddingHorizontal: 16, paddingVertical: 10, borderRadius: 20,
-    backgroundColor: '#17171D', borderWidth: 1, borderColor: '#26262E',
-  },
-  chipActive: { backgroundColor: '#6C5CE7', borderColor: '#6C5CE7' },
-  chipText: { color: '#9A9AA5', fontSize: 14, fontWeight: '600' },
-  chipTextActive: { color: '#FFFFFF' },
-  card: {
-    backgroundColor: '#17171D', borderRadius: 14, borderWidth: 1, borderColor: '#26262E',
-    overflow: 'hidden',
-  },
+  backBtn: { width: 60 },
+  backText: { fontSize: 16, fontWeight: '600' },
+  headerTitle: { fontSize: 17, fontWeight: '700' },
+  scroll: { padding: 20 },
+  sectionTitle: { fontSize: 12, fontWeight: '700', letterSpacing: 1, marginBottom: 10, marginTop: 16 },
+  card: { borderRadius: 16, borderWidth: 1, overflow: 'hidden' },
   optionRow: {
-    flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
-    paddingHorizontal: 16, paddingVertical: 14, borderBottomWidth: 1, borderBottomColor: '#1D1D24',
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingVertical: 16,
+    paddingHorizontal: 18,
   },
-  optionRowLast: { borderBottomWidth: 0 },
-  optionLabel: { color: '#FFFFFF', fontSize: 14, fontWeight: '600' },
-  checkmark: { color: '#8C7AFF', fontSize: 16, fontWeight: '700' },
+  optionText: { fontSize: 15, fontWeight: '600' },
+  radio: {
+    width: 20,
+    height: 20,
+    borderRadius: 10,
+    borderWidth: 2,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  radioFill: { width: 10, height: 10, borderRadius: 5 },
 });
