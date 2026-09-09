@@ -1,17 +1,12 @@
-/**
- * DESTINATION: lib/registerWallets.ts (new file)
- *
- * Orchestrates the non-custodial onboarding flow:
- *  1. Generate keys/mnemonics for all 7 chains (client-side only)
- *  2. Persist mnemonics in expo-secure-store (never sent over the wire)
- *  3. Register only public addresses with the backend (mapped to its
- *     uppercase Chain enum: eth->ETH, bsc->BSC, base->BASE, polygon->POLYGON,
- *     tron->TRON, sol->SOL, ton->TON)
- *  4. Hydrate walletStore with the confirmed addresses
- */
-
 import { apiClient } from './api/client';
-import { saveEvmMnemonic, saveSolMnemonic, saveTonMnemonic } from './storage/secureStorage';
+import { 
+  saveEvmMnemonic, 
+  saveSolMnemonic, 
+  saveTonMnemonic,
+  getEvmMnemonic,
+  getSolMnemonic,
+  getTonMnemonic 
+} from './storage/secureStorage';
 import { useWalletStore } from '../stores/walletStore';
 import type { ChainId } from '../types/chain';
 
@@ -30,28 +25,26 @@ export interface RegisterWalletsResult {
   addresses: { chain: ChainId; address: string }[];
 }
 
-/**
- * Call once, immediately after account creation (post create-account-id step).
- * Idempotent on the backend: registerWallets upserts, so a retry after a
- * partial failure is safe as long as the SAME mnemonics are reused — do not
- * call generateWallet() again if secrets are already in secureStorage.
- */
+// In-memory cache so retries don't regenerate keys
+let inMemoryWallet: any = null;
+
 export async function setupNonCustodialWallet(): Promise<RegisterWalletsResult> {
-  // Dynamic import: keyGeneration.ts pulls in @ton/ton, @ton/crypto, and
-  // tronweb, which crash if evaluated eagerly at module-load time in
-  // Hermes/RN (same failure mode as lib/chains/index.ts). Loading it lazily
-  // here means it only runs once this function is actually invoked.
   const { generateWallet, toPublicAddresses } = await import('./keyGeneration');
-  const wallet = await generateWallet();
 
-  // 1. Persist secrets locally FIRST. If this fails, abort before hitting
-  // the network — we never want addresses registered without a
-  // corresponding locally-recoverable secret.
-  await saveEvmMnemonic(wallet.evmMnemonic); // covers eth/bsc/base/polygon/tron
-  await saveSolMnemonic(wallet.solMnemonic);
-  await saveTonMnemonic(wallet.tonMnemonic);
+  // Check in-memory cache first to avoid re-running slow math on retry
+  let wallet = inMemoryWallet;
+  
+  if (!wallet) {
+    wallet = await generateWallet();
+    inMemoryWallet = wallet;
 
-  // 2. Register only public addresses, mapped to backend's Chain enum casing.
+    // 1. Persist secrets locally
+    await saveEvmMnemonic(wallet.evmMnemonic);
+    await saveSolMnemonic(wallet.solMnemonic);
+    await saveTonMnemonic(wallet.tonMnemonic);
+  }
+
+  // 2. Register only public addresses
   const addresses = toPublicAddresses(wallet);
   const payload = addresses.map(({ chain, address }) => ({
     chain: CHAIN_ID_TO_BACKEND[chain],
@@ -59,10 +52,11 @@ export async function setupNonCustodialWallet(): Promise<RegisterWalletsResult> 
   }));
 
   await apiClient.post('/api/wallet/register', { addresses: payload });
-  // apiClient's response interceptor (lib/api/client.ts) rejects non-2xx
-  // responses into a normalized ApiErrorShape, so reaching this line means success.
 
-  // 3. Hydrate local wallet state so balances/addresses screens work immediately.
+  // Clear in-memory cache once successfully registered
+  inMemoryWallet = null;
+
+  // 3. Hydrate local wallet state
   for (const { chain, address } of addresses) {
     useWalletStore.getState().setAddress(chain, address);
   }
