@@ -17,7 +17,6 @@ import * as MediaLibrary from 'expo-media-library';
 
 import { useTxStore } from '../../stores/txStore';
 import { useUserStore } from '../../stores/userStore';
-import { useThemeStore, ThemeColors } from '../../lib/theme';
 import { fetchTransactionById, Transaction } from '../../lib/api/transactions';
 import { ReceiptCard, ReceiptData } from '../../components/transaction/ReceiptCard';
 
@@ -33,8 +32,6 @@ export default function TransactionDetailScreen() {
 
   // 1. User Store
   const { accountId, profile } = useUserStore();
-  const { colors } = useThemeStore();
-  const styles = getStyles(colors);
 
   // 2. Tx Store
   const { items, isLoading, fetchInitial } = useTxStore();
@@ -138,7 +135,7 @@ export default function TransactionDetailScreen() {
   if ((isLoading || loadingDirect) && !tx) {
     return (
       <View style={styles.centerContainer}>
-        <ActivityIndicator size="large" color={colors.primary} />
+        <ActivityIndicator size="large" color="#F0784B" />
         <Text style={styles.loadingText}>Loading receipt...</Text>
       </View>
     );
@@ -148,7 +145,7 @@ export default function TransactionDetailScreen() {
   if (!tx) {
     return (
       <View style={styles.centerContainer}>
-        <Ionicons name="alert-circle-outline" size={48} color={colors.error} />
+        <Ionicons name="alert-circle-outline" size={48} color="#EF4444" />
         <Text style={styles.errorTitle}>Transaction Not Found</Text>
         <Text style={styles.errorSub}>The transaction reference could not be found.</Text>
         <TouchableOpacity style={styles.backButton} onPress={() => router.back()}>
@@ -197,7 +194,7 @@ export default function TransactionDetailScreen() {
           style={styles.circleBtn}
           accessibilityLabel="Go back"
         >
-          <Ionicons name="chevron-back" size={22} color={colors.textPrimary} />
+          <Ionicons name="chevron-back" size={22} color="#FFFFFF" />
         </TouchableOpacity>
         <Text style={styles.screenTitle}>Transaction Details</Text>
         <TouchableOpacity
@@ -205,7 +202,7 @@ export default function TransactionDetailScreen() {
           style={styles.circleBtn}
           accessibilityLabel="Copy Transaction ID"
         >
-          <Ionicons name="copy-outline" size={18} color={colors.textPrimary} />
+          <Ionicons name="copy-outline" size={18} color="#FFFFFF" />
         </TouchableOpacity>
       </View>
 
@@ -225,10 +222,10 @@ export default function TransactionDetailScreen() {
             disabled={sharing || saving}
           >
             {sharing ? (
-              <ActivityIndicator color="#FFFFFF" size="small" />
+              <ActivityIndicator color="#000000" size="small" />
             ) : (
               <>
-                <Ionicons name="share-social" size={18} color="#FFFFFF" />
+                <Ionicons name="share-social" size={18} color="#000000" />
                 <Text style={styles.shareBtnText}>Share Receipt</Text>
               </>
             )}
@@ -262,33 +259,32 @@ export default function TransactionDetailScreen() {
   );
 }
 
-function getStyles(colors: ThemeColors) {
-  return StyleSheet.create({
+const styles = StyleSheet.create({
   screen: {
     flex: 1,
-    backgroundColor: colors.background,
+    backgroundColor: '#000000',
   },
   centerContainer: {
     flex: 1,
-    backgroundColor: colors.background,
+    backgroundColor: '#000000',
     alignItems: 'center',
     justifyContent: 'center',
     padding: 24,
   },
   loadingText: {
-    color: colors.textSecondary,
+    color: 'rgba(255, 255, 255, 0.6)',
     marginTop: 12,
     fontSize: 14,
   },
   errorTitle: {
-    color: colors.textPrimary,
+    color: '#FFFFFF',
     fontSize: 18,
     fontWeight: '700',
     marginTop: 16,
     marginBottom: 6,
   },
   errorSub: {
-    color: colors.textSecondary,
+    color: 'rgba(255, 255, 255, 0.5)',
     fontSize: 13,
     textAlign: 'center',
     marginBottom: 20,
@@ -296,11 +292,11 @@ function getStyles(colors: ThemeColors) {
   backButton: {
     paddingHorizontal: 20,
     paddingVertical: 10,
-    backgroundColor: colors.surfaceElevated,
+    backgroundColor: 'rgba(255, 255, 255, 0.1)',
     borderRadius: 12,
   },
   backButtonText: {
-    color: colors.textPrimary,
+    color: '#FFFFFF',
     fontWeight: '600',
   },
   topBar: {
@@ -310,18 +306,18 @@ function getStyles(colors: ThemeColors) {
     paddingHorizontal: 20,
     paddingTop: 56,
     paddingBottom: 16,
-    backgroundColor: colors.background,
+    backgroundColor: '#000000',
   },
   circleBtn: {
     width: 40,
     height: 40,
     borderRadius: 20,
-    backgroundColor: colors.surfaceElevated,
+    backgroundColor: 'rgba(255, 255, 255, 0.08)',
     alignItems: 'center',
     justifyContent: 'center',
   },
   screenTitle: {
-    color: colors.textPrimary,
+    color: '#FFFFFF',
     fontSize: 16,
     fontWeight: '700',
     letterSpacing: 0.3,
@@ -347,12 +343,12 @@ function getStyles(colors: ThemeColors) {
     alignItems: 'center',
     justifyContent: 'center',
     gap: 8,
-    backgroundColor: colors.primary,
+    backgroundColor: '#F0784B',
     paddingVertical: 14,
     borderRadius: 14,
   },
   shareBtnText: {
-    color: '#FFFFFF',
+    color: '#000000',
     fontWeight: '800',
     fontSize: 14,
   },
@@ -362,14 +358,14 @@ function getStyles(colors: ThemeColors) {
     alignItems: 'center',
     justifyContent: 'center',
     gap: 8,
-    backgroundColor: colors.surfaceElevated,
+    backgroundColor: 'rgba(255, 255, 255, 0.08)',
     paddingVertical: 14,
     borderRadius: 14,
     borderWidth: 1,
-    borderColor: colors.border,
+    borderColor: 'rgba(255, 255, 255, 0.12)',
   },
   downloadBtnText: {
-    color: colors.textPrimary,
+    color: '#FFFFFF',
     fontWeight: '700',
     fontSize: 14,
   },
@@ -381,9 +377,8 @@ function getStyles(colors: ThemeColors) {
     paddingVertical: 8,
   },
   supportText: {
-    color: colors.textMuted,
+    color: 'rgba(255, 255, 255, 0.45)',
     fontSize: 12,
     fontWeight: '500',
   },
-  });
-}
+});
