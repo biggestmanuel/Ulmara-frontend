@@ -97,7 +97,7 @@ export const ReceiptCard: React.FC<Props> = ({ data, style }) => {
         <View style={styles.flowBridge}>
           <View style={styles.bridgeLine} />
           <View style={styles.bridgeIcon}>
-            <Ionicons name="arrow-forward" size={14} color="#F0784B" />
+            <Ionicons name="arrow-forward" size={14} color="#14B8A6" />
           </View>
           <View style={styles.bridgeLine} />
         </View>
@@ -177,10 +177,10 @@ const styles = StyleSheet.create({
     backgroundColor: '#0A0A0E',
     borderRadius: 20,
     borderWidth: 1,
-    borderColor: 'rgba(240, 120, 75, 0.35)',
+    borderColor: 'rgba(20, 184, 166, 0.35)',
     padding: 22,
     width: '100%',
-    shadowColor: '#F0784B',
+    shadowColor: '#14B8A6',
     shadowOffset: { width: 0, height: 8 },
     shadowOpacity: 0.18,
     shadowRadius: 18,
@@ -194,7 +194,7 @@ const styles = StyleSheet.create({
     left: 0,
     right: 0,
     height: 3,
-    backgroundColor: '#F0784B',
+    backgroundColor: '#14B8A6',
   },
   header: {
     flexDirection: 'row',
@@ -211,7 +211,7 @@ const styles = StyleSheet.create({
     width: 32,
     height: 32,
     borderRadius: 8,
-    backgroundColor: '#F0784B',
+    backgroundColor: '#14B8A6',
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -266,16 +266,16 @@ const styles = StyleSheet.create({
   networkPill: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: 'rgba(240, 120, 75, 0.12)',
+    backgroundColor: 'rgba(20, 184, 166, 0.12)',
     paddingHorizontal: 12,
     paddingVertical: 4,
     borderRadius: 8,
     marginTop: 8,
     borderWidth: 1,
-    borderColor: 'rgba(240, 120, 75, 0.25)',
+    borderColor: 'rgba(20, 184, 166, 0.25)',
   },
   networkTag: {
-    color: '#F0784B',
+    color: '#14B8A6',
     fontSize: 11,
     fontWeight: '700',
     letterSpacing: 0.5,
@@ -290,12 +290,12 @@ const styles = StyleSheet.create({
     width: 4,
     height: 4,
     borderRadius: 2,
-    backgroundColor: '#F0784B',
+    backgroundColor: '#14B8A6',
   },
   circuitLine: {
     flex: 1,
     height: 1,
-    backgroundColor: 'rgba(240, 120, 75, 0.3)',
+    backgroundColor: 'rgba(20, 184, 166, 0.3)',
   },
   flowContainer: {
     flexDirection: 'row',
@@ -324,7 +324,7 @@ const styles = StyleSheet.create({
   },
   partyTag: {
     fontSize: 11,
-    color: '#F0784B',
+    color: '#14B8A6',
     fontWeight: '600',
     marginTop: 2,
   },
@@ -336,13 +336,13 @@ const styles = StyleSheet.create({
   bridgeLine: {
     width: 14,
     height: 1,
-    backgroundColor: 'rgba(240, 120, 75, 0.4)',
+    backgroundColor: 'rgba(20, 184, 166, 0.4)',
   },
   bridgeIcon: {
     width: 24,
     height: 24,
     borderRadius: 12,
-    backgroundColor: 'rgba(240, 120, 75, 0.15)',
+    backgroundColor: 'rgba(20, 184, 166, 0.15)',
     alignItems: 'center',
     justifyContent: 'center',
   },
