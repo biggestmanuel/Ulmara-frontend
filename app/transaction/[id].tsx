@@ -1,218 +1,384 @@
-import { useMemo, useRef } from 'react';
-import { View, Text, StyleSheet, Pressable, ScrollView, Share, Platform } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
-import { router, useLocalSearchParams } from 'expo-router';
-import ViewShot from 'react-native-view-shot';
+import React, { useRef, useState, useEffect } from 'react';
+import {
+  View,
+  Text,
+  StyleSheet,
+  ScrollView,
+  TouchableOpacity,
+  Alert,
+  ActivityIndicator,
+} from 'react-native';
+import { useLocalSearchParams, useRouter } from 'expo-router';
+import { Ionicons } from '@expo/vector-icons';
+import { captureRef } from 'react-native-view-shot';
 import * as Sharing from 'expo-sharing';
-import { ReceiptCard } from '../../components/transaction/ReceiptCard';
+import * as Clipboard from 'expo-clipboard';
+import * as MediaLibrary from 'expo-media-library';
 
-// Requires:
-//   npm install react-native-view-shot
-//   npx expo install expo-sharing
+import { useTxStore } from '../../stores/txStore';
+import { useUserStore } from '../../stores/userStore';
+import { fetchTransactionById, Transaction } from '../../lib/api/transactions';
+import { ReceiptCard, ReceiptData } from '../../components/transaction/ReceiptCard';
 
-// TODO: replace with stores/txStore + lib/api/transactions lookup by id
-type TxDetail = {
-  id: string;
-  type: 'sent' | 'received' | 'deposit' | 'withdraw';
-  counterparty: string;
-  amount: string;
-  asset: string;
-  network: string;
-  fee: string;
-  txHash: string;
-  time: string;
-  status: 'complete' | 'processing' | 'failed';
-};
-
-const MOCK_TX_DB: Record<string, TxDetail> = {
-  '1': {
-    id: '1', type: 'received', counterparty: '7729 104 552', amount: '+120.00', asset: 'USDT',
-    network: 'TON', fee: '0.02 USDT', txHash: 'EQD4FPq-...9d21', time: 'Today, 2:14 PM', status: 'complete',
-  },
-  '2': {
-    id: '2', type: 'sent', counterparty: '0192 883 210', amount: '-45.00', asset: 'USDT',
-    network: 'BSC', fee: '0.15 USDT', txHash: '0x8f3Cc2...4b19', time: 'Yesterday, 6:40 PM', status: 'complete',
-  },
-  '3': {
-    id: '3', type: 'deposit', counterparty: 'Bank Deposit', amount: '+50,000.00', asset: 'NGN',
-    network: 'Paystack', fee: 'Free', txHash: 'DEP-88231940', time: '2 days ago, 11:02 AM', status: 'complete',
-  },
-  '4': {
-    id: '4', type: 'sent', counterparty: '5510 992 034', amount: '-0.05', asset: 'ETH',
-    network: 'ETH', fee: '2.80 USD', txHash: '0x9aB1c4...7f02', time: '3 days ago, 9:18 AM', status: 'processing',
-  },
-  '5': {
-    id: '5', type: 'withdraw', counterparty: 'Bank Withdrawal', amount: '-20,000.00', asset: 'NGN',
-    network: 'Paystack', fee: 'Free', txHash: 'WDL-77201853', time: '5 days ago, 3:55 PM', status: 'complete',
-  },
-};
-
-function statusColor(status: TxDetail['status']) {
-  if (status === 'complete') return '#4CD97B';
-  if (status === 'processing') return '#E8B84B';
-  return '#FF6B6B';
-}
-
-function statusLabel(status: TxDetail['status']) {
-  if (status === 'complete') return 'Complete';
-  if (status === 'processing') return 'Processing';
-  return 'Failed';
-}
-
-function txTitle(tx: TxDetail): string {
-  if (tx.type === 'deposit' || tx.type === 'withdraw') return tx.counterparty;
-  return tx.type === 'sent' ? `Sent to ${tx.counterparty}` : `Received from ${tx.counterparty}`;
-}
-
-export default function TransactionDetail() {
+export default function TransactionDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
-  const tx = useMemo(() => MOCK_TX_DB[id] ?? null, [id]);
-  const receiptRef = useRef<ViewShot>(null);
+  const router = useRouter();
+  const receiptRef = useRef<View>(null);
 
-  const handleShare = async () => {
-    if (!tx) return;
+  const [sharing, setSharing] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [fallbackTx, setFallbackTx] = useState<Transaction | null>(null);
+  const [loadingDirect, setLoadingDirect] = useState(false);
+
+  // 1. User Store
+  const { accountId, profile } = useUserStore();
+
+  // 2. Tx Store
+  const { items, isLoading, fetchInitial } = useTxStore();
+
+  // Try finding in current items
+  const storeTx = items.find((item) => item.id === id);
+
+  // 3. Fallback: If not in local items (e.g. direct link or refresh), fetch by ID
+  useEffect(() => {
+    if (!storeTx && id) {
+      setLoadingDirect(true);
+      fetchTransactionById(id)
+        .then((data) => setFallbackTx(data))
+        .catch((err) => {
+          console.error('Failed to fetch transaction by id:', err);
+          // Also trigger list fetch just in case
+          fetchInitial();
+        })
+        .finally(() => setLoadingDirect(false));
+    }
+  }, [id, storeTx]);
+
+  const tx = storeTx || fallbackTx;
+
+  // Capture helper
+  const captureReceiptUri = async (): Promise<string> => {
+    if (!receiptRef.current) {
+      throw new Error('Receipt view reference is not ready');
+    }
+    return await captureRef(receiptRef, {
+      format: 'png',
+      quality: 1.0,
+    });
+  };
+
+  // Real Share
+  const handleShareReceipt = async () => {
     try {
-      // Capture the hidden ReceiptCard as a PNG and share that image,
-      // instead of the old plain-text message — a proper shareable receipt.
-      const uri = await receiptRef.current?.capture?.();
-      if (!uri) return;
+      setSharing(true);
+      const uri = await captureReceiptUri();
+      const isAvailable = await Sharing.isAvailableAsync();
 
-      if (Platform.OS === 'web') {
-        await Share.share({ url: uri, message: txTitle(tx) });
-        return;
-      }
-      const canShare = await Sharing.isAvailableAsync();
-      if (canShare) {
-        await Sharing.shareAsync(uri, { mimeType: 'image/png', dialogTitle: 'Share receipt' });
+      if (isAvailable) {
+        await Sharing.shareAsync(uri, {
+          mimeType: 'image/png',
+          dialogTitle: `Ulmara Receipt - ${id}`,
+        });
       } else {
-        await Share.share({ url: uri });
+        Alert.alert('Sharing Unavailable', 'Native sharing is not supported on this device.');
       }
-    } catch (err) {
-      console.error('Failed to share receipt image:', err);
+    } catch (err: any) {
+      Alert.alert('Share Failed', err?.message || 'Unable to share receipt.');
+    } finally {
+      setSharing(false);
     }
   };
 
-  if (!tx) {
+  // Real Save to Gallery
+  const handleSaveToGallery = async () => {
+    try {
+      setSaving(true);
+      const { status } = await MediaLibrary.requestPermissionsAsync();
+      if (status !== 'granted') {
+        Alert.alert(
+          'Permission Required',
+          'Please allow media access in your settings to save receipts to your photos.'
+        );
+        return;
+      }
+
+      const uri = await captureReceiptUri();
+      const asset = await MediaLibrary.createAssetAsync(uri);
+
+      try {
+        const album = await MediaLibrary.getAlbumAsync('Ulmara');
+        if (album == null) {
+          await MediaLibrary.createAlbumAsync('Ulmara', asset, false);
+        } else {
+          await MediaLibrary.addAssetsToAlbumAsync([asset], album, false);
+        }
+      } catch (albumErr) {
+        // Fallback: asset is safely in camera roll
+      }
+
+      Alert.alert('Saved!', 'Receipt saved to your Photos/Gallery.');
+    } catch (err: any) {
+      Alert.alert('Save Failed', err?.message || 'Unable to save receipt image.');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleCopyId = async () => {
+    if (id) {
+      await Clipboard.setStringAsync(id);
+      Alert.alert('Copied', 'Transaction ID copied to clipboard.');
+    }
+  };
+
+  // Loading state
+  if ((isLoading || loadingDirect) && !tx) {
     return (
-      <SafeAreaView style={styles.container}>
-        <View style={styles.header}>
-          <Pressable onPress={() => router.back()}>
-            <Text style={styles.back}>‹</Text>
-          </Pressable>
-          <Text style={styles.headerTitle}>Transaction</Text>
-          <View style={{ width: 24 }} />
-        </View>
-        <View style={styles.notFound}>
-          <Text style={styles.notFoundText}>Transaction not found</Text>
-        </View>
-      </SafeAreaView>
+      <View style={styles.centerContainer}>
+        <ActivityIndicator size="large" color="#F0784B" />
+        <Text style={styles.loadingText}>Loading receipt...</Text>
+      </View>
     );
   }
 
-  const isPositive = tx.amount.startsWith('+');
+  // Not found state
+  if (!tx) {
+    return (
+      <View style={styles.centerContainer}>
+        <Ionicons name="alert-circle-outline" size={48} color="#EF4444" />
+        <Text style={styles.errorTitle}>Transaction Not Found</Text>
+        <Text style={styles.errorSub}>The transaction reference could not be found.</Text>
+        <TouchableOpacity style={styles.backButton} onPress={() => router.back()}>
+          <Text style={styles.backButtonText}>Go Back</Text>
+        </TouchableOpacity>
+      </View>
+    );
+  }
+
+  // Build 100% accurate dynamic ReceiptData matching lib/api/transactions.ts
+  const isSent = tx.direction === 'sent';
+  const myName = profile?.name || 'You';
+  const myTag = accountId ? `@${accountId}` : undefined;
+  const counterpartyTag = tx.counterpartyAccountId ? `@${tx.counterpartyAccountId}` : undefined;
+  const counterpartyName = tx.counterpartyAccountId || 'External Account';
+
+  const receiptData: ReceiptData = {
+    id: tx.id,
+    direction: tx.direction,
+    status: tx.status,
+    amount: tx.amount,
+    symbol: tx.symbol,
+    network: tx.network,
+    senderName: isSent ? myName : counterpartyName,
+    senderTag: isSent ? myTag : counterpartyTag,
+    beneficiaryName: isSent ? counterpartyName : myName,
+    beneficiaryTag: isSent ? counterpartyTag : myTag,
+    timestamp: new Date(tx.createdAt).toLocaleString('en-GB', {
+      day: '2-digit',
+      month: 'short',
+      year: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit',
+    }),
+    fee: tx.fee,
+    txHash: tx.txHash,
+  };
 
   return (
-    <SafeAreaView style={styles.container}>
-      <View style={styles.header}>
-        <Pressable onPress={() => router.back()}>
-          <Text style={styles.back}>‹</Text>
-        </Pressable>
-        <Text style={styles.headerTitle}>Transaction</Text>
-        <Pressable onPress={handleShare}>
-          <Text style={styles.shareIcon}>↗</Text>
-        </Pressable>
+    <View style={styles.screen}>
+      {/* Top Bar */}
+      <View style={styles.topBar}>
+        <TouchableOpacity
+          onPress={() => router.back()}
+          style={styles.circleBtn}
+          accessibilityLabel="Go back"
+        >
+          <Ionicons name="chevron-back" size={22} color="#FFFFFF" />
+        </TouchableOpacity>
+        <Text style={styles.screenTitle}>Transaction Details</Text>
+        <TouchableOpacity
+          onPress={handleCopyId}
+          style={styles.circleBtn}
+          accessibilityLabel="Copy Transaction ID"
+        >
+          <Ionicons name="copy-outline" size={18} color="#FFFFFF" />
+        </TouchableOpacity>
       </View>
 
-      <ScrollView contentContainerStyle={styles.body}>
-        <View style={styles.statusIconWrap}>
-          <Text style={styles.statusIcon}>
-            {tx.type === 'sent' || tx.type === 'withdraw' ? '↑' : '↓'}
-          </Text>
+      <ScrollView
+        contentContainerStyle={styles.scrollContent}
+        showsVerticalScrollIndicator={false}
+      >
+        <View ref={receiptRef} collapsable={false} style={styles.receiptWrapper}>
+          <ReceiptCard data={receiptData} />
         </View>
 
-        <Text style={[styles.amount, isPositive && styles.amountPositive]}>
-          {tx.amount} {tx.asset}
-        </Text>
-        <Text style={styles.title}>{txTitle(tx)}</Text>
+        {/* Action Buttons */}
+        <View style={styles.actionContainer}>
+          <TouchableOpacity
+            style={styles.shareBtn}
+            onPress={handleShareReceipt}
+            disabled={sharing || saving}
+          >
+            {sharing ? (
+              <ActivityIndicator color="#000000" size="small" />
+            ) : (
+              <>
+                <Ionicons name="share-social" size={18} color="#000000" />
+                <Text style={styles.shareBtnText}>Share Receipt</Text>
+              </>
+            )}
+          </TouchableOpacity>
 
-        <View style={[styles.statusPill, { borderColor: statusColor(tx.status) }]}>
-          <View style={[styles.statusDot, { backgroundColor: statusColor(tx.status) }]} />
-          <Text style={[styles.statusText, { color: statusColor(tx.status) }]}>{statusLabel(tx.status)}</Text>
+          <TouchableOpacity
+            style={styles.downloadBtn}
+            onPress={handleSaveToGallery}
+            disabled={sharing || saving}
+          >
+            {saving ? (
+              <ActivityIndicator color="#FFFFFF" size="small" />
+            ) : (
+              <>
+                <Ionicons name="download-outline" size={18} color="#FFFFFF" />
+                <Text style={styles.downloadBtnText}>Save Image</Text>
+              </>
+            )}
+          </TouchableOpacity>
         </View>
 
-        <View style={styles.detailsCard}>
-          <DetailRow label="Network" value={tx.network} />
-          <DetailRow label="Network Fee" value={tx.fee} />
-          <DetailRow label="Date & Time" value={tx.time} />
-          <DetailRow label="Reference / Tx ID" value={tx.txHash} mono />
-        </View>
+        <TouchableOpacity
+          style={styles.supportRow}
+          onPress={() => Alert.alert('Support', 'Contacting Ulmara 24/7 Support...')}
+        >
+          <Ionicons name="help-circle-outline" size={16} color="rgba(255, 255, 255, 0.45)" />
+          <Text style={styles.supportText}>Need help with this transaction?</Text>
+        </TouchableOpacity>
       </ScrollView>
-
-      {/* Off-screen receipt used only for image capture — not visible to the user. */}
-      <View style={styles.offscreen} pointerEvents="none">
-        <ViewShot ref={receiptRef} options={{ format: 'png', quality: 1 }}>
-          <View style={styles.receiptWrap}>
-            <ReceiptCard
-              amount={tx.amount}
-              symbol={tx.asset}
-              recipient={tx.counterparty}
-              network={tx.network}
-              fee={tx.fee}
-              txId={tx.txHash}
-            />
-          </View>
-        </ViewShot>
-      </View>
-    </SafeAreaView>
-  );
-}
-
-function DetailRow({ label, value, mono }: { label: string; value: string; mono?: boolean }) {
-  return (
-    <View style={styles.detailRow}>
-      <Text style={styles.detailLabel}>{label}</Text>
-      <Text style={[styles.detailValue, mono && styles.mono]} numberOfLines={1}>{value}</Text>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#0B0B0F' },
-  header: {
-    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
-    paddingHorizontal: 20, paddingTop: 12, paddingBottom: 8,
+  screen: {
+    flex: 1,
+    backgroundColor: '#000000',
   },
-  back: { color: '#FFFFFF', fontSize: 28 },
-  headerTitle: { color: '#FFFFFF', fontSize: 17, fontWeight: '700' },
-  shareIcon: { color: '#8C7AFF', fontSize: 20, fontWeight: '700' },
-  body: { alignItems: 'center', paddingHorizontal: 20, paddingTop: 20, paddingBottom: 40 },
-  statusIconWrap: {
-    width: 60, height: 60, borderRadius: 30, backgroundColor: '#17171D',
-    alignItems: 'center', justifyContent: 'center', marginBottom: 16,
+  centerContainer: {
+    flex: 1,
+    backgroundColor: '#000000',
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 24,
   },
-  statusIcon: { color: '#D0D0D6', fontSize: 24, fontWeight: '700' },
-  amount: { color: '#FFFFFF', fontSize: 30, fontWeight: '700' },
-  amountPositive: { color: '#4CD97B' },
-  title: { color: '#9A9AA5', fontSize: 14, marginTop: 6 },
-  statusPill: {
-    flexDirection: 'row', alignItems: 'center', gap: 6, borderWidth: 1, borderRadius: 20,
-    paddingHorizontal: 12, paddingVertical: 6, marginTop: 16,
+  loadingText: {
+    color: 'rgba(255, 255, 255, 0.6)',
+    marginTop: 12,
+    fontSize: 14,
   },
-  statusDot: { width: 7, height: 7, borderRadius: 4 },
-  statusText: { fontSize: 12, fontWeight: '700' },
-  detailsCard: {
-    width: '100%', backgroundColor: '#17171D', borderRadius: 16, borderWidth: 1,
-    borderColor: '#26262E', padding: 18, marginTop: 28,
+  errorTitle: {
+    color: '#FFFFFF',
+    fontSize: 18,
+    fontWeight: '700',
+    marginTop: 16,
+    marginBottom: 6,
   },
-  detailRow: {
-    flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 10,
-    borderBottomWidth: 1, borderBottomColor: '#1D1D24',
+  errorSub: {
+    color: 'rgba(255, 255, 255, 0.5)',
+    fontSize: 13,
+    textAlign: 'center',
+    marginBottom: 20,
   },
-  detailLabel: { color: '#9A9AA5', fontSize: 14 },
-  detailValue: { color: '#FFFFFF', fontSize: 14, fontWeight: '600', maxWidth: '55%' },
-  mono: { fontSize: 13 },
-  notFound: { flex: 1, alignItems: 'center', justifyContent: 'center' },
-  notFoundText: { color: '#5C5C66', fontSize: 14 },
-  offscreen: { position: 'absolute', top: -9999, left: -9999 },
-  receiptWrap: { width: 320, backgroundColor: '#0B0B0F', padding: 20 },
+  backButton: {
+    paddingHorizontal: 20,
+    paddingVertical: 10,
+    backgroundColor: 'rgba(255, 255, 255, 0.1)',
+    borderRadius: 12,
+  },
+  backButtonText: {
+    color: '#FFFFFF',
+    fontWeight: '600',
+  },
+  topBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 20,
+    paddingTop: 56,
+    paddingBottom: 16,
+    backgroundColor: '#000000',
+  },
+  circleBtn: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: 'rgba(255, 255, 255, 0.08)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  screenTitle: {
+    color: '#FFFFFF',
+    fontSize: 16,
+    fontWeight: '700',
+    letterSpacing: 0.3,
+  },
+  scrollContent: {
+    paddingHorizontal: 20,
+    paddingBottom: 40,
+    alignItems: 'center',
+  },
+  receiptWrapper: {
+    width: '100%',
+    marginVertical: 12,
+  },
+  actionContainer: {
+    flexDirection: 'row',
+    gap: 12,
+    width: '100%',
+    marginTop: 20,
+  },
+  shareBtn: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    backgroundColor: '#F0784B',
+    paddingVertical: 14,
+    borderRadius: 14,
+  },
+  shareBtnText: {
+    color: '#000000',
+    fontWeight: '800',
+    fontSize: 14,
+  },
+  downloadBtn: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    backgroundColor: 'rgba(255, 255, 255, 0.08)',
+    paddingVertical: 14,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.12)',
+  },
+  downloadBtnText: {
+    color: '#FFFFFF',
+    fontWeight: '700',
+    fontSize: 14,
+  },
+  supportRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    marginTop: 24,
+    paddingVertical: 8,
+  },
+  supportText: {
+    color: 'rgba(255, 255, 255, 0.45)',
+    fontSize: 12,
+    fontWeight: '500',
+  },
 });

@@ -1,49 +1,62 @@
 import { Tabs } from 'expo-router';
-import { Text } from 'react-native';
+import { Text, View, StyleSheet, type ColorValue } from 'react-native';
+import { useThemeStore } from '../../lib/theme';
 
-function TabIcon({ symbol, focused }: { symbol: string; focused: boolean }) {
+function TabIcon({ symbol, focused, color }: { symbol: string; focused: boolean; color: ColorValue }) {
   return (
-    <Text style={{ fontSize: 20, opacity: focused ? 1 : 0.5 }}>{symbol}</Text>
+    <View style={styles.iconContainer}>
+      <Text style={[styles.symbol, { color, opacity: focused ? 1 : 0.5 }]}>{symbol}</Text>
+    </View>
   );
 }
 
 export default function TabsLayout() {
+  const { colors } = useThemeStore();
+
   return (
     <Tabs
       screenOptions={{
         headerShown: false,
         tabBarStyle: {
-          backgroundColor: '#0B0B0F',
-          borderTopColor: '#1D1D24',
-          height: 84,
+          backgroundColor: colors.surface,
+          borderTopColor: colors.border,
+          height: 72,
           paddingTop: 8,
+          paddingBottom: 12,
         },
-        tabBarActiveTintColor: '#FFFFFF',
-        tabBarInactiveTintColor: '#5C5C66',
-        tabBarLabelStyle: { fontSize: 12, fontWeight: '600' },
+        tabBarActiveTintColor: colors.primary,
+        tabBarInactiveTintColor: colors.textMuted,
+        tabBarLabelStyle: { fontSize: 11, fontWeight: '700', marginTop: 2 },
       }}
     >
       <Tabs.Screen
         name="home"
         options={{
           title: 'Home',
-          tabBarIcon: ({ focused }) => <TabIcon symbol="⌂" focused={focused} />,
+          tabBarIcon: ({ focused, color }) => <TabIcon symbol="⌂" focused={focused} color={color} />,
         }}
       />
       <Tabs.Screen
-        name="activity"
+        name="balances"
         options={{
-          title: 'Activity',
-          tabBarIcon: ({ focused }) => <TabIcon symbol="⇄" focused={focused} />,
+          title: 'Balances',
+          tabBarIcon: ({ focused, color }) => <TabIcon symbol="⛁" focused={focused} color={color} />,
         }}
       />
       <Tabs.Screen
         name="profile"
         options={{
           title: 'Profile',
-          tabBarIcon: ({ focused }) => <TabIcon symbol="◍" focused={focused} />,
+          tabBarIcon: ({ focused, color }) => <TabIcon symbol="◯" focused={focused} color={color} />,
         }}
       />
+      {/* Hide any unused legacy tab screens if present */}
+      <Tabs.Screen name="activity" options={{ href: null }} />
     </Tabs>
   );
 }
+
+const styles = StyleSheet.create({
+  iconContainer: { alignItems: 'center', justifyContent: 'center' },
+  symbol: { fontSize: 20, fontWeight: '700' },
+});
