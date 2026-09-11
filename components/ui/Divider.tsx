@@ -1,9 +1,11 @@
 import { View, StyleSheet } from 'react-native';
+import { useThemeStore } from '../../lib/theme';
 
 export function Divider() {
-  return <View style={styles.line} />;
+  const colors = useThemeStore((state) => state.colors);
+  return <View style={[styles.line, { backgroundColor: colors.divider }]} />;
 }
 
 const styles = StyleSheet.create({
-  line: { height: StyleSheet.hairlineWidth, backgroundColor: '#E0E0E0', width: '100%' },
+  line: { height: StyleSheet.hairlineWidth, width: '100%' },
 });

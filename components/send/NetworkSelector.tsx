@@ -1,5 +1,6 @@
 import { View, Pressable, StyleSheet } from 'react-native';
 import { Typography, Badge } from '../ui';
+import { useThemeStore } from '../../lib/theme';
 
 export interface NetworkOption {
   id: string;
@@ -15,6 +16,7 @@ interface NetworkSelectorProps {
 }
 
 export function NetworkSelector({ options, selectedId, onSelect }: NetworkSelectorProps) {
+  const colors = useThemeStore((state) => state.colors);
   return (
     <View style={styles.list}>
       {options.map((opt) => {
@@ -22,7 +24,7 @@ export function NetworkSelector({ options, selectedId, onSelect }: NetworkSelect
         return (
           <Pressable
             key={opt.id}
-            style={[styles.row, active && styles.rowActive]}
+            style={[styles.row, { borderColor: active ? colors.primary : colors.border }]}
             onPress={() => onSelect(opt.id)}
           >
             <View style={styles.left}>
@@ -46,8 +48,6 @@ const styles = StyleSheet.create({
     padding: 14,
     borderRadius: 12,
     borderWidth: 1,
-    borderColor: '#E0E0E0',
   },
-  rowActive: { borderColor: '#000' },
   left: { flexDirection: 'row', alignItems: 'center', gap: 8 },
 });

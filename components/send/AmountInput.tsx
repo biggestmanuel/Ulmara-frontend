@@ -1,5 +1,6 @@
 import { View, TextInput, StyleSheet } from 'react-native';
 import { Typography } from '../ui';
+import { useThemeStore } from '../../lib/theme';
 
 interface AmountInputProps {
   value: string;
@@ -9,16 +10,17 @@ interface AmountInputProps {
 }
 
 export function AmountInput({ value, onChangeText, symbol, usdEquivalent }: AmountInputProps) {
+  const colors = useThemeStore((state) => state.colors);
   return (
     <View style={styles.wrapper}>
       <View style={styles.row}>
         <TextInput
-          style={styles.input}
+          style={[styles.input, { color: colors.textPrimary }]}
           value={value}
           onChangeText={onChangeText}
           keyboardType="decimal-pad"
           placeholder="0.00"
-          placeholderTextColor="#CCC"
+          placeholderTextColor={colors.textMuted}
         />
         <Typography variant="h3">{symbol}</Typography>
       </View>

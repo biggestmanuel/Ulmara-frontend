@@ -3,6 +3,7 @@ import { View, Text, StyleSheet, ViewStyle } from 'react-native';
 import QRCode from 'react-native-qrcode-svg';
 import { Ionicons } from '@expo/vector-icons';
 import type { TransactionDirection, TransactionStatus } from '../../lib/api/transactions';
+import { useThemeStore, ThemeColors } from '../../lib/theme';
 
 export interface ReceiptData {
   id: string;
@@ -26,10 +27,12 @@ interface Props {
 }
 
 export const ReceiptCard: React.FC<Props> = ({ data, style }) => {
+  const { colors } = useThemeStore();
+  const styles = getStyles(colors);
   const isComplete = data.status === 'complete';
   const isProcessing = data.status === 'processing';
 
-  const statusColor = isComplete ? '#10B981' : isProcessing ? '#F59E0B' : '#EF4444';
+  const statusColor = isComplete ? colors.success : isProcessing ? colors.warning : colors.error;
   const statusIcon = isComplete ? 'checkmark-circle' : isProcessing ? 'time-outline' : 'close-circle';
 
   return (
@@ -97,7 +100,7 @@ export const ReceiptCard: React.FC<Props> = ({ data, style }) => {
         <View style={styles.flowBridge}>
           <View style={styles.bridgeLine} />
           <View style={styles.bridgeIcon}>
-            <Ionicons name="arrow-forward" size={14} color="#14B8A6" />
+            <Ionicons name="arrow-forward" size={14} color={colors.primary} />
           </View>
           <View style={styles.bridgeLine} />
         </View>
@@ -172,15 +175,16 @@ export const ReceiptCard: React.FC<Props> = ({ data, style }) => {
   );
 };
 
-const styles = StyleSheet.create({
+function getStyles(colors: ThemeColors) {
+  return StyleSheet.create({
   card: {
-    backgroundColor: '#0A0A0E',
+    backgroundColor: colors.surface,
     borderRadius: 20,
     borderWidth: 1,
-    borderColor: 'rgba(20, 184, 166, 0.35)',
+    borderColor: `${colors.primary}59`,
     padding: 22,
     width: '100%',
-    shadowColor: '#14B8A6',
+    shadowColor: colors.primary,
     shadowOffset: { width: 0, height: 8 },
     shadowOpacity: 0.18,
     shadowRadius: 18,
@@ -194,7 +198,7 @@ const styles = StyleSheet.create({
     left: 0,
     right: 0,
     height: 3,
-    backgroundColor: '#14B8A6',
+    backgroundColor: colors.primary,
   },
   header: {
     flexDirection: 'row',
@@ -216,18 +220,18 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   logoLetter: {
-    color: '#000000',
+    color: '#FFFFFF',
     fontSize: 18,
     fontWeight: '900',
   },
   brandTitle: {
-    color: '#FFFFFF',
+    color: colors.textPrimary,
     fontSize: 14,
     fontWeight: '800',
     letterSpacing: 1.5,
   },
   brandSub: {
-    color: 'rgba(255, 255, 255, 0.45)',
+    color: colors.textMuted,
     fontSize: 9,
     fontWeight: '600',
     letterSpacing: 0.8,
@@ -239,7 +243,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 10,
     paddingVertical: 5,
     borderRadius: 20,
-    backgroundColor: 'rgba(255, 255, 255, 0.05)',
+    backgroundColor: colors.surfaceElevated,
     borderWidth: 1,
   },
   statusText: {
@@ -253,29 +257,29 @@ const styles = StyleSheet.create({
   },
   amountLabel: {
     fontSize: 12,
-    color: 'rgba(255, 255, 255, 0.5)',
+    color: colors.textSecondary,
     fontWeight: '500',
     marginBottom: 6,
   },
   cryptoAmount: {
     fontSize: 32,
     fontWeight: '900',
-    color: '#FFFFFF',
+    color: colors.textPrimary,
     letterSpacing: -0.5,
   },
   networkPill: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: 'rgba(20, 184, 166, 0.12)',
+    backgroundColor: colors.primarySoft,
     paddingHorizontal: 12,
     paddingVertical: 4,
     borderRadius: 8,
     marginTop: 8,
     borderWidth: 1,
-    borderColor: 'rgba(20, 184, 166, 0.25)',
+    borderColor: `${colors.primary}40`,
   },
   networkTag: {
-    color: '#14B8A6',
+    color: colors.primary,
     fontSize: 11,
     fontWeight: '700',
     letterSpacing: 0.5,
@@ -290,29 +294,29 @@ const styles = StyleSheet.create({
     width: 4,
     height: 4,
     borderRadius: 2,
-    backgroundColor: '#14B8A6',
+    backgroundColor: colors.primary,
   },
   circuitLine: {
     flex: 1,
     height: 1,
-    backgroundColor: 'rgba(20, 184, 166, 0.3)',
+    backgroundColor: `${colors.primary}4D`,
   },
   flowContainer: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    backgroundColor: 'rgba(255, 255, 255, 0.03)',
+    backgroundColor: colors.surfaceElevated,
     borderRadius: 14,
     padding: 14,
     borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.06)',
+    borderColor: colors.border,
   },
   flowParty: {
     flex: 1,
   },
   partyRole: {
     fontSize: 10,
-    color: 'rgba(255, 255, 255, 0.4)',
+    color: colors.textMuted,
     fontWeight: '700',
     letterSpacing: 0.8,
     marginBottom: 3,
@@ -320,11 +324,11 @@ const styles = StyleSheet.create({
   partyName: {
     fontSize: 13,
     fontWeight: '700',
-    color: '#FFFFFF',
+    color: colors.textPrimary,
   },
   partyTag: {
     fontSize: 11,
-    color: '#14B8A6',
+    color: colors.primary,
     fontWeight: '600',
     marginTop: 2,
   },
@@ -336,13 +340,13 @@ const styles = StyleSheet.create({
   bridgeLine: {
     width: 14,
     height: 1,
-    backgroundColor: 'rgba(20, 184, 166, 0.4)',
+    backgroundColor: `${colors.primary}66`,
   },
   bridgeIcon: {
     width: 24,
     height: 24,
     borderRadius: 12,
-    backgroundColor: 'rgba(20, 184, 166, 0.15)',
+    backgroundColor: `${colors.primary}26`,
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -357,18 +361,18 @@ const styles = StyleSheet.create({
   },
   metaLabel: {
     fontSize: 12,
-    color: 'rgba(255, 255, 255, 0.45)',
+    color: colors.textMuted,
     fontWeight: '500',
   },
   metaValue: {
     fontSize: 12,
-    color: '#FFFFFF',
+    color: colors.textPrimary,
     fontWeight: '600',
     maxWidth: '58%',
   },
   mono: {
     fontFamily: 'monospace',
-    color: 'rgba(255, 255, 255, 0.85)',
+    color: colors.textPrimary,
   },
   footer: {
     flexDirection: 'row',
@@ -376,7 +380,7 @@ const styles = StyleSheet.create({
     marginTop: 20,
     paddingTop: 16,
     borderTopWidth: 1,
-    borderTopColor: 'rgba(255, 255, 255, 0.08)',
+    borderTopColor: colors.divider,
     gap: 14,
   },
   qrWrapper: {
@@ -390,12 +394,13 @@ const styles = StyleSheet.create({
   footerHeader: {
     fontSize: 12,
     fontWeight: '700',
-    color: '#FFFFFF',
+    color: colors.textPrimary,
     marginBottom: 4,
   },
   footerNotice: {
     fontSize: 10,
-    color: 'rgba(255, 255, 255, 0.4)',
+    color: colors.textMuted,
     lineHeight: 14,
   },
-});
+  });
+}

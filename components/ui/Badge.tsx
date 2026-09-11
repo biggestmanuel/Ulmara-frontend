@@ -1,5 +1,6 @@
 import { View, StyleSheet } from 'react-native';
 import { Typography } from './Typography';
+import { useThemeStore } from '../../lib/theme';
 
 type Tone = 'neutral' | 'success' | 'warning' | 'danger';
 
@@ -9,19 +10,20 @@ interface BadgeProps {
 }
 
 export function Badge({ label, tone = 'neutral' }: BadgeProps) {
+  const colors = useThemeStore((state) => state.colors);
+  const toneColors = {
+    neutral: { bg: colors.surfaceElevated, text: colors.textSecondary },
+    success: { bg: `${colors.success}22`, text: colors.success },
+    warning: { bg: `${colors.warning}22`, text: colors.warning },
+    danger: { bg: `${colors.error}22`, text: colors.error },
+  }[tone];
+
   return (
-    <View style={[styles.base, tones[tone].bg]}>
-      <Typography variant="caption" color={tones[tone].text}>{label}</Typography>
+    <View style={[styles.base, { backgroundColor: toneColors.bg }]}> 
+      <Typography variant="caption" color={toneColors.text}>{label}</Typography>
     </View>
   );
 }
-
-const tones: Record<Tone, { bg: any; text: string }> = {
-  neutral: { bg: { backgroundColor: '#EEE' }, text: '#333' },
-  success: { bg: { backgroundColor: '#E3F7E8' }, text: '#1A7F37' },
-  warning: { bg: { backgroundColor: '#FFF4DE' }, text: '#B36B00' },
-  danger: { bg: { backgroundColor: '#FDE7E7' }, text: '#C4342B' },
-};
 
 const styles = StyleSheet.create({
   base: {

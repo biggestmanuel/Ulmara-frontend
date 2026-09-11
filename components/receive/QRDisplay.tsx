@@ -1,6 +1,7 @@
 import { View, StyleSheet } from 'react-native';
 import QRCode from 'react-native-qrcode-svg';
 import { Typography } from '../ui';
+import { useThemeStore } from '../../lib/theme';
 
 interface QRDisplayProps {
   value: string;
@@ -9,9 +10,10 @@ interface QRDisplayProps {
 }
 
 export function QRDisplay({ value, accountId, size = 220 }: QRDisplayProps) {
+  const colors = useThemeStore((state) => state.colors);
   return (
     <View style={styles.wrapper}>
-      <View style={styles.qrBox}>
+      <View style={[styles.qrBox, { backgroundColor: colors.surface }]}>
         <QRCode value={value} size={size} />
       </View>
       <Typography variant="label">{accountId}</Typography>
