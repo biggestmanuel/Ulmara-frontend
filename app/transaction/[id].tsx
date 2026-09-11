@@ -9,38 +9,8 @@ import {
   ActivityIndicator,
 } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import ViewShot from 'react-native-view-shot';
-
-const iconMap: Record<string, string> = {
-  'chevron-back': '‹',
-  'copy-outline': '⧉',
-  'share-social': '↗',
-  'download-outline': '⇩',
-  'help-circle-outline': '?',
-};
-
-function Ionicons({
-  name,
-  size = 18,
-  color = '#FFFFFF',
-}: {
-  name: string;
-  size?: number;
-  color?: string;
-}) {
-  return (
-    <Text
-      style={{
-        color,
-        fontSize: size,
-        lineHeight: size,
-        fontWeight: '700',
-      }}
-    >
-      {iconMap[name] ?? '•'}
-    </Text>
-  );
-}
+import { Ionicons } from '@expo/vector-icons';
+import { captureRef } from 'react-native-view-shot';
 import * as Sharing from 'expo-sharing';
 import * as Clipboard from 'expo-clipboard';
 import { ReceiptCard, ReceiptData } from '../../components/transaction/ReceiptCard';
@@ -48,12 +18,9 @@ import { ReceiptCard, ReceiptData } from '../../components/transaction/ReceiptCa
 export default function TransactionDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const router = useRouter();
-  const viewShotRef = useRef<any>(null);
+  const receiptRef = useRef<View>(null);
   const [sharing, setSharing] = useState(false);
 
-  // In production, fetch via your transaction hook or react-query:
-  // const { data: tx, isLoading } = useTransaction(id);
-  // Using clean standard data for immediate rendering:
   const receiptData: ReceiptData = {
     id: id || 'TX-89241908234',
     type: 'SEND',
@@ -72,10 +39,14 @@ export default function TransactionDetailScreen() {
   const handleShareReceipt = async () => {
     try {
       setSharing(true);
-      if (!viewShotRef.current?.capture) {
-        throw new Error('Capture reference unavailable');
+      if (!receiptRef.current) {
+        throw new Error('Receipt reference unavailable');
       }
-      const uri = await viewShotRef.current.capture();
+      const uri = await captureRef(receiptRef, {
+        format: 'png',
+        quality: 1.0,
+      });
+
       const isAvailable = await Sharing.isAvailableAsync();
       if (isAvailable) {
         await Sharing.shareAsync(uri, {
@@ -99,7 +70,6 @@ export default function TransactionDetailScreen() {
 
   return (
     <View style={styles.screen}>
-      {/* Top App Bar */}
       <View style={styles.topBar}>
         <TouchableOpacity
           onPress={() => router.back()}
@@ -122,16 +92,11 @@ export default function TransactionDetailScreen() {
         contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={false}
       >
-        {/* Render Card inside ViewShot for high-res image sharing */}
-        <ViewShot
-          ref={viewShotRef}
-          options={{ format: 'png', quality: 1.0, result: 'tmpfile' }}
-          style={styles.viewShotContainer}
-        >
+        {/* Regular View with collapsable={false} so Android captures perfectly */}
+        <View ref={receiptRef} collapsable={false} style={styles.receiptWrapper}>
           <ReceiptCard data={receiptData} />
-        </ViewShot>
+        </View>
 
-        {/* Action Buttons */}
         <View style={styles.actionContainer}>
           <TouchableOpacity
             style={styles.shareBtn}
@@ -157,7 +122,6 @@ export default function TransactionDetailScreen() {
           </TouchableOpacity>
         </View>
 
-        {/* Need Help link */}
         <TouchableOpacity
           style={styles.supportRow}
           onPress={() => Alert.alert('Support', 'Contacting Ulmara 24/7 Support...')}
@@ -203,7 +167,7 @@ const styles = StyleSheet.create({
     paddingBottom: 40,
     alignItems: 'center',
   },
-  viewShotContainer: {
+  receiptWrapper: {
     width: '100%',
     marginVertical: 12,
   },
