@@ -10,6 +10,7 @@ import * as LocalAuthentication from 'expo-local-authentication';
 import { useUserStore } from '../../stores/userStore';
 import { changePin, listSessions, revokeSession, type SessionInfo } from '../../lib/api/auth';
 import type { ApiErrorShape } from '../../lib/api/client';
+import { useThemeStore, ThemeColors } from '../../lib/theme';
 
 function formatSessionLabel(s: SessionInfo): string {
   const ua = s.userAgent ?? '';
@@ -21,6 +22,8 @@ function formatSessionLabel(s: SessionInfo): string {
 }
 
 export default function Security() {
+  const { colors } = useThemeStore();
+  const styles = getStyles(colors);
   const biometricEnabled = useUserStore((s) => s.biometricEnabled);
   const setBiometricEnabled = useUserStore((s) => s.setBiometricEnabled);
 
@@ -137,7 +140,7 @@ export default function Security() {
                   secureTextEntry
                   maxLength={6}
                   placeholder="••••••"
-                  placeholderTextColor="#5C5C66"
+                  placeholderTextColor={colors.textMuted}
                 />
               </View>
               <View style={styles.pinFieldWrap}>
@@ -150,7 +153,7 @@ export default function Security() {
                   secureTextEntry
                   maxLength={6}
                   placeholder="••••••"
-                  placeholderTextColor="#5C5C66"
+                  placeholderTextColor={colors.textMuted}
                 />
               </View>
               {pinError && <Text style={styles.error}>{pinError}</Text>}
@@ -177,7 +180,7 @@ export default function Security() {
               <Switch
                 value={biometricEnabled}
                 onValueChange={handleBiometricToggle}
-                trackColor={{ false: '#26262E', true: '#6C5CE7' }}
+                trackColor={{ false: colors.border, true: colors.primary }}
                 thumbColor="#FFFFFF"
               />
             </View>
@@ -186,7 +189,7 @@ export default function Security() {
                 <Text style={styles.toggleLabel}>Two-Factor Authentication</Text>
                 <Text style={styles.toggleDesc}>Coming soon — not yet available</Text>
               </View>
-              <Switch value={false} disabled trackColor={{ false: '#26262E', true: '#6C5CE7' }} thumbColor="#5C5C66" />
+              <Switch value={false} disabled trackColor={{ false: colors.border, true: colors.primary }} thumbColor={colors.textMuted} />
             </View>
           </View>
 
@@ -194,7 +197,7 @@ export default function Security() {
           <View style={styles.card}>
             {loadingSessions ? (
               <View style={styles.sessionRow}>
-                <ActivityIndicator color="#6C5CE7" />
+                <ActivityIndicator color={colors.primary} />
               </View>
             ) : sessions.length === 0 ? (
               <View style={styles.sessionRow}>
@@ -224,54 +227,56 @@ export default function Security() {
   );
 }
 
-const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#0B0B0F' },
+function getStyles(colors: ThemeColors) {
+  return StyleSheet.create({
+  container: { flex: 1, backgroundColor: colors.background },
   header: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
     paddingHorizontal: 20, paddingTop: 12, paddingBottom: 8,
   },
-  back: { color: '#FFFFFF', fontSize: 28 },
-  headerTitle: { color: '#FFFFFF', fontSize: 17, fontWeight: '700' },
+  back: { color: colors.textPrimary, fontSize: 28 },
+  headerTitle: { color: colors.textPrimary, fontSize: 17, fontWeight: '700' },
   body: { paddingHorizontal: 20, paddingTop: 12, paddingBottom: 32 },
   actionRow: {
     flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
-    backgroundColor: '#17171D', borderRadius: 14, borderWidth: 1, borderColor: '#26262E',
+    backgroundColor: colors.surface, borderRadius: 14, borderWidth: 1, borderColor: colors.border,
     paddingHorizontal: 16, paddingVertical: 16, marginBottom: 16,
   },
-  actionLabel: { color: '#FFFFFF', fontSize: 15, fontWeight: '600' },
-  chevron: { color: '#5C5C66', fontSize: 20 },
+  actionLabel: { color: colors.textPrimary, fontSize: 15, fontWeight: '600' },
+  chevron: { color: colors.textMuted, fontSize: 20 },
   card: {
-    backgroundColor: '#17171D', borderRadius: 14, borderWidth: 1, borderColor: '#26262E',
+    backgroundColor: colors.surface, borderRadius: 14, borderWidth: 1, borderColor: colors.border,
     overflow: 'hidden', marginBottom: 24, padding: 16,
   },
   pinFieldWrap: { marginBottom: 14 },
-  pinLabel: { color: '#9A9AA5', fontSize: 12, marginBottom: 6, fontWeight: '500' },
+  pinLabel: { color: colors.textMuted, fontSize: 12, marginBottom: 6, fontWeight: '500' },
   pinInput: {
-    backgroundColor: '#0B0B0F', borderRadius: 10, paddingHorizontal: 14, paddingVertical: 12,
-    color: '#FFFFFF', fontSize: 18, letterSpacing: 4, borderWidth: 1, borderColor: '#26262E',
+    backgroundColor: colors.background, borderRadius: 10, paddingHorizontal: 14, paddingVertical: 12,
+    color: colors.textPrimary, fontSize: 18, letterSpacing: 4, borderWidth: 1, borderColor: colors.border,
   },
   pinActionsRow: { flexDirection: 'row', gap: 10, marginTop: 4 },
   pinCancelBtn: {
     flex: 1, paddingVertical: 12, borderRadius: 10, alignItems: 'center',
-    borderWidth: 1, borderColor: '#26262E',
+    borderWidth: 1, borderColor: colors.border,
   },
-  pinCancelText: { color: '#9A9AA5', fontWeight: '600' },
+  pinCancelText: { color: colors.textMuted, fontWeight: '600' },
   pinSaveBtn: {
-    flex: 1, paddingVertical: 12, borderRadius: 10, alignItems: 'center', backgroundColor: '#6C5CE7',
+    flex: 1, paddingVertical: 12, borderRadius: 10, alignItems: 'center', backgroundColor: colors.primary,
   },
   pinSaveText: { color: '#FFFFFF', fontWeight: '600' },
-  error: { color: '#FF6B6B', fontSize: 13, marginBottom: 8 },
+  error: { color: colors.error, fontSize: 13, marginBottom: 8 },
   toggleRow: {
     flexDirection: 'row', alignItems: 'center', paddingVertical: 8,
-    borderBottomWidth: 1, borderBottomColor: '#1D1D24',
+    borderBottomWidth: 1, borderBottomColor: colors.surfaceElevated,
   },
   toggleRowLast: { borderBottomWidth: 0 },
-  toggleLabel: { color: '#FFFFFF', fontSize: 14, fontWeight: '600' },
-  toggleDesc: { color: '#9A9AA5', fontSize: 12, marginTop: 3 },
-  sectionTitle: { color: '#9A9AA5', fontSize: 13, fontWeight: '500', marginBottom: 10 },
+  toggleLabel: { color: colors.textPrimary, fontSize: 14, fontWeight: '600' },
+  toggleDesc: { color: colors.textMuted, fontSize: 12, marginTop: 3 },
+  sectionTitle: { color: colors.textMuted, fontSize: 13, fontWeight: '500', marginBottom: 10 },
   sessionRow: {
     flexDirection: 'row', alignItems: 'center', paddingVertical: 14,
-    borderBottomWidth: 1, borderBottomColor: '#1D1D24',
+    borderBottomWidth: 1, borderBottomColor: colors.surfaceElevated,
   },
-  revokeText: { color: '#FF6B6B', fontSize: 13, fontWeight: '600' },
+  revokeText: { color: colors.error, fontSize: 13, fontWeight: '600' },
 });
+}

@@ -1,8 +1,11 @@
 import { View, Text, StyleSheet, Pressable } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { router } from 'expo-router';
+import { useThemeStore, ThemeColors } from '../../lib/theme';
 
 export default function Welcome() {
+  const { colors } = useThemeStore();
+  const styles = getStyles(colors);
   return (
     <SafeAreaView style={styles.container}>
       <View style={styles.body}>
@@ -26,20 +29,22 @@ export default function Welcome() {
   );
 }
 
-const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#0B0B0F', justifyContent: 'space-between' },
+function getStyles(colors: ThemeColors) {
+  return StyleSheet.create({
+  container: { flex: 1, backgroundColor: colors.background, justifyContent: 'space-between' },
   body: { flex: 1, justifyContent: 'center', paddingHorizontal: 28 },
   logoDot: {
     width: 56, height: 56, borderRadius: 16,
-    backgroundColor: '#6C5CE7', marginBottom: 24,
+    backgroundColor: colors.primary, marginBottom: 24,
   },
-  title: { fontSize: 34, fontWeight: '700', color: '#FFFFFF', lineHeight: 40 },
-  subtitle: { fontSize: 16, color: '#9A9AA5', marginTop: 16, lineHeight: 22 },
+  title: { fontSize: 34, fontWeight: '700', color: colors.textPrimary, lineHeight: 40 },
+  subtitle: { fontSize: 16, color: colors.textMuted, marginTop: 16, lineHeight: 22 },
   footer: { paddingHorizontal: 24, paddingBottom: 32, gap: 12 },
   primaryBtn: {
-    backgroundColor: '#6C5CE7', borderRadius: 14, paddingVertical: 16, alignItems: 'center',
+    backgroundColor: colors.primary, borderRadius: 14, paddingVertical: 16, alignItems: 'center',
   },
   primaryBtnText: { color: '#FFFFFF', fontSize: 16, fontWeight: '600' },
   secondaryBtn: { paddingVertical: 14, alignItems: 'center' },
-  secondaryBtnText: { color: '#9A9AA5', fontSize: 15, fontWeight: '500' },
+  secondaryBtnText: { color: colors.textMuted, fontSize: 15, fontWeight: '500' },
 });
+}

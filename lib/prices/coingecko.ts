@@ -1,13 +1,13 @@
 import axios from 'axios';
 
-// CoinGecko API key — move this to EXPO_PUBLIC_COINGECKO_API_KEY in .env
+// CoinGecko Demo API key — move this to EXPO_PUBLIC_COINGECKO_API_KEY in .env
 // rather than hardcoding, then reference process.env here.
+// Demo tier auth is a QUERY PARAM (x_cg_demo_api_key), not a header.
 const API_KEY = process.env.EXPO_PUBLIC_COINGECKO_API_KEY ?? '';
 
 const client = axios.create({
   baseURL: 'https://api.coingecko.com/api/v3',
   timeout: 8000,
-  headers: API_KEY ? { 'x-cg-demo-api-key': API_KEY } : {},
 });
 
 // Maps our internal symbols to CoinGecko coin ids.
@@ -43,7 +43,7 @@ export async function getUsdPrices(symbols: PriceSymbol[]): Promise<Record<Price
 
   const ids = Array.from(new Set(symbols.map((s) => COINGECKO_IDS[s]))).join(',');
   const { data } = await client.get('/simple/price', {
-    params: { ids, vs_currencies: 'usd' },
+    params: { ids, vs_currencies: 'usd', x_cg_demo_api_key: API_KEY },
   });
 
   const flat: Record<string, number> = {};
@@ -75,7 +75,7 @@ export async function toUsd(symbol: PriceSymbol, amount: number): Promise<number
 // stablecoin (USDT) priced in NGN as a practical USD proxy.
 export async function usdToNgn(usdAmount: number): Promise<number> {
   const { data } = await client.get('/simple/price', {
-    params: { ids: 'tether', vs_currencies: 'ngn' },
+    params: { ids: 'tether', vs_currencies: 'ngn', x_cg_demo_api_key: API_KEY },
   });
   const rate = data?.tether?.ngn ?? 0;
   return usdAmount * rate;

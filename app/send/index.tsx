@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { View, Text, TextInput, StyleSheet, Pressable, KeyboardAvoidingView, Platform, ActivityIndicator } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { router } from 'expo-router';
+import { useThemeStore, ThemeColors } from '../../lib/theme';
 
 // TODO: replace with lib/api/accountId resolve call
 type ResolvedProfile = { name: string; accountId: string } | null;
@@ -17,6 +18,9 @@ function fakeResolve(id: string): Promise<ResolvedProfile> {
 const ASSETS = ['USDT', 'BTC', 'ETH', 'SOL', 'TON'] as const;
 
 export default function SendIndex() {
+  const { colors } = useThemeStore();
+  const styles = getStyles(colors);
+
   const [accountId, setAccountId] = useState('');
   const [profile, setProfile] = useState<ResolvedProfile>(null);
   const [resolving, setResolving] = useState(false);
@@ -64,7 +68,7 @@ export default function SendIndex() {
           <TextInput
             style={styles.input}
             placeholder="0000 000 000"
-            placeholderTextColor="#5C5C66"
+            placeholderTextColor={colors.textMuted}
             keyboardType="number-pad"
             value={accountId}
             onChangeText={(v) => setAccountId(v.replace(/\D/g, '').slice(0, 10))}
@@ -72,7 +76,7 @@ export default function SendIndex() {
 
           {resolving && (
             <View style={styles.resolveRow}>
-              <ActivityIndicator size="small" color="#8C7AFF" />
+              <ActivityIndicator size="small" color={colors.primaryHover} />
               <Text style={styles.resolveText}>Looking up Account ID...</Text>
             </View>
           )}
@@ -103,7 +107,7 @@ export default function SendIndex() {
           <TextInput
             style={styles.input}
             placeholder="0.00"
-            placeholderTextColor="#5C5C66"
+            placeholderTextColor={colors.textMuted}
             keyboardType="decimal-pad"
             value={amount}
             onChangeText={setAmount}
@@ -126,47 +130,49 @@ export default function SendIndex() {
   );
 }
 
-const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#0B0B0F', justifyContent: 'space-between' },
-  header: {
-    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
-    paddingHorizontal: 20, paddingTop: 12, paddingBottom: 8,
-  },
-  back: { color: '#FFFFFF', fontSize: 28 },
-  headerTitle: { color: '#FFFFFF', fontSize: 17, fontWeight: '700' },
-  body: { flex: 1, paddingHorizontal: 20, paddingTop: 12 },
-  label: { fontSize: 13, color: '#9A9AA5', marginBottom: 8, fontWeight: '500' },
-  input: {
-    backgroundColor: '#17171D', borderRadius: 12, paddingHorizontal: 16, paddingVertical: 14,
-    color: '#FFFFFF', fontSize: 18, borderWidth: 1, borderColor: '#26262E',
-  },
-  resolveRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 10 },
-  resolveText: { color: '#9A9AA5', fontSize: 13 },
-  profileRow: {
-    flexDirection: 'row', alignItems: 'center', gap: 10, marginTop: 12,
-    backgroundColor: '#17171D', borderRadius: 12, padding: 12, borderWidth: 1, borderColor: '#26262E',
-  },
-  profileAvatar: {
-    width: 32, height: 32, borderRadius: 16, backgroundColor: '#6C5CE7',
-    alignItems: 'center', justifyContent: 'center',
-  },
-  profileAvatarText: { color: '#FFFFFF', fontWeight: '700', fontSize: 14 },
-  profileName: { color: '#FFFFFF', fontSize: 15, fontWeight: '600' },
-  assetRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
-  assetChip: {
-    paddingHorizontal: 16, paddingVertical: 10, borderRadius: 20,
-    backgroundColor: '#17171D', borderWidth: 1, borderColor: '#26262E',
-  },
-  assetChipActive: { backgroundColor: '#6C5CE7', borderColor: '#6C5CE7' },
-  assetText: { color: '#9A9AA5', fontSize: 14, fontWeight: '600' },
-  assetTextActive: { color: '#FFFFFF' },
-  error: { color: '#FF6B6B', fontSize: 13, marginTop: 12 },
-  externalLink: { marginTop: 28, alignItems: 'center' },
-  externalLinkText: { color: '#8C7AFF', fontSize: 14, fontWeight: '600' },
-  footer: { paddingHorizontal: 20, paddingBottom: 32 },
-  primaryBtn: {
-    backgroundColor: '#6C5CE7', borderRadius: 14, paddingVertical: 16,
-    alignItems: 'center', justifyContent: 'center', height: 54,
-  },
-  primaryBtnText: { color: '#FFFFFF', fontSize: 16, fontWeight: '600' },
-});
+function getStyles(colors: ThemeColors) {
+  return StyleSheet.create({
+    container: { flex: 1, backgroundColor: colors.background, justifyContent: 'space-between' },
+    header: {
+      flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+      paddingHorizontal: 20, paddingTop: 12, paddingBottom: 8,
+    },
+    back: { color: colors.textPrimary, fontSize: 28 },
+    headerTitle: { color: colors.textPrimary, fontSize: 17, fontWeight: '700' },
+    body: { flex: 1, paddingHorizontal: 20, paddingTop: 12 },
+    label: { fontSize: 13, color: colors.textMuted, marginBottom: 8, fontWeight: '500' },
+    input: {
+      backgroundColor: colors.surface, borderRadius: 12, paddingHorizontal: 16, paddingVertical: 14,
+      color: colors.textPrimary, fontSize: 18, borderWidth: 1, borderColor: colors.border,
+    },
+    resolveRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 10 },
+    resolveText: { color: colors.textMuted, fontSize: 13 },
+    profileRow: {
+      flexDirection: 'row', alignItems: 'center', gap: 10, marginTop: 12,
+      backgroundColor: colors.surface, borderRadius: 12, padding: 12, borderWidth: 1, borderColor: colors.border,
+    },
+    profileAvatar: {
+      width: 32, height: 32, borderRadius: 16, backgroundColor: colors.primary,
+      alignItems: 'center', justifyContent: 'center',
+    },
+    profileAvatarText: { color: '#FFFFFF', fontWeight: '700', fontSize: 14 },
+    profileName: { color: colors.textPrimary, fontSize: 15, fontWeight: '600' },
+    assetRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+    assetChip: {
+      paddingHorizontal: 16, paddingVertical: 10, borderRadius: 20,
+      backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border,
+    },
+    assetChipActive: { backgroundColor: colors.primary, borderColor: colors.primary },
+    assetText: { color: colors.textMuted, fontSize: 14, fontWeight: '600' },
+    assetTextActive: { color: '#FFFFFF' },
+    error: { color: colors.error, fontSize: 13, marginTop: 12 },
+    externalLink: { marginTop: 28, alignItems: 'center' },
+    externalLinkText: { color: colors.primaryHover, fontSize: 14, fontWeight: '600' },
+    footer: { paddingHorizontal: 20, paddingBottom: 32 },
+    primaryBtn: {
+      backgroundColor: colors.primary, borderRadius: 14, paddingVertical: 16,
+      alignItems: 'center', justifyContent: 'center', height: 54,
+    },
+    primaryBtnText: { color: '#FFFFFF', fontSize: 16, fontWeight: '600' },
+  });
+}

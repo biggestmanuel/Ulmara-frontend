@@ -5,11 +5,14 @@ import { router, useLocalSearchParams } from 'expo-router';
 
 import { verifyPhone as verifyPhoneApi } from '../../lib/api/auth';
 import type { ApiErrorShape } from '../../lib/api/client';
+import { useThemeStore, ThemeColors } from '../../lib/theme';
 
 const CODE_LENGTH = 6;
 const RESEND_SECONDS = 30;
 
 export default function VerifyPhone() {
+  const { colors } = useThemeStore();
+  const styles = getStyles(colors);
   const { phone, userId } = useLocalSearchParams<{ phone?: string; userId?: string }>();
   const [code, setCode] = useState<string[]>(Array(CODE_LENGTH).fill(''));
   const [error, setError] = useState<string | null>(null);
@@ -107,24 +110,26 @@ export default function VerifyPhone() {
   );
 }
 
-const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#0B0B0F', justifyContent: 'space-between' },
+function getStyles(colors: ThemeColors) {
+  return StyleSheet.create({
+  container: { flex: 1, backgroundColor: colors.background, justifyContent: 'space-between' },
   body: { flex: 1, paddingHorizontal: 24, paddingTop: 48 },
-  title: { fontSize: 26, fontWeight: '700', color: '#FFFFFF' },
-  subtitle: { fontSize: 15, color: '#9A9AA5', marginTop: 8, marginBottom: 32, lineHeight: 21 },
-  phoneText: { color: '#FFFFFF', fontWeight: '600' },
+  title: { fontSize: 26, fontWeight: '700', color: colors.textPrimary },
+  subtitle: { fontSize: 15, color: colors.textMuted, marginTop: 8, marginBottom: 32, lineHeight: 21 },
+  phoneText: { color: colors.textPrimary, fontWeight: '600' },
   codeRow: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 16 },
   codeBox: {
-    width: 48, height: 56, borderRadius: 12, backgroundColor: '#17171D',
-    borderWidth: 1, borderColor: '#26262E', color: '#FFFFFF', fontSize: 22, fontWeight: '600',
+    width: 48, height: 56, borderRadius: 12, backgroundColor: colors.surface,
+    borderWidth: 1, borderColor: colors.border, color: colors.textPrimary, fontSize: 22, fontWeight: '600',
   },
-  error: { color: '#FF6B6B', fontSize: 13, marginTop: 4 },
-  resend: { color: '#8C7AFF', fontSize: 14, fontWeight: '600', marginTop: 24 },
-  resendDisabled: { color: '#5C5C66' },
+  error: { color: colors.error, fontSize: 13, marginTop: 4 },
+  resend: { color: colors.primaryHover, fontSize: 14, fontWeight: '600', marginTop: 24 },
+  resendDisabled: { color: colors.textMuted },
   footer: { paddingHorizontal: 24, paddingBottom: 32 },
   primaryBtn: {
-    backgroundColor: '#6C5CE7', borderRadius: 14, paddingVertical: 16,
+    backgroundColor: colors.primary, borderRadius: 14, paddingVertical: 16,
     alignItems: 'center', justifyContent: 'center', height: 54,
   },
   primaryBtnText: { color: '#FFFFFF', fontSize: 16, fontWeight: '600' },
 });
+}

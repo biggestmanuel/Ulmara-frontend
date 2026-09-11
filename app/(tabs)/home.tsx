@@ -1,12 +1,16 @@
-import { useState } from 'react';
-import { View, Text, StyleSheet, Pressable, ScrollView, FlatList } from 'react-native';
+import { useMemo, useState } from 'react';
+import { View, Text, StyleSheet, Pressable, ScrollView, FlatList, ActivityIndicator } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { router } from 'expo-router';
+import { useUserStore } from '../../stores/userStore';
+import { useWalletStore } from '../../stores/walletStore';
 
-// TODO: replace with hooks/useBalance + hooks/useAccountId (stores/walletStore, stores/userStore)
-const MOCK_ACCOUNT_ID = '4821 093 471';
-const MOCK_BALANCE_USD = 1284.52;
+const CHAIN_LABELS: Record<string, string> = {
+  eth: 'Ethereum', bsc: 'BSC', base: 'Base', polygon: 'Polygon',
+  sol: 'Solana', tron: 'TRON', ton: 'TON',
+};
 
+// TODO: replace with stores/txStore + lib/api/transactions
 type Tx = {
   id: string;
   type: 'sent' | 'received' | 'deposit';
@@ -36,6 +40,14 @@ function txLabel(tx: Tx): string {
 
 export default function Home() {
   const [balanceHidden, setBalanceHidden] = useState(false);
+  const accountId = useUserStore((s) => s.accountId);
+  const balances = useWalletStore((s) => s.balances);
+  const isLoadingBalances = useWalletStore((s) => s.isLoadingBalances);
+
+  // Real per-chain breakdown. USD totals aren't computed here yet since
+  // that needs a live price feed multiplied in — see lib/prices/coingecko.ts,
+  // not yet wired into this screen's total.
+  const hasBalances = balances.length > 0;
 
   return (
     <SafeAreaView style={styles.container}>
@@ -43,23 +55,48 @@ export default function Home() {
         <View style={styles.header}>
           <View>
             <Text style={styles.greeting}>Account ID</Text>
-            <Text style={styles.accountId}>{MOCK_ACCOUNT_ID}</Text>
+            <Text style={styles.accountId}>{accountId ?? '—'}</Text>
           </View>
           <Pressable style={styles.avatar} onPress={() => router.push('/(tabs)/profile')}>
-            <Text style={styles.avatarText}>M</Text>
+            <Text style={styles.avatarText}>{(accountId ?? 'U').charAt(0)}</Text>
           </Pressable>
         </View>
 
         <View style={styles.balanceCard}>
           <View style={styles.balanceHeaderRow}>
-            <Text style={styles.balanceLabel}>Total Balance</Text>
+            <Text style={styles.balanceLabel}>Assets</Text>
             <Pressable onPress={() => setBalanceHidden((v) => !v)}>
               <Text style={styles.eyeIcon}>{balanceHidden ? '◌' : '◉'}</Text>
             </Pressable>
           </View>
-          <Text style={styles.balanceValue}>
-            {balanceHidden ? '••••••' : `$${MOCK_BALANCE_USD.toLocaleString('en-US', { minimumFractionDigits: 2 })}`}
-          </Text>
+
+          {isLoadingBalances ? (
+            <ActivityIndicator color="#6C5CE7" style={{ marginTop: 16 }} />
+          ) : !hasBalances ? (
+            <Text style={styles.emptyText}>No balances yet</Text>
+          ) : (
+            <View style={{ marginTop: 12 }}>
+              {balances.map((b) => (
+                <Pressable
+                  key={b.id}
+                  style={styles.assetRow}
+                  onPress={() => router.push({ pathname: '/wallet/addresses', params: { chain: b.chainId } })}
+                >
+                  <View>
+                    <Text style={styles.assetSymbol}>{b.symbol}</Text>
+                    <Text style={styles.assetChain}>{CHAIN_LABELS[b.chainId] ?? b.chainId}</Text>
+                  </View>
+                  <Text style={styles.assetBalance}>
+                    {balanceHidden ? '••••' : b.balance}
+                  </Text>
+                </Pressable>
+              ))}
+            </View>
+          )}
+
+          <Pressable style={styles.addressesLink} onPress={() => router.push('/wallet/addresses')}>
+            <Text style={styles.addressesLinkText}>View receiving addresses →</Text>
+          </Pressable>
         </View>
 
         <View style={styles.actionsRow}>
@@ -127,7 +164,16 @@ const styles = StyleSheet.create({
   balanceHeaderRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
   balanceLabel: { fontSize: 13, color: '#9A9AA5', fontWeight: '500' },
   eyeIcon: { color: '#9A9AA5', fontSize: 16 },
-  balanceValue: { fontSize: 34, color: '#FFFFFF', fontWeight: '700', marginTop: 8 },
+  emptyText: { color: '#5C5C66', fontSize: 13, marginTop: 12 },
+  assetRow: {
+    flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
+    paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: '#1D1D24',
+  },
+  assetSymbol: { color: '#FFFFFF', fontSize: 15, fontWeight: '700' },
+  assetChain: { color: '#5C5C66', fontSize: 12, marginTop: 2 },
+  assetBalance: { color: '#D0D0D6', fontSize: 15, fontWeight: '600' },
+  addressesLink: { marginTop: 14 },
+  addressesLinkText: { color: '#8C7AFF', fontSize: 13, fontWeight: '600' },
   actionsRow: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 28 },
   actionItem: { alignItems: 'center', gap: 8 },
   actionCircle: {

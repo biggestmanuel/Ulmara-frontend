@@ -2,8 +2,10 @@ import { useState } from 'react';
 import { View, Text, TextInput, StyleSheet, Pressable, KeyboardAvoidingView, Platform } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { router } from 'expo-router';
+import { useThemeStore, ThemeColors } from '../../lib/theme';
 
 // TODO: replace with lib/validation/triverify.ts address format + existence check
+// (pending TriVerify's network-first API redesign, see project notes)
 const NETWORKS = ['ETH', 'BSC', 'TRON', 'SOL', 'TON', 'BASE', 'Polygon'] as const;
 type Network = (typeof NETWORKS)[number];
 
@@ -16,6 +18,9 @@ function looksValid(address: string, network: Network): boolean {
 const ASSETS = ['USDT', 'BTC', 'ETH', 'SOL', 'TON'] as const;
 
 export default function ExternalWallet() {
+  const { colors } = useThemeStore();
+  const styles = getStyles(colors);
+
   const [address, setAddress] = useState('');
   const [network, setNetwork] = useState<Network>('ETH');
   const [asset, setAsset] = useState<(typeof ASSETS)[number]>('USDT');
@@ -77,7 +82,7 @@ export default function ExternalWallet() {
           <TextInput
             style={[styles.input, styles.inputMultiline]}
             placeholder={`Paste ${network} address`}
-            placeholderTextColor="#5C5C66"
+            placeholderTextColor={colors.textMuted}
             autoCapitalize="none"
             multiline
             value={address}
@@ -101,7 +106,7 @@ export default function ExternalWallet() {
           <TextInput
             style={styles.input}
             placeholder="0.00"
-            placeholderTextColor="#5C5C66"
+            placeholderTextColor={colors.textMuted}
             keyboardType="decimal-pad"
             value={amount}
             onChangeText={setAmount}
@@ -120,39 +125,41 @@ export default function ExternalWallet() {
   );
 }
 
-const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#0B0B0F', justifyContent: 'space-between' },
-  header: {
-    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
-    paddingHorizontal: 20, paddingTop: 12, paddingBottom: 8,
-  },
-  back: { color: '#FFFFFF', fontSize: 28 },
-  headerTitle: { color: '#FFFFFF', fontSize: 17, fontWeight: '700' },
-  body: { flex: 1, paddingHorizontal: 20, paddingTop: 12 },
-  warningBox: {
-    backgroundColor: '#1A1610', borderRadius: 12, borderWidth: 1,
-    borderColor: '#3A3020', padding: 14, marginBottom: 20,
-  },
-  warningText: { color: '#E8B84B', fontSize: 12, lineHeight: 17 },
-  label: { fontSize: 13, color: '#9A9AA5', marginBottom: 8, fontWeight: '500' },
-  input: {
-    backgroundColor: '#17171D', borderRadius: 12, paddingHorizontal: 16, paddingVertical: 14,
-    color: '#FFFFFF', fontSize: 16, borderWidth: 1, borderColor: '#26262E',
-  },
-  inputMultiline: { minHeight: 70, textAlignVertical: 'top' },
-  chipRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
-  chip: {
-    paddingHorizontal: 14, paddingVertical: 9, borderRadius: 20,
-    backgroundColor: '#17171D', borderWidth: 1, borderColor: '#26262E',
-  },
-  chipActive: { backgroundColor: '#6C5CE7', borderColor: '#6C5CE7' },
-  chipText: { color: '#9A9AA5', fontSize: 13, fontWeight: '600' },
-  chipTextActive: { color: '#FFFFFF' },
-  error: { color: '#FF6B6B', fontSize: 13, marginTop: 14 },
-  footer: { paddingHorizontal: 20, paddingBottom: 32 },
-  primaryBtn: {
-    backgroundColor: '#6C5CE7', borderRadius: 14, paddingVertical: 16,
-    alignItems: 'center', justifyContent: 'center', height: 54,
-  },
-  primaryBtnText: { color: '#FFFFFF', fontSize: 16, fontWeight: '600' },
-});
+function getStyles(colors: ThemeColors) {
+  return StyleSheet.create({
+    container: { flex: 1, backgroundColor: colors.background, justifyContent: 'space-between' },
+    header: {
+      flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+      paddingHorizontal: 20, paddingTop: 12, paddingBottom: 8,
+    },
+    back: { color: colors.textPrimary, fontSize: 28 },
+    headerTitle: { color: colors.textPrimary, fontSize: 17, fontWeight: '700' },
+    body: { flex: 1, paddingHorizontal: 20, paddingTop: 12 },
+    warningBox: {
+      backgroundColor: `${colors.warning}1A`, borderRadius: 12, borderWidth: 1,
+      borderColor: `${colors.warning}40`, padding: 14, marginBottom: 20,
+    },
+    warningText: { color: colors.warning, fontSize: 12, lineHeight: 17 },
+    label: { fontSize: 13, color: colors.textMuted, marginBottom: 8, fontWeight: '500' },
+    input: {
+      backgroundColor: colors.surface, borderRadius: 12, paddingHorizontal: 16, paddingVertical: 14,
+      color: colors.textPrimary, fontSize: 16, borderWidth: 1, borderColor: colors.border,
+    },
+    inputMultiline: { minHeight: 70, textAlignVertical: 'top' },
+    chipRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+    chip: {
+      paddingHorizontal: 14, paddingVertical: 9, borderRadius: 20,
+      backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border,
+    },
+    chipActive: { backgroundColor: colors.primary, borderColor: colors.primary },
+    chipText: { color: colors.textMuted, fontSize: 13, fontWeight: '600' },
+    chipTextActive: { color: '#FFFFFF' },
+    error: { color: colors.error, fontSize: 13, marginTop: 14 },
+    footer: { paddingHorizontal: 20, paddingBottom: 32 },
+    primaryBtn: {
+      backgroundColor: colors.primary, borderRadius: 14, paddingVertical: 16,
+      alignItems: 'center', justifyContent: 'center', height: 54,
+    },
+    primaryBtnText: { color: '#FFFFFF', fontSize: 16, fontWeight: '600' },
+  });
+}

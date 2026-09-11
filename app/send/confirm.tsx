@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { View, Text, StyleSheet, Pressable, ActivityIndicator } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { router, useLocalSearchParams } from 'expo-router';
+import { useThemeStore, ThemeColors } from '../../lib/theme';
 
 // TODO: replace with lib/api/accountId resolved address lookup
 function mockResolvedAddress(network: string): string {
@@ -13,6 +14,9 @@ function mockResolvedAddress(network: string): string {
 }
 
 export default function SendConfirm() {
+  const { colors } = useThemeStore();
+  const styles = getStyles(colors);
+
   const params = useLocalSearchParams<{
     accountId?: string; recipientName?: string; externalAddress?: string;
     asset: string; amount: string; network: string; networkName: string; fee: string;
@@ -72,10 +76,10 @@ export default function SendConfirm() {
         </Text>
 
         <View style={styles.summaryCard}>
-          <Row label="Recipient" value={isExternal ? 'External Wallet' : `${params.recipientName} (${params.accountId})`} />
-          <Row label="Network" value={params.networkName} />
-          <Row label="Network Fee" value={params.fee} />
-          <Row label="Amount" value={`${params.amount} ${params.asset}`} />
+          <Row styles={styles} label="Recipient" value={isExternal ? 'External Wallet' : `${params.recipientName} (${params.accountId})`} />
+          <Row styles={styles} label="Network" value={params.networkName} />
+          <Row styles={styles} label="Network Fee" value={params.fee} />
+          <Row styles={styles} label="Amount" value={`${params.amount} ${params.asset}`} />
 
           <Pressable style={styles.addressToggle} onPress={() => setShowAddress((v) => !v)}>
             <Text style={styles.addressToggleText}>
@@ -105,7 +109,7 @@ export default function SendConfirm() {
   );
 }
 
-function Row({ label, value }: { label: string; value?: string }) {
+function Row({ styles, label, value }: { styles: ReturnType<typeof getStyles>; label: string; value?: string }) {
   return (
     <View style={styles.row}>
       <Text style={styles.rowLabel}>{label}</Text>
@@ -114,45 +118,47 @@ function Row({ label, value }: { label: string; value?: string }) {
   );
 }
 
-const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#0B0B0F', justifyContent: 'space-between' },
-  header: {
-    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
-    paddingHorizontal: 20, paddingTop: 12, paddingBottom: 8,
-  },
-  back: { color: '#FFFFFF', fontSize: 28 },
-  headerTitle: { color: '#FFFFFF', fontSize: 17, fontWeight: '700' },
-  body: { flex: 1, paddingHorizontal: 20, paddingTop: 20, alignItems: 'center' },
-  bigAmount: { color: '#FFFFFF', fontSize: 32, fontWeight: '700' },
-  toText: { color: '#9A9AA5', fontSize: 14, marginTop: 6, marginBottom: 24 },
-  summaryCard: {
-    width: '100%', backgroundColor: '#17171D', borderRadius: 16,
-    borderWidth: 1, borderColor: '#26262E', padding: 18,
-  },
-  row: { flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 8 },
-  rowLabel: { color: '#9A9AA5', fontSize: 14 },
-  rowValue: { color: '#FFFFFF', fontSize: 14, fontWeight: '600', maxWidth: '60%' },
-  addressToggle: { marginTop: 8, paddingTop: 8, borderTopWidth: 1, borderTopColor: '#1D1D24' },
-  addressToggleText: { color: '#8C7AFF', fontSize: 13, fontWeight: '600' },
-  addressBox: { marginTop: 8, backgroundColor: '#0B0B0F', borderRadius: 10, padding: 12 },
-  addressText: { color: '#D0D0D6', fontSize: 12 },
-  warningBox: {
-    width: '100%', backgroundColor: '#1A1610', borderRadius: 12, borderWidth: 1,
-    borderColor: '#3A3020', padding: 14, marginTop: 20,
-  },
-  warningText: { color: '#E8B84B', fontSize: 12, lineHeight: 17 },
-  footer: { paddingHorizontal: 20, paddingBottom: 32 },
-  primaryBtn: {
-    backgroundColor: '#6C5CE7', borderRadius: 14, paddingVertical: 16,
-    alignItems: 'center', justifyContent: 'center', height: 54,
-  },
-  primaryBtnText: { color: '#FFFFFF', fontSize: 16, fontWeight: '600' },
-  successWrap: { flex: 1, alignItems: 'center', justifyContent: 'center' },
-  successCircle: {
-    width: 72, height: 72, borderRadius: 36, backgroundColor: '#1A2E20',
-    alignItems: 'center', justifyContent: 'center', marginBottom: 20,
-  },
-  successCheck: { color: '#4CD97B', fontSize: 32, fontWeight: '700' },
-  successTitle: { color: '#FFFFFF', fontSize: 22, fontWeight: '700' },
-  successSubtitle: { color: '#9A9AA5', fontSize: 14, marginTop: 8 },
-});
+function getStyles(colors: ThemeColors) {
+  return StyleSheet.create({
+    container: { flex: 1, backgroundColor: colors.background, justifyContent: 'space-between' },
+    header: {
+      flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+      paddingHorizontal: 20, paddingTop: 12, paddingBottom: 8,
+    },
+    back: { color: colors.textPrimary, fontSize: 28 },
+    headerTitle: { color: colors.textPrimary, fontSize: 17, fontWeight: '700' },
+    body: { flex: 1, paddingHorizontal: 20, paddingTop: 20, alignItems: 'center' },
+    bigAmount: { color: colors.textPrimary, fontSize: 32, fontWeight: '700' },
+    toText: { color: colors.textMuted, fontSize: 14, marginTop: 6, marginBottom: 24 },
+    summaryCard: {
+      width: '100%', backgroundColor: colors.surface, borderRadius: 16,
+      borderWidth: 1, borderColor: colors.border, padding: 18,
+    },
+    row: { flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 8 },
+    rowLabel: { color: colors.textMuted, fontSize: 14 },
+    rowValue: { color: colors.textPrimary, fontSize: 14, fontWeight: '600', maxWidth: '60%' },
+    addressToggle: { marginTop: 8, paddingTop: 8, borderTopWidth: 1, borderTopColor: colors.divider },
+    addressToggleText: { color: colors.primaryHover, fontSize: 13, fontWeight: '600' },
+    addressBox: { marginTop: 8, backgroundColor: colors.background, borderRadius: 10, padding: 12 },
+    addressText: { color: colors.textSecondary, fontSize: 12 },
+    warningBox: {
+      width: '100%', backgroundColor: `${colors.warning}1A`, borderRadius: 12, borderWidth: 1,
+      borderColor: `${colors.warning}40`, padding: 14, marginTop: 20,
+    },
+    warningText: { color: colors.warning, fontSize: 12, lineHeight: 17 },
+    footer: { paddingHorizontal: 20, paddingBottom: 32 },
+    primaryBtn: {
+      backgroundColor: colors.primary, borderRadius: 14, paddingVertical: 16,
+      alignItems: 'center', justifyContent: 'center', height: 54,
+    },
+    primaryBtnText: { color: '#FFFFFF', fontSize: 16, fontWeight: '600' },
+    successWrap: { flex: 1, alignItems: 'center', justifyContent: 'center' },
+    successCircle: {
+      width: 72, height: 72, borderRadius: 36, backgroundColor: `${colors.success}22`,
+      alignItems: 'center', justifyContent: 'center', marginBottom: 20,
+    },
+    successCheck: { color: colors.success, fontSize: 32, fontWeight: '700' },
+    successTitle: { color: colors.textPrimary, fontSize: 22, fontWeight: '700' },
+    successSubtitle: { color: colors.textMuted, fontSize: 14, marginTop: 8 },
+  });
+}

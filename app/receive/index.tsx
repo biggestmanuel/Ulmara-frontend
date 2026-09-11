@@ -2,10 +2,12 @@ import { useState } from 'react';
 import { View, Text, StyleSheet, Pressable, Share, Platform } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { router } from 'expo-router';
+import { useThemeStore, ThemeColors } from '../../lib/theme';
 
 // NOTE: swap this placeholder for a real QR renderer, e.g. react-native-qrcode-svg
 // <QRCode value={`accountwallet://pay/${accountId}`} size={200} />
-function QRPlaceholder({ value }: { value: string }) {
+// Kept black-on-white regardless of theme, same as a real QR code, for scannability.
+function QRPlaceholder({ value, styles }: { value: string; styles: ReturnType<typeof getStyles> }) {
   return (
     <View style={styles.qrBox}>
       <View style={styles.qrGrid}>
@@ -31,6 +33,9 @@ const METHODS = ['Account ID', 'QR Code', 'Link'] as const;
 type Method = (typeof METHODS)[number];
 
 export default function ReceiveIndex() {
+  const { colors } = useThemeStore();
+  const styles = getStyles(colors);
+
   const [method, setMethod] = useState<Method>('QR Code');
   const [copied, setCopied] = useState(false);
 
@@ -77,7 +82,7 @@ export default function ReceiveIndex() {
       <View style={styles.body}>
         {method === 'QR Code' && (
           <>
-            <QRPlaceholder value={shareLink} />
+            <QRPlaceholder value={shareLink} styles={styles} />
             <Text style={styles.accountId}>{formatAccountId(MOCK_ACCOUNT_ID)}</Text>
             <Text style={styles.helperText}>Scan to send crypto directly to this account</Text>
           </>
@@ -120,50 +125,52 @@ export default function ReceiveIndex() {
   );
 }
 
-const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#0B0B0F', justifyContent: 'space-between' },
-  header: {
-    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
-    paddingHorizontal: 20, paddingTop: 12, paddingBottom: 8,
-  },
-  back: { color: '#FFFFFF', fontSize: 28 },
-  headerTitle: { color: '#FFFFFF', fontSize: 17, fontWeight: '700' },
-  methodRow: { flexDirection: 'row', gap: 8, paddingHorizontal: 20, marginTop: 4 },
-  methodChip: {
-    paddingHorizontal: 14, paddingVertical: 9, borderRadius: 20,
-    backgroundColor: '#17171D', borderWidth: 1, borderColor: '#26262E',
-  },
-  methodChipActive: { backgroundColor: '#6C5CE7', borderColor: '#6C5CE7' },
-  methodText: { color: '#9A9AA5', fontSize: 13, fontWeight: '600' },
-  methodTextActive: { color: '#FFFFFF' },
-  body: { flex: 1, alignItems: 'center', paddingHorizontal: 24, paddingTop: 28 },
-  qrBox: {
-    width: 220, height: 220, backgroundColor: '#FFFFFF', borderRadius: 20,
-    alignItems: 'center', justifyContent: 'center', padding: 16,
-  },
-  qrGrid: { width: 180, height: 180, flexDirection: 'row', flexWrap: 'wrap' },
-  qrCell: { width: '14.28%', height: '14.28%', backgroundColor: 'transparent' },
-  qrCellFilled: { backgroundColor: '#0B0B0F' },
-  accountId: { color: '#FFFFFF', fontSize: 22, fontWeight: '700', marginTop: 24, letterSpacing: 1 },
-  helperText: { color: '#9A9AA5', fontSize: 13, marginTop: 8, textAlign: 'center' },
-  idCard: {
-    width: '100%', backgroundColor: '#17171D', borderRadius: 16, borderWidth: 1,
-    borderColor: '#26262E', padding: 24, alignItems: 'center',
-  },
-  idLabel: { color: '#9A9AA5', fontSize: 13, fontWeight: '500' },
-  idValue: { color: '#FFFFFF', fontSize: 24, fontWeight: '700', marginTop: 8, letterSpacing: 1 },
-  linkValue: { color: '#FFFFFF', fontSize: 14, fontWeight: '600', marginTop: 8, maxWidth: '100%' },
-  copyBtn: {
-    marginTop: 18, backgroundColor: '#26262E', borderRadius: 10,
-    paddingHorizontal: 20, paddingVertical: 10,
-  },
-  copyBtnText: { color: '#FFFFFF', fontSize: 13, fontWeight: '600' },
-  requestBtn: { marginTop: 28 },
-  requestBtnText: { color: '#8C7AFF', fontSize: 14, fontWeight: '600' },
-  footer: { paddingHorizontal: 20, paddingBottom: 32 },
-  primaryBtn: {
-    backgroundColor: '#6C5CE7', borderRadius: 14, paddingVertical: 16,
-    alignItems: 'center', justifyContent: 'center', height: 54,
-  },
-  primaryBtnText: { color: '#FFFFFF', fontSize: 16, fontWeight: '600' },
-});
+function getStyles(colors: ThemeColors) {
+  return StyleSheet.create({
+    container: { flex: 1, backgroundColor: colors.background, justifyContent: 'space-between' },
+    header: {
+      flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+      paddingHorizontal: 20, paddingTop: 12, paddingBottom: 8,
+    },
+    back: { color: colors.textPrimary, fontSize: 28 },
+    headerTitle: { color: colors.textPrimary, fontSize: 17, fontWeight: '700' },
+    methodRow: { flexDirection: 'row', gap: 8, paddingHorizontal: 20, marginTop: 4 },
+    methodChip: {
+      paddingHorizontal: 14, paddingVertical: 9, borderRadius: 20,
+      backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border,
+    },
+    methodChipActive: { backgroundColor: colors.primary, borderColor: colors.primary },
+    methodText: { color: colors.textMuted, fontSize: 13, fontWeight: '600' },
+    methodTextActive: { color: '#FFFFFF' },
+    body: { flex: 1, alignItems: 'center', paddingHorizontal: 24, paddingTop: 28 },
+    qrBox: {
+      width: 220, height: 220, backgroundColor: '#FFFFFF', borderRadius: 20,
+      alignItems: 'center', justifyContent: 'center', padding: 16,
+    },
+    qrGrid: { width: 180, height: 180, flexDirection: 'row', flexWrap: 'wrap' },
+    qrCell: { width: '14.28%', height: '14.28%', backgroundColor: 'transparent' },
+    qrCellFilled: { backgroundColor: '#0B0B0F' },
+    accountId: { color: colors.textPrimary, fontSize: 22, fontWeight: '700', marginTop: 24, letterSpacing: 1 },
+    helperText: { color: colors.textMuted, fontSize: 13, marginTop: 8, textAlign: 'center' },
+    idCard: {
+      width: '100%', backgroundColor: colors.surface, borderRadius: 16, borderWidth: 1,
+      borderColor: colors.border, padding: 24, alignItems: 'center',
+    },
+    idLabel: { color: colors.textMuted, fontSize: 13, fontWeight: '500' },
+    idValue: { color: colors.textPrimary, fontSize: 24, fontWeight: '700', marginTop: 8, letterSpacing: 1 },
+    linkValue: { color: colors.textPrimary, fontSize: 14, fontWeight: '600', marginTop: 8, maxWidth: '100%' },
+    copyBtn: {
+      marginTop: 18, backgroundColor: colors.border, borderRadius: 10,
+      paddingHorizontal: 20, paddingVertical: 10,
+    },
+    copyBtnText: { color: colors.textPrimary, fontSize: 13, fontWeight: '600' },
+    requestBtn: { marginTop: 28 },
+    requestBtnText: { color: colors.primaryHover, fontSize: 14, fontWeight: '600' },
+    footer: { paddingHorizontal: 20, paddingBottom: 32 },
+    primaryBtn: {
+      backgroundColor: colors.primary, borderRadius: 14, paddingVertical: 16,
+      alignItems: 'center', justifyContent: 'center', height: 54,
+    },
+    primaryBtnText: { color: '#FFFFFF', fontSize: 16, fontWeight: '600' },
+  });
+}

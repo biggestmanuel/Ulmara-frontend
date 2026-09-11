@@ -6,10 +6,13 @@ import { router } from 'expo-router';
 import { signup as signupApi } from '../../lib/api/auth';
 import type { ApiErrorShape } from '../../lib/api/client';
 import { setSecureItem, SecureStorageKeys } from '../../lib/storage/secureStorage';
+import { useThemeStore, ThemeColors } from '../../lib/theme';
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 export default function Signup() {
+  const { colors } = useThemeStore();
+  const styles = getStyles(colors);
   const [fullName, setFullName] = useState('');
   const [email, setEmail] = useState('');
   const [phone, setPhone] = useState('');
@@ -62,7 +65,7 @@ export default function Signup() {
             <TextInput
               style={styles.input}
               placeholder="John Doe"
-              placeholderTextColor="#5C5C66"
+              placeholderTextColor={colors.textMuted}
               value={fullName}
               onChangeText={setFullName}
             />
@@ -73,7 +76,7 @@ export default function Signup() {
             <TextInput
               style={styles.input}
               placeholder="you@example.com"
-              placeholderTextColor="#5C5C66"
+              placeholderTextColor={colors.textMuted}
               autoCapitalize="none"
               keyboardType="email-address"
               value={email}
@@ -86,7 +89,7 @@ export default function Signup() {
             <TextInput
               style={styles.input}
               placeholder="+234 800 000 0000"
-              placeholderTextColor="#5C5C66"
+              placeholderTextColor={colors.textMuted}
               keyboardType="phone-pad"
               value={phone}
               onChangeText={setPhone}
@@ -98,7 +101,7 @@ export default function Signup() {
             <TextInput
               style={styles.input}
               placeholder="At least 8 characters"
-              placeholderTextColor="#5C5C66"
+              placeholderTextColor={colors.textMuted}
               secureTextEntry
               value={password}
               onChangeText={setPassword}
@@ -123,24 +126,26 @@ export default function Signup() {
   );
 }
 
-const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#0B0B0F', justifyContent: 'space-between' },
+function getStyles(colors: ThemeColors) {
+  return StyleSheet.create({
+  container: { flex: 1, backgroundColor: colors.background, justifyContent: 'space-between' },
   body: { paddingHorizontal: 24, paddingTop: 40, paddingBottom: 20 },
-  title: { fontSize: 28, fontWeight: '700', color: '#FFFFFF' },
-  subtitle: { fontSize: 15, color: '#9A9AA5', marginTop: 6, marginBottom: 32 },
+  title: { fontSize: 28, fontWeight: '700', color: colors.textPrimary },
+  subtitle: { fontSize: 15, color: colors.textMuted, marginTop: 6, marginBottom: 32 },
   field: { marginBottom: 18 },
-  label: { fontSize: 13, color: '#9A9AA5', marginBottom: 8, fontWeight: '500' },
+  label: { fontSize: 13, color: colors.textMuted, marginBottom: 8, fontWeight: '500' },
   input: {
-    backgroundColor: '#17171D', borderRadius: 12, paddingHorizontal: 16, paddingVertical: 14,
-    color: '#FFFFFF', fontSize: 16, borderWidth: 1, borderColor: '#26262E',
+    backgroundColor: colors.surface, borderRadius: 12, paddingHorizontal: 16, paddingVertical: 14,
+    color: colors.textPrimary, fontSize: 16, borderWidth: 1, borderColor: colors.border,
   },
-  error: { color: '#FF6B6B', fontSize: 13, marginTop: 4 },
+  error: { color: colors.error, fontSize: 13, marginTop: 4 },
   footer: { paddingHorizontal: 24, paddingBottom: 32, gap: 16 },
   primaryBtn: {
-    backgroundColor: '#6C5CE7', borderRadius: 14, paddingVertical: 16,
+    backgroundColor: colors.primary, borderRadius: 14, paddingVertical: 16,
     alignItems: 'center', justifyContent: 'center', height: 54,
   },
   primaryBtnText: { color: '#FFFFFF', fontSize: 16, fontWeight: '600' },
-  secondaryText: { color: '#9A9AA5', fontSize: 14, textAlign: 'center' },
-  linkInline: { color: '#8C7AFF', fontWeight: '600' },
+  secondaryText: { color: colors.textMuted, fontSize: 14, textAlign: 'center' },
+  linkInline: { color: colors.primaryHover, fontWeight: '600' },
 });
+}

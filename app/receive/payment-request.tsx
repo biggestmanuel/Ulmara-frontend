@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { View, Text, TextInput, StyleSheet, Pressable, Share, KeyboardAvoidingView, Platform } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { router } from 'expo-router';
+import { useThemeStore, ThemeColors } from '../../lib/theme';
 
 const ASSETS = ['USDT', 'BTC', 'ETH', 'SOL', 'TON'] as const;
 
@@ -12,7 +13,8 @@ function formatAccountId(id: string): string {
   return id.replace(/(\d{4})(\d{3})(\d{3})/, '$1 $2 $3');
 }
 
-function QRPlaceholder() {
+// Kept black-on-white regardless of theme, same as a real QR code, for scannability.
+function QRPlaceholder({ styles }: { styles: ReturnType<typeof getStyles> }) {
   return (
     <View style={styles.qrBox}>
       <View style={styles.qrGrid}>
@@ -25,6 +27,9 @@ function QRPlaceholder() {
 }
 
 export default function PaymentRequest() {
+  const { colors } = useThemeStore();
+  const styles = getStyles(colors);
+
   const [asset, setAsset] = useState<(typeof ASSETS)[number]>('USDT');
   const [amount, setAmount] = useState('');
   const [note, setNote] = useState('');
@@ -59,7 +64,7 @@ export default function PaymentRequest() {
         </View>
 
         <View style={styles.body}>
-          <QRPlaceholder />
+          <QRPlaceholder styles={styles} />
           <Text style={styles.requestAmount}>{amount} {asset}</Text>
           {note ? <Text style={styles.note}>{note}</Text> : null}
           <Text style={styles.accountId}>{formatAccountId(MOCK_ACCOUNT_ID)}</Text>
@@ -106,7 +111,7 @@ export default function PaymentRequest() {
           <TextInput
             style={styles.input}
             placeholder="0.00"
-            placeholderTextColor="#5C5C66"
+            placeholderTextColor={colors.textMuted}
             keyboardType="decimal-pad"
             value={amount}
             onChangeText={setAmount}
@@ -116,7 +121,7 @@ export default function PaymentRequest() {
           <TextInput
             style={styles.input}
             placeholder="What's this for?"
-            placeholderTextColor="#5C5C66"
+            placeholderTextColor={colors.textMuted}
             value={note}
             onChangeText={setNote}
           />
@@ -132,43 +137,45 @@ export default function PaymentRequest() {
   );
 }
 
-const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#0B0B0F', justifyContent: 'space-between' },
-  header: {
-    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
-    paddingHorizontal: 20, paddingTop: 12, paddingBottom: 8,
-  },
-  back: { color: '#FFFFFF', fontSize: 28 },
-  headerTitle: { color: '#FFFFFF', fontSize: 17, fontWeight: '700' },
-  body: { flex: 1, paddingHorizontal: 20, paddingTop: 16, alignItems: 'stretch' },
-  label: { fontSize: 13, color: '#9A9AA5', marginBottom: 8, fontWeight: '500' },
-  input: {
-    backgroundColor: '#17171D', borderRadius: 12, paddingHorizontal: 16, paddingVertical: 14,
-    color: '#FFFFFF', fontSize: 16, borderWidth: 1, borderColor: '#26262E',
-  },
-  chipRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
-  chip: {
-    paddingHorizontal: 14, paddingVertical: 9, borderRadius: 20,
-    backgroundColor: '#17171D', borderWidth: 1, borderColor: '#26262E',
-  },
-  chipActive: { backgroundColor: '#6C5CE7', borderColor: '#6C5CE7' },
-  chipText: { color: '#9A9AA5', fontSize: 13, fontWeight: '600' },
-  chipTextActive: { color: '#FFFFFF' },
-  footer: { paddingHorizontal: 20, paddingBottom: 32, gap: 14, alignItems: 'center' },
-  primaryBtn: {
-    width: '100%', backgroundColor: '#6C5CE7', borderRadius: 14, paddingVertical: 16,
-    alignItems: 'center', justifyContent: 'center', height: 54,
-  },
-  primaryBtnText: { color: '#FFFFFF', fontSize: 16, fontWeight: '600' },
-  secondaryText: { color: '#9A9AA5', fontSize: 14, fontWeight: '600' },
-  qrBox: {
-    width: 200, height: 200, backgroundColor: '#FFFFFF', borderRadius: 20,
-    alignItems: 'center', justifyContent: 'center', padding: 16, alignSelf: 'center',
-  },
-  qrGrid: { width: 160, height: 160, flexDirection: 'row', flexWrap: 'wrap' },
-  qrCell: { width: '14.28%', height: '14.28%', backgroundColor: 'transparent' },
-  qrCellFilled: { backgroundColor: '#0B0B0F' },
-  requestAmount: { color: '#FFFFFF', fontSize: 26, fontWeight: '700', marginTop: 20, textAlign: 'center' },
-  note: { color: '#9A9AA5', fontSize: 14, marginTop: 6, textAlign: 'center' },
-  accountId: { color: '#5C5C66', fontSize: 14, marginTop: 16, textAlign: 'center', letterSpacing: 1 },
-});
+function getStyles(colors: ThemeColors) {
+  return StyleSheet.create({
+    container: { flex: 1, backgroundColor: colors.background, justifyContent: 'space-between' },
+    header: {
+      flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+      paddingHorizontal: 20, paddingTop: 12, paddingBottom: 8,
+    },
+    back: { color: colors.textPrimary, fontSize: 28 },
+    headerTitle: { color: colors.textPrimary, fontSize: 17, fontWeight: '700' },
+    body: { flex: 1, paddingHorizontal: 20, paddingTop: 16, alignItems: 'stretch' },
+    label: { fontSize: 13, color: colors.textMuted, marginBottom: 8, fontWeight: '500' },
+    input: {
+      backgroundColor: colors.surface, borderRadius: 12, paddingHorizontal: 16, paddingVertical: 14,
+      color: colors.textPrimary, fontSize: 16, borderWidth: 1, borderColor: colors.border,
+    },
+    chipRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+    chip: {
+      paddingHorizontal: 14, paddingVertical: 9, borderRadius: 20,
+      backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border,
+    },
+    chipActive: { backgroundColor: colors.primary, borderColor: colors.primary },
+    chipText: { color: colors.textMuted, fontSize: 13, fontWeight: '600' },
+    chipTextActive: { color: '#FFFFFF' },
+    footer: { paddingHorizontal: 20, paddingBottom: 32, gap: 14, alignItems: 'center' },
+    primaryBtn: {
+      width: '100%', backgroundColor: colors.primary, borderRadius: 14, paddingVertical: 16,
+      alignItems: 'center', justifyContent: 'center', height: 54,
+    },
+    primaryBtnText: { color: '#FFFFFF', fontSize: 16, fontWeight: '600' },
+    secondaryText: { color: colors.textMuted, fontSize: 14, fontWeight: '600' },
+    qrBox: {
+      width: 200, height: 200, backgroundColor: '#FFFFFF', borderRadius: 20,
+      alignItems: 'center', justifyContent: 'center', padding: 16, alignSelf: 'center',
+    },
+    qrGrid: { width: 160, height: 160, flexDirection: 'row', flexWrap: 'wrap' },
+    qrCell: { width: '14.28%', height: '14.28%', backgroundColor: 'transparent' },
+    qrCellFilled: { backgroundColor: '#0B0B0F' },
+    requestAmount: { color: colors.textPrimary, fontSize: 26, fontWeight: '700', marginTop: 20, textAlign: 'center' },
+    note: { color: colors.textMuted, fontSize: 14, marginTop: 6, textAlign: 'center' },
+    accountId: { color: colors.textMuted, fontSize: 14, marginTop: 16, textAlign: 'center', letterSpacing: 1 },
+  });
+}

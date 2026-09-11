@@ -4,6 +4,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { router } from 'expo-router';
 import { useWalletStore } from '../../stores/walletStore';
 import { getUsdPrices, usdToNgn, type PriceSymbol } from '../../lib/prices/coingecko';
+import { useThemeStore, ThemeColors } from '../../lib/theme';
 
 const CHAIN_LABELS: Record<string, string> = {
   eth: 'Ethereum', bsc: 'BSC', base: 'Base', polygon: 'Polygon',
@@ -16,6 +17,9 @@ function fakeWithdraw(): Promise<void> {
 }
 
 export default function Withdraw() {
+  const { colors } = useThemeStore();
+  const styles = getStyles(colors);
+
   const balances = useWalletStore((s) => s.balances);
   const isLoadingBalances = useWalletStore((s) => s.isLoadingBalances);
 
@@ -102,7 +106,7 @@ export default function Withdraw() {
         <View style={styles.body}>
           <Text style={styles.label}>From</Text>
           {isLoadingBalances ? (
-            <ActivityIndicator color="#6C5CE7" style={{ marginVertical: 12 }} />
+            <ActivityIndicator color={colors.primary} style={{ marginVertical: 12 }} />
           ) : balances.length === 0 ? (
             <Text style={styles.balanceText}>No balances found yet</Text>
           ) : (
@@ -128,7 +132,7 @@ export default function Withdraw() {
           <TextInput
             style={styles.input}
             placeholder="0.00"
-            placeholderTextColor="#5C5C66"
+            placeholderTextColor={colors.textMuted}
             keyboardType="decimal-pad"
             value={amount}
             onChangeText={setAmount}
@@ -145,7 +149,7 @@ export default function Withdraw() {
           <TextInput
             style={styles.input}
             placeholder="e.g. GTBank"
-            placeholderTextColor="#5C5C66"
+            placeholderTextColor={colors.textMuted}
             value={bankName}
             onChangeText={setBankName}
           />
@@ -154,7 +158,7 @@ export default function Withdraw() {
           <TextInput
             style={styles.input}
             placeholder="0000000000"
-            placeholderTextColor="#5C5C66"
+            placeholderTextColor={colors.textMuted}
             keyboardType="number-pad"
             value={accountNumber}
             onChangeText={(v) => setAccountNumber(v.replace(/\D/g, '').slice(0, 10))}
@@ -173,43 +177,45 @@ export default function Withdraw() {
   );
 }
 
-const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#0B0B0F', justifyContent: 'space-between' },
+function getStyles(colors: ThemeColors) {
+  return StyleSheet.create({
+  container: { flex: 1, backgroundColor: colors.background, justifyContent: 'space-between' },
   header: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
     paddingHorizontal: 20, paddingTop: 12, paddingBottom: 8,
   },
-  back: { color: '#FFFFFF', fontSize: 28 },
-  headerTitle: { color: '#FFFFFF', fontSize: 17, fontWeight: '700' },
+  back: { color: colors.textPrimary, fontSize: 28 },
+  headerTitle: { color: colors.textPrimary, fontSize: 17, fontWeight: '700' },
   body: { flex: 1, paddingHorizontal: 20, paddingTop: 16 },
-  label: { fontSize: 13, color: '#9A9AA5', marginBottom: 8, fontWeight: '500' },
+  label: { fontSize: 13, color: colors.textMuted, marginBottom: 8, fontWeight: '500' },
   input: {
-    backgroundColor: '#17171D', borderRadius: 12, paddingHorizontal: 16, paddingVertical: 14,
-    color: '#FFFFFF', fontSize: 16, borderWidth: 1, borderColor: '#26262E',
+    backgroundColor: colors.surface, borderRadius: 12, paddingHorizontal: 16, paddingVertical: 14,
+    color: colors.textPrimary, fontSize: 16, borderWidth: 1, borderColor: colors.border,
   },
   chipRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
   chip: {
     paddingHorizontal: 14, paddingVertical: 9, borderRadius: 20,
-    backgroundColor: '#17171D', borderWidth: 1, borderColor: '#26262E',
+    backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border,
   },
-  chipActive: { backgroundColor: '#6C5CE7', borderColor: '#6C5CE7' },
-  chipText: { color: '#9A9AA5', fontSize: 13, fontWeight: '600' },
+  chipActive: { backgroundColor: colors.primary, borderColor: colors.primary },
+  chipText: { color: colors.textMuted, fontSize: 13, fontWeight: '600' },
   chipTextActive: { color: '#FFFFFF' },
-  balanceText: { color: '#5C5C66', fontSize: 12, marginTop: 8 },
-  estimate: { color: '#8C7AFF', fontSize: 13, marginTop: 8, fontWeight: '600' },
-  error: { color: '#FF6B6B', fontSize: 13, marginTop: 14 },
+  balanceText: { color: colors.textMuted, fontSize: 12, marginTop: 8 },
+  estimate: { color: colors.primaryHover, fontSize: 13, marginTop: 8, fontWeight: '600' },
+  error: { color: colors.error, fontSize: 13, marginTop: 14 },
   footer: { paddingHorizontal: 20, paddingBottom: 32 },
   primaryBtn: {
-    backgroundColor: '#6C5CE7', borderRadius: 14, paddingVertical: 16,
+    backgroundColor: colors.primary, borderRadius: 14, paddingVertical: 16,
     alignItems: 'center', justifyContent: 'center', height: 54,
   },
   primaryBtnText: { color: '#FFFFFF', fontSize: 16, fontWeight: '600' },
   successWrap: { flex: 1, alignItems: 'center', justifyContent: 'center' },
   successCircle: {
-    width: 72, height: 72, borderRadius: 36, backgroundColor: '#1A2E20',
+    width: 72, height: 72, borderRadius: 36, backgroundColor: `${colors.success}22`,
     alignItems: 'center', justifyContent: 'center', marginBottom: 20,
   },
-  successCheck: { color: '#4CD97B', fontSize: 32, fontWeight: '700' },
-  successTitle: { color: '#FFFFFF', fontSize: 22, fontWeight: '700' },
-  successSubtitle: { color: '#9A9AA5', fontSize: 14, marginTop: 8, textAlign: 'center', paddingHorizontal: 30 },
+  successCheck: { color: colors.success, fontSize: 32, fontWeight: '700' },
+  successTitle: { color: colors.textPrimary, fontSize: 22, fontWeight: '700' },
+  successSubtitle: { color: colors.textMuted, fontSize: 14, marginTop: 8, textAlign: 'center', paddingHorizontal: 30 },
 });
+}

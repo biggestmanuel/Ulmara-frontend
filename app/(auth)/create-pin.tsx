@@ -6,11 +6,14 @@ import { router } from 'expo-router';
 import { setPin as setPinApi } from '../../lib/api/auth';
 import type { ApiErrorShape } from '../../lib/api/client';
 import { useAuthGateStore } from '../../stores/authGateStore';
+import { useThemeStore, ThemeColors } from '../../lib/theme';
 
 const PIN_LENGTH = 6;
 const KEYS = ['1', '2', '3', '4', '5', '6', '7', '8', '9', '', '0', 'del'];
 
 export default function CreatePin() {
+  const { colors } = useThemeStore();
+  const styles = getStyles(colors);
   const [stage, setStage] = useState<'create' | 'confirm'>('create');
   const [pin, setPin] = useState('');
   const [confirmPin, setConfirmPin] = useState('');
@@ -112,20 +115,22 @@ export default function CreatePin() {
   );
 }
 
-const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#0B0B0F', justifyContent: 'space-between' },
+function getStyles(colors: ThemeColors) {
+  return StyleSheet.create({
+  container: { flex: 1, backgroundColor: colors.background, justifyContent: 'space-between' },
   body: { flex: 1, paddingHorizontal: 24, paddingTop: 56, alignItems: 'center' },
-  title: { fontSize: 24, fontWeight: '700', color: '#FFFFFF' },
-  subtitle: { fontSize: 14, color: '#9A9AA5', marginTop: 8, marginBottom: 40, textAlign: 'center' },
+  title: { fontSize: 24, fontWeight: '700', color: colors.textPrimary },
+  subtitle: { fontSize: 14, color: colors.textMuted, marginTop: 8, marginBottom: 40, textAlign: 'center' },
   dotsRow: { flexDirection: 'row', gap: 16 },
-  dot: { width: 16, height: 16, borderRadius: 8, borderWidth: 1.5, borderColor: '#3A3A45' },
-  dotFilled: { backgroundColor: '#6C5CE7', borderColor: '#6C5CE7' },
-  error: { color: '#FF6B6B', fontSize: 13, marginTop: 24 },
+  dot: { width: 16, height: 16, borderRadius: 8, borderWidth: 1.5, borderColor: colors.divider },
+  dotFilled: { backgroundColor: colors.primary, borderColor: colors.primary },
+  error: { color: colors.error, fontSize: 13, marginTop: 24 },
   keypad: {
     flexDirection: 'row', flexWrap: 'wrap', paddingHorizontal: 24, paddingBottom: 40,
   },
   key: {
     width: '33.33%', height: 76, alignItems: 'center', justifyContent: 'center',
   },
-  keyText: { fontSize: 26, color: '#FFFFFF', fontWeight: '500' },
+  keyText: { fontSize: 26, color: colors.textPrimary, fontWeight: '500' },
 });
+}

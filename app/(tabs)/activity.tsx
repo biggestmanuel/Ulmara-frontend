@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react';
 import { View, Text, StyleSheet, Pressable, FlatList } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { router } from 'expo-router';
+import { useThemeStore, ThemeColors } from '../../lib/theme';
 
 // TODO: replace with stores/txStore + lib/api/transactions
 type Tx = {
@@ -44,6 +45,8 @@ function txIcon(tx: Tx): string {
 }
 
 export default function Activity() {
+  const { colors } = useThemeStore();
+  const styles = getStyles(colors);
   const [filter, setFilter] = useState<Filter>('All');
 
   const filtered = useMemo(
@@ -94,28 +97,30 @@ export default function Activity() {
   );
 }
 
-const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#0B0B0F', paddingHorizontal: 20, paddingTop: 12 },
-  title: { fontSize: 24, fontWeight: '700', color: '#FFFFFF', marginBottom: 16 },
+function getStyles(colors: ThemeColors) {
+  return StyleSheet.create({
+  container: { flex: 1, backgroundColor: colors.background, paddingHorizontal: 20, paddingTop: 12 },
+  title: { fontSize: 24, fontWeight: '700', color: colors.textPrimary, marginBottom: 16 },
   filterRow: { flexDirection: 'row', gap: 8, marginBottom: 8 },
   filterChip: {
     paddingHorizontal: 14, paddingVertical: 8, borderRadius: 20,
-    backgroundColor: '#17171D', borderWidth: 1, borderColor: '#26262E',
+    backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border,
   },
-  filterChipActive: { backgroundColor: '#6C5CE7', borderColor: '#6C5CE7' },
-  filterText: { color: '#9A9AA5', fontSize: 13, fontWeight: '600' },
+  filterChipActive: { backgroundColor: colors.primary, borderColor: colors.primary },
+  filterText: { color: colors.textMuted, fontSize: 13, fontWeight: '600' },
   filterTextActive: { color: '#FFFFFF' },
   list: { paddingTop: 8, paddingBottom: 32 },
-  empty: { color: '#5C5C66', textAlign: 'center', marginTop: 40, fontSize: 14 },
-  txRow: { flexDirection: 'row', alignItems: 'center', paddingVertical: 14, borderBottomWidth: 1, borderBottomColor: '#17171D' },
+  empty: { color: colors.textMuted, textAlign: 'center', marginTop: 40, fontSize: 14 },
+  txRow: { flexDirection: 'row', alignItems: 'center', paddingVertical: 14, borderBottomWidth: 1, borderBottomColor: colors.surface },
   txIconWrap: {
-    width: 40, height: 40, borderRadius: 20, backgroundColor: '#17171D',
+    width: 40, height: 40, borderRadius: 20, backgroundColor: colors.surface,
     alignItems: 'center', justifyContent: 'center', marginRight: 12,
   },
-  txIcon: { color: '#9A9AA5', fontSize: 16, fontWeight: '700' },
+  txIcon: { color: colors.textMuted, fontSize: 16, fontWeight: '700' },
   txDetails: { flex: 1 },
-  txLabel: { color: '#FFFFFF', fontSize: 14, fontWeight: '600' },
-  txMeta: { color: '#5C5C66', fontSize: 12, marginTop: 2 },
-  txAmount: { color: '#D0D0D6', fontSize: 14, fontWeight: '600' },
-  txAmountPositive: { color: '#4CD97B' },
+  txLabel: { color: colors.textPrimary, fontSize: 14, fontWeight: '600' },
+  txMeta: { color: colors.textMuted, fontSize: 12, marginTop: 2 },
+  txAmount: { color: colors.textSecondary, fontSize: 14, fontWeight: '600' },
+  txAmountPositive: { color: colors.success },
 });
+}

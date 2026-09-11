@@ -1,7 +1,14 @@
-import { useMemo } from 'react';
-import { View, Text, StyleSheet, Pressable, ScrollView, Share } from 'react-native';
+import { useMemo, useRef } from 'react';
+import { View, Text, StyleSheet, Pressable, ScrollView, Share, Platform } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { router, useLocalSearchParams } from 'expo-router';
+import ViewShot from 'react-native-view-shot';
+import * as Sharing from 'expo-sharing';
+import { ReceiptCard } from '../../components/transaction/ReceiptCard';
+
+// Requires:
+//   npm install react-native-view-shot
+//   npx expo install expo-sharing
 
 // TODO: replace with stores/txStore + lib/api/transactions lookup by id
 type TxDetail = {
@@ -28,7 +35,7 @@ const MOCK_TX_DB: Record<string, TxDetail> = {
   },
   '3': {
     id: '3', type: 'deposit', counterparty: 'Bank Deposit', amount: '+50,000.00', asset: 'NGN',
-    network: 'Bachs', fee: 'Free', txHash: 'DEP-88231940', time: '2 days ago, 11:02 AM', status: 'complete',
+    network: 'Paystack', fee: 'Free', txHash: 'DEP-88231940', time: '2 days ago, 11:02 AM', status: 'complete',
   },
   '4': {
     id: '4', type: 'sent', counterparty: '5510 992 034', amount: '-0.05', asset: 'ETH',
@@ -36,7 +43,7 @@ const MOCK_TX_DB: Record<string, TxDetail> = {
   },
   '5': {
     id: '5', type: 'withdraw', counterparty: 'Bank Withdrawal', amount: '-20,000.00', asset: 'NGN',
-    network: 'Bachs', fee: 'Free', txHash: 'WDL-77201853', time: '5 days ago, 3:55 PM', status: 'complete',
+    network: 'Paystack', fee: 'Free', txHash: 'WDL-77201853', time: '5 days ago, 3:55 PM', status: 'complete',
   },
 };
 
@@ -60,15 +67,28 @@ function txTitle(tx: TxDetail): string {
 export default function TransactionDetail() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const tx = useMemo(() => MOCK_TX_DB[id] ?? null, [id]);
+  const receiptRef = useRef<ViewShot>(null);
 
   const handleShare = async () => {
     if (!tx) return;
     try {
-      await Share.share({
-        message: `${txTitle(tx)}\n${tx.amount} ${tx.asset}\nRef: ${tx.txHash}`,
-      });
-    } catch {
-      // cancelled
+      // Capture the hidden ReceiptCard as a PNG and share that image,
+      // instead of the old plain-text message — a proper shareable receipt.
+      const uri = await receiptRef.current?.capture?.();
+      if (!uri) return;
+
+      if (Platform.OS === 'web') {
+        await Share.share({ url: uri, message: txTitle(tx) });
+        return;
+      }
+      const canShare = await Sharing.isAvailableAsync();
+      if (canShare) {
+        await Sharing.shareAsync(uri, { mimeType: 'image/png', dialogTitle: 'Share receipt' });
+      } else {
+        await Share.share({ url: uri });
+      }
+    } catch (err) {
+      console.error('Failed to share receipt image:', err);
     }
   };
 
@@ -127,6 +147,22 @@ export default function TransactionDetail() {
           <DetailRow label="Reference / Tx ID" value={tx.txHash} mono />
         </View>
       </ScrollView>
+
+      {/* Off-screen receipt used only for image capture — not visible to the user. */}
+      <View style={styles.offscreen} pointerEvents="none">
+        <ViewShot ref={receiptRef} options={{ format: 'png', quality: 1 }}>
+          <View style={styles.receiptWrap}>
+            <ReceiptCard
+              amount={tx.amount}
+              symbol={tx.asset}
+              recipient={tx.counterparty}
+              network={tx.network}
+              fee={tx.fee}
+              txId={tx.txHash}
+            />
+          </View>
+        </ViewShot>
+      </View>
     </SafeAreaView>
   );
 }
@@ -177,4 +213,6 @@ const styles = StyleSheet.create({
   mono: { fontSize: 13 },
   notFound: { flex: 1, alignItems: 'center', justifyContent: 'center' },
   notFoundText: { color: '#5C5C66', fontSize: 14 },
+  offscreen: { position: 'absolute', top: -9999, left: -9999 },
+  receiptWrap: { width: 320, backgroundColor: '#0B0B0F', padding: 20 },
 });

@@ -7,12 +7,15 @@ import { createAccountId, getMe } from '../../lib/api/accountId';
 import { setSecureItem, SecureStorageKeys } from '../../lib/storage/secureStorage';
 import { useAuthGateStore } from '../../stores/authGateStore';
 import type { ApiErrorShape } from '../../lib/api/client';
+import { useThemeStore, ThemeColors } from '../../lib/theme';
 
 function formatAccountId(id: string): string {
   return id.replace(/(\d{4})(\d{3})(\d{3})/, '$1 $2 $3');
 }
 
 export default function CreateAccountId() {
+  const { colors } = useThemeStore();
+  const styles = getStyles(colors);
   const [accountId, setAccountId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [confirming, setConfirming] = useState(false);
@@ -90,7 +93,7 @@ export default function CreateAccountId() {
 
         <View style={styles.idCard}>
           {loading || !accountId ? (
-            <ActivityIndicator color="#8C7AFF" />
+            <ActivityIndicator color={colors.primaryHover} />
           ) : (
             <Text style={styles.idText}>{formatAccountId(accountId)}</Text>
           )}
@@ -116,24 +119,26 @@ export default function CreateAccountId() {
   );
 }
 
-const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#0B0B0F', justifyContent: 'space-between' },
+function getStyles(colors: ThemeColors) {
+  return StyleSheet.create({
+  container: { flex: 1, backgroundColor: colors.background, justifyContent: 'space-between' },
   body: { flex: 1, paddingHorizontal: 24, paddingTop: 56, alignItems: 'center' },
-  title: { fontSize: 26, fontWeight: '700', color: '#FFFFFF' },
+  title: { fontSize: 26, fontWeight: '700', color: colors.textPrimary },
   subtitle: {
-    fontSize: 14, color: '#9A9AA5', marginTop: 10, marginBottom: 36,
+    fontSize: 14, color: colors.textMuted, marginTop: 10, marginBottom: 36,
     textAlign: 'center', lineHeight: 20, paddingHorizontal: 12,
   },
   idCard: {
-    width: '100%', backgroundColor: '#17171D', borderRadius: 16, borderWidth: 1,
-    borderColor: '#26262E', paddingVertical: 32, alignItems: 'center', justifyContent: 'center',
+    width: '100%', backgroundColor: colors.surface, borderRadius: 16, borderWidth: 1,
+    borderColor: colors.border, paddingVertical: 32, alignItems: 'center', justifyContent: 'center',
   },
-  idText: { fontSize: 28, fontWeight: '700', color: '#FFFFFF', letterSpacing: 2 },
-  error: { color: '#FF6B6B', fontSize: 13, marginTop: 16, textAlign: 'center' },
+  idText: { fontSize: 28, fontWeight: '700', color: colors.textPrimary, letterSpacing: 2 },
+  error: { color: colors.error, fontSize: 13, marginTop: 16, textAlign: 'center' },
   footer: { paddingHorizontal: 24, paddingBottom: 32 },
   primaryBtn: {
-    backgroundColor: '#6C5CE7', borderRadius: 14, paddingVertical: 16,
+    backgroundColor: colors.primary, borderRadius: 14, paddingVertical: 16,
     alignItems: 'center', justifyContent: 'center', height: 54,
   },
   primaryBtnText: { color: '#FFFFFF', fontSize: 16, fontWeight: '600' },
 });
+}

@@ -2,8 +2,12 @@ import { View, Text, StyleSheet, Pressable, Switch, ScrollView } from 'react-nat
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { router } from 'expo-router';
 import { usePreferencesStore, type NotificationPrefs } from '../../stores/preferencesStore';
+import { useThemeStore, ThemeColors } from '../../lib/theme';
 
 export default function Notifications() {
+  const { colors } = useThemeStore();
+  const styles = getStyles(colors);
+
   const prefs = usePreferencesStore((s) => s.notifications);
   const setNotification = usePreferencesStore((s) => s.setNotification);
 
@@ -23,18 +27,24 @@ export default function Notifications() {
         <Text style={styles.sectionTitle}>Push Notifications</Text>
         <View style={styles.card}>
           <ToggleRow
+            styles={styles}
+            colors={colors}
             label="Transaction Updates"
             desc="Sent, received, deposit, and withdrawal status"
             value={prefs.pushTransactions}
             onChange={() => toggle('pushTransactions')}
           />
           <ToggleRow
+            styles={styles}
+            colors={colors}
             label="Security Alerts"
             desc="New device logins and PIN changes"
             value={prefs.pushSecurity}
             onChange={() => toggle('pushSecurity')}
           />
           <ToggleRow
+            styles={styles}
+            colors={colors}
             label="Price Alerts"
             desc="Significant market moves on your assets"
             value={prefs.pushPriceAlerts}
@@ -50,12 +60,16 @@ export default function Notifications() {
         <Text style={[styles.sectionTitle, { marginTop: 8 }]}>Email</Text>
         <View style={styles.card}>
           <ToggleRow
+            styles={styles}
+            colors={colors}
             label="Transaction Receipts"
             desc="Email a receipt after every transaction"
             value={prefs.emailReceipts}
             onChange={() => toggle('emailReceipts')}
           />
           <ToggleRow
+            styles={styles}
+            colors={colors}
             label="Product Updates"
             desc="New features and announcements"
             value={prefs.emailProduct}
@@ -69,8 +83,11 @@ export default function Notifications() {
 }
 
 function ToggleRow({
-  label, desc, value, onChange, last,
-}: { label: string; desc: string; value: boolean; onChange: () => void; last?: boolean }) {
+  styles, colors, label, desc, value, onChange, last,
+}: {
+  styles: ReturnType<typeof getStyles>; colors: ThemeColors;
+  label: string; desc: string; value: boolean; onChange: () => void; last?: boolean;
+}) {
   return (
     <View style={[styles.toggleRow, last && styles.toggleRowLast]}>
       <View style={{ flex: 1 }}>
@@ -80,33 +97,35 @@ function ToggleRow({
       <Switch
         value={value}
         onValueChange={onChange}
-        trackColor={{ false: '#26262E', true: '#6C5CE7' }}
+        trackColor={{ false: colors.border, true: colors.primary }}
         thumbColor="#FFFFFF"
       />
     </View>
   );
 }
 
-const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#0B0B0F' },
-  header: {
-    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
-    paddingHorizontal: 20, paddingTop: 12, paddingBottom: 8,
-  },
-  back: { color: '#FFFFFF', fontSize: 28 },
-  headerTitle: { color: '#FFFFFF', fontSize: 17, fontWeight: '700' },
-  body: { paddingHorizontal: 20, paddingTop: 12, paddingBottom: 32 },
-  sectionTitle: { color: '#9A9AA5', fontSize: 13, fontWeight: '500', marginBottom: 10 },
-  footNote: { color: '#5C5C66', fontSize: 11, marginTop: 8, marginBottom: 24, lineHeight: 16 },
-  card: {
-    backgroundColor: '#17171D', borderRadius: 14, borderWidth: 1, borderColor: '#26262E',
-    overflow: 'hidden', marginBottom: 8,
-  },
-  toggleRow: {
-    flexDirection: 'row', alignItems: 'center', paddingHorizontal: 16, paddingVertical: 14,
-    borderBottomWidth: 1, borderBottomColor: '#1D1D24',
-  },
-  toggleRowLast: { borderBottomWidth: 0 },
-  toggleLabel: { color: '#FFFFFF', fontSize: 14, fontWeight: '600' },
-  toggleDesc: { color: '#9A9AA5', fontSize: 12, marginTop: 3 },
-});
+function getStyles(colors: ThemeColors) {
+  return StyleSheet.create({
+    container: { flex: 1, backgroundColor: colors.background },
+    header: {
+      flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+      paddingHorizontal: 20, paddingTop: 12, paddingBottom: 8,
+    },
+    back: { color: colors.textPrimary, fontSize: 28 },
+    headerTitle: { color: colors.textPrimary, fontSize: 17, fontWeight: '700' },
+    body: { paddingHorizontal: 20, paddingTop: 12, paddingBottom: 32 },
+    sectionTitle: { color: colors.textMuted, fontSize: 13, fontWeight: '500', marginBottom: 10 },
+    footNote: { color: colors.textMuted, fontSize: 11, marginTop: 8, marginBottom: 24, lineHeight: 16 },
+    card: {
+      backgroundColor: colors.surface, borderRadius: 14, borderWidth: 1, borderColor: colors.border,
+      overflow: 'hidden', marginBottom: 8,
+    },
+    toggleRow: {
+      flexDirection: 'row', alignItems: 'center', paddingHorizontal: 16, paddingVertical: 14,
+      borderBottomWidth: 1, borderBottomColor: colors.divider,
+    },
+    toggleRowLast: { borderBottomWidth: 0 },
+    toggleLabel: { color: colors.textPrimary, fontSize: 14, fontWeight: '600' },
+    toggleDesc: { color: colors.textMuted, fontSize: 12, marginTop: 3 },
+  });
+}
