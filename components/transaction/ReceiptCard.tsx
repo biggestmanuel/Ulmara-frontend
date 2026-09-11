@@ -2,20 +2,22 @@ import React from 'react';
 import { View, Text, StyleSheet, ViewStyle } from 'react-native';
 import QRCode from 'react-native-qrcode-svg';
 import { Ionicons } from '@expo/vector-icons';
+import type { TransactionDirection, TransactionStatus } from '../../lib/api/transactions';
 
 export interface ReceiptData {
   id: string;
-  type: 'SEND' | 'RECEIVE' | 'FIAT_DEPOSIT' | 'FIAT_WITHDRAWAL';
-  status: 'SUCCESS' | 'PENDING' | 'FAILED';
-  fiatAmount: string; // e.g. "₦125,000.00"
-  cryptoAmount?: string; // e.g. "85.40 USDT"
+  direction: TransactionDirection;
+  status: TransactionStatus;
+  amount: string;
+  symbol: string;
+  network: string;
   senderName: string;
-  senderTag?: string; // e.g. "@alex.ulmara"
+  senderTag?: string;
   beneficiaryName: string;
-  beneficiaryTag?: string; // e.g. "@chioma.ulmara"
-  timestamp: string; // e.g. "10 Sep 2026, 22:45:12"
-  network?: string; // e.g. "Base Sepolia" or "NIBSS Instant"
-  txHash?: string; // on-chain hash or bank ref
+  beneficiaryTag?: string;
+  timestamp: string;
+  fee?: string;
+  txHash?: string | null;
 }
 
 interface Props {
@@ -24,7 +26,11 @@ interface Props {
 }
 
 export const ReceiptCard: React.FC<Props> = ({ data, style }) => {
-  const isSuccess = data.status === 'SUCCESS';
+  const isComplete = data.status === 'complete';
+  const isProcessing = data.status === 'processing';
+
+  const statusColor = isComplete ? '#10B981' : isProcessing ? '#F59E0B' : '#EF4444';
+  const statusIcon = isComplete ? 'checkmark-circle' : isProcessing ? 'time-outline' : 'close-circle';
 
   return (
     <View style={[styles.card, style]}>
@@ -43,35 +49,26 @@ export const ReceiptCard: React.FC<Props> = ({ data, style }) => {
           </View>
         </View>
 
-        <View style={styles.statusBadge}>
-          <Ionicons
-            name={isSuccess ? 'checkmark-circle' : 'time-outline'}
-            size={14}
-            color={isSuccess ? '#10B981' : '#F59E0B'}
-          />
-          <Text
-            style={[
-              styles.statusText,
-              { color: isSuccess ? '#10B981' : '#F59E0B' },
-            ]}
-          >
-            {data.status}
+        <View style={[styles.statusBadge, { borderColor: `${statusColor}40` }]}>
+          <Ionicons name={statusIcon} size={14} color={statusColor} />
+          <Text style={[styles.statusText, { color: statusColor }]}>
+            {data.status.toUpperCase()}
           </Text>
         </View>
       </View>
 
       {/* Primary Amount Display */}
       <View style={styles.amountContainer}>
-        <Text style={styles.amountLabel}>Total Amount Transferred</Text>
-        <Text style={styles.fiatAmount}>{data.fiatAmount}</Text>
-        {data.cryptoAmount ? (
-          <View style={styles.cryptoPill}>
-            <Text style={styles.cryptoText}>{data.cryptoAmount}</Text>
-            {data.network ? (
-              <Text style={styles.networkTag}> • {data.network}</Text>
-            ) : null}
-          </View>
-        ) : null}
+        <Text style={styles.amountLabel}>
+          {data.direction === 'sent' ? 'Total Amount Sent' : 'Total Amount Received'}
+        </Text>
+        <Text style={styles.cryptoAmount}>
+          {data.amount} {data.symbol}
+        </Text>
+        
+        <View style={styles.networkPill}>
+          <Text style={styles.networkTag}>{data.network.toUpperCase()}</Text>
+        </View>
       </View>
 
       {/* Circuit Line Divider */}
@@ -90,7 +87,9 @@ export const ReceiptCard: React.FC<Props> = ({ data, style }) => {
             {data.senderName}
           </Text>
           {data.senderTag ? (
-            <Text style={styles.partyTag}>{data.senderTag}</Text>
+            <Text style={styles.partyTag} numberOfLines={1}>
+              {data.senderTag}
+            </Text>
           ) : null}
         </View>
 
@@ -110,7 +109,9 @@ export const ReceiptCard: React.FC<Props> = ({ data, style }) => {
             {data.beneficiaryName}
           </Text>
           {data.beneficiaryTag ? (
-            <Text style={styles.partyTag}>{data.beneficiaryTag}</Text>
+            <Text style={styles.partyTag} numberOfLines={1}>
+              {data.beneficiaryTag}
+            </Text>
           ) : null}
         </View>
       </View>
@@ -123,17 +124,28 @@ export const ReceiptCard: React.FC<Props> = ({ data, style }) => {
         </View>
 
         <View style={styles.metaRow}>
-          <Text style={styles.metaLabel}>Transaction Ref</Text>
+          <Text style={styles.metaLabel}>Transaction ID</Text>
           <Text style={[styles.metaValue, styles.mono]} numberOfLines={1}>
             {data.id}
           </Text>
         </View>
 
+        {data.fee ? (
+          <View style={styles.metaRow}>
+            <Text style={styles.metaLabel}>Network Fee</Text>
+            <Text style={styles.metaValue}>
+              {data.fee} {data.symbol}
+            </Text>
+          </View>
+        ) : null}
+
         {data.txHash ? (
           <View style={styles.metaRow}>
-            <Text style={styles.metaLabel}>Proof / Hash</Text>
+            <Text style={styles.metaLabel}>On-Chain Hash</Text>
             <Text style={[styles.metaValue, styles.mono]} numberOfLines={1}>
-              {data.txHash.slice(0, 10)}...{data.txHash.slice(-8)}
+              {data.txHash.length > 20 
+                ? `${data.txHash.slice(0, 8)}...${data.txHash.slice(-8)}`
+                : data.txHash}
             </Text>
           </View>
         ) : null}
@@ -143,7 +155,7 @@ export const ReceiptCard: React.FC<Props> = ({ data, style }) => {
       <View style={styles.footer}>
         <View style={styles.qrWrapper}>
           <QRCode
-            value={`https://ulmara.fi/tx/${data.id}`}
+            value={data.txHash ? `https://ulmara.fi/tx/${data.txHash}` : `https://ulmara.fi/tx/${data.id}`}
             size={56}
             color="#000000"
             backgroundColor="#FFFFFF"
@@ -152,8 +164,7 @@ export const ReceiptCard: React.FC<Props> = ({ data, style }) => {
         <View style={styles.footerInfo}>
           <Text style={styles.footerHeader}>Official Digital Receipt</Text>
           <Text style={styles.footerNotice}>
-            Scan to inspect transaction status directly on Ulmara or the target
-            ledger.
+            Scan to inspect transaction proof on Ulmara or the underlying network.
           </Text>
         </View>
       </View>
@@ -167,7 +178,7 @@ const styles = StyleSheet.create({
     borderRadius: 20,
     borderWidth: 1,
     borderColor: 'rgba(240, 120, 75, 0.35)',
-    padding: 24,
+    padding: 22,
     width: '100%',
     shadowColor: '#F0784B',
     shadowOffset: { width: 0, height: 8 },
@@ -189,7 +200,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 20,
+    marginBottom: 18,
   },
   brandRow: {
     flexDirection: 'row',
@@ -230,7 +241,6 @@ const styles = StyleSheet.create({
     borderRadius: 20,
     backgroundColor: 'rgba(255, 255, 255, 0.05)',
     borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.08)',
   },
   statusText: {
     fontSize: 11,
@@ -247,36 +257,33 @@ const styles = StyleSheet.create({
     fontWeight: '500',
     marginBottom: 6,
   },
-  fiatAmount: {
-    fontSize: 34,
+  cryptoAmount: {
+    fontSize: 32,
     fontWeight: '900',
     color: '#FFFFFF',
     letterSpacing: -0.5,
   },
-  cryptoPill: {
+  networkPill: {
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: 'rgba(240, 120, 75, 0.12)',
-    paddingHorizontal: 10,
+    paddingHorizontal: 12,
     paddingVertical: 4,
     borderRadius: 8,
     marginTop: 8,
     borderWidth: 1,
     borderColor: 'rgba(240, 120, 75, 0.25)',
   },
-  cryptoText: {
-    color: '#F0784B',
-    fontSize: 12,
-    fontWeight: '700',
-  },
   networkTag: {
-    color: 'rgba(255, 255, 255, 0.55)',
+    color: '#F0784B',
     fontSize: 11,
+    fontWeight: '700',
+    letterSpacing: 0.5,
   },
   circuitDivider: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginVertical: 20,
+    marginVertical: 18,
     gap: 6,
   },
   circuitDot: {
@@ -357,7 +364,7 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: '#FFFFFF',
     fontWeight: '600',
-    maxWidth: '55%',
+    maxWidth: '58%',
   },
   mono: {
     fontFamily: 'monospace',
@@ -366,7 +373,7 @@ const styles = StyleSheet.create({
   footer: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginTop: 24,
+    marginTop: 20,
     paddingTop: 16,
     borderTopWidth: 1,
     borderTopColor: 'rgba(255, 255, 255, 0.08)',

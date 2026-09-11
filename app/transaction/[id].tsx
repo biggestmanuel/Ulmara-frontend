@@ -1,4 +1,4 @@
-import React, { useRef, useState } from 'react';
+import React, { useRef, useState, useEffect } from 'react';
 import {
   View,
   Text,
@@ -13,63 +13,181 @@ import { Ionicons } from '@expo/vector-icons';
 import { captureRef } from 'react-native-view-shot';
 import * as Sharing from 'expo-sharing';
 import * as Clipboard from 'expo-clipboard';
+import * as MediaLibrary from 'expo-media-library';
+
+import { useTxStore } from '../../stores/txStore';
+import { useUserStore } from '../../stores/userStore';
+import { fetchTransactionById, Transaction } from '../../lib/api/transactions';
 import { ReceiptCard, ReceiptData } from '../../components/transaction/ReceiptCard';
 
 export default function TransactionDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const router = useRouter();
   const receiptRef = useRef<View>(null);
-  const [sharing, setSharing] = useState(false);
 
-  const receiptData: ReceiptData = {
-    id: id || 'TX-89241908234',
-    type: 'SEND',
-    status: 'SUCCESS',
-    fiatAmount: '₦125,000.00',
-    cryptoAmount: '85.40 USDT',
-    senderName: 'Alex Daniels',
-    senderTag: '@alex.ulmara',
-    beneficiaryName: 'Chioma Okonkwo',
-    beneficiaryTag: '@chioma.ulmara',
-    timestamp: '10 Sep 2026, 22:45:12',
-    network: 'Base Sepolia',
-    txHash: '0x8f3c7b912a5d6e4c890123456789abcdef0123456789abcdef0123456789abcd',
+  const [sharing, setSharing] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [fallbackTx, setFallbackTx] = useState<Transaction | null>(null);
+  const [loadingDirect, setLoadingDirect] = useState(false);
+
+  // 1. User Store
+  const { accountId, profile } = useUserStore();
+  
+  // 2. Tx Store
+  const { items, isLoading, fetchInitial } = useTxStore();
+
+  // Try finding in current items
+  const storeTx = items.find((item) => item.id === id);
+
+  // 3. Fallback: If not in local items (e.g. direct link or refresh), fetch by ID
+  useEffect(() => {
+    if (!storeTx && id) {
+      setLoadingDirect(true);
+      fetchTransactionById(id)
+        .then((data) => setFallbackTx(data))
+        .catch((err) => {
+          console.error('Failed to fetch transaction by id:', err);
+          // Also trigger list fetch just in case
+          fetchInitial();
+        })
+        .finally(() => setLoadingDirect(false));
+    }
+  }, [id, storeTx]);
+
+  const tx = storeTx || fallbackTx;
+
+  // Capture helper
+  const captureReceiptUri = async (): Promise<string> => {
+    if (!receiptRef.current) {
+      throw new Error('Receipt view reference is not ready');
+    }
+    return await captureRef(receiptRef, {
+      format: 'png',
+      quality: 1.0,
+    });
   };
 
+  // Real Share
   const handleShareReceipt = async () => {
     try {
       setSharing(true);
-      if (!receiptRef.current) {
-        throw new Error('Receipt reference unavailable');
-      }
-      const uri = await captureRef(receiptRef, {
-        format: 'png',
-        quality: 1.0,
-      });
-
+      const uri = await captureReceiptUri();
       const isAvailable = await Sharing.isAvailableAsync();
+
       if (isAvailable) {
         await Sharing.shareAsync(uri, {
           mimeType: 'image/png',
-          dialogTitle: `Ulmara Receipt - ${receiptData.id}`,
+          dialogTitle: `Ulmara Receipt - ${id}`,
         });
       } else {
-        Alert.alert('Sharing Unavailable', 'Sharing is not supported on this device.');
+        Alert.alert('Sharing Unavailable', 'Native sharing is not supported on this device.');
       }
-    } catch (err) {
-      Alert.alert('Share Failed', 'Unable to capture and export receipt image.');
+    } catch (err: any) {
+      Alert.alert('Share Failed', err?.message || 'Unable to share receipt.');
     } finally {
       setSharing(false);
     }
   };
 
+  // Real Save to Gallery
+  const handleSaveToGallery = async () => {
+    try {
+      setSaving(true);
+      const { status } = await MediaLibrary.requestPermissionsAsync();
+      if (status !== 'granted') {
+        Alert.alert(
+          'Permission Required',
+          'Please allow media access in your settings to save receipts to your photos.'
+        );
+        return;
+      }
+
+      const uri = await captureReceiptUri();
+      const asset = await MediaLibrary.createAssetAsync(uri);
+
+      try {
+        const album = await MediaLibrary.getAlbumAsync('Ulmara');
+        if (album == null) {
+          await MediaLibrary.createAlbumAsync('Ulmara', asset, false);
+        } else {
+          await MediaLibrary.addAssetsToAlbumAsync([asset], album, false);
+        }
+      } catch (albumErr) {
+        // Fallback: asset is safely in camera roll
+      }
+
+      Alert.alert('Saved!', 'Receipt saved to your Photos/Gallery.');
+    } catch (err: any) {
+      Alert.alert('Save Failed', err?.message || 'Unable to save receipt image.');
+    } finally {
+      setSaving(false);
+    }
+  };
+
   const handleCopyId = async () => {
-    await Clipboard.setStringAsync(receiptData.id);
-    Alert.alert('Copied', 'Transaction reference copied to clipboard.');
+    if (id) {
+      await Clipboard.setStringAsync(id);
+      Alert.alert('Copied', 'Transaction ID copied to clipboard.');
+    }
+  };
+
+  // Loading state
+  if ((isLoading || loadingDirect) && !tx) {
+    return (
+      <View style={styles.centerContainer}>
+        <ActivityIndicator size="large" color="#F0784B" />
+        <Text style={styles.loadingText}>Loading receipt...</Text>
+      </View>
+    );
+  }
+
+  // Not found state
+  if (!tx) {
+    return (
+      <View style={styles.centerContainer}>
+        <Ionicons name="alert-circle-outline" size={48} color="#EF4444" />
+        <Text style={styles.errorTitle}>Transaction Not Found</Text>
+        <Text style={styles.errorSub}>The transaction reference could not be found.</Text>
+        <TouchableOpacity style={styles.backButton} onPress={() => router.back()}>
+          <Text style={styles.backButtonText}>Go Back</Text>
+        </TouchableOpacity>
+      </View>
+    );
+  }
+
+  // Build 100% accurate dynamic ReceiptData matching lib/api/transactions.ts
+  const isSent = tx.direction === 'sent';
+  const myName = profile?.name || 'You';
+  const myTag = accountId ? `@${accountId}` : undefined;
+  const counterpartyTag = tx.counterpartyAccountId ? `@${tx.counterpartyAccountId}` : undefined;
+  const counterpartyName = tx.counterpartyAccountId || 'External Account';
+
+  const receiptData: ReceiptData = {
+    id: tx.id,
+    direction: tx.direction,
+    status: tx.status,
+    amount: tx.amount,
+    symbol: tx.symbol,
+    network: tx.network,
+    senderName: isSent ? myName : counterpartyName,
+    senderTag: isSent ? myTag : counterpartyTag,
+    beneficiaryName: isSent ? counterpartyName : myName,
+    beneficiaryTag: isSent ? counterpartyTag : myTag,
+    timestamp: new Date(tx.createdAt).toLocaleString('en-GB', {
+      day: '2-digit',
+      month: 'short',
+      year: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit',
+    }),
+    fee: tx.fee,
+    txHash: tx.txHash,
   };
 
   return (
     <View style={styles.screen}>
+      {/* Top Bar */}
       <View style={styles.topBar}>
         <TouchableOpacity
           onPress={() => router.back()}
@@ -92,19 +210,19 @@ export default function TransactionDetailScreen() {
         contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={false}
       >
-        {/* Regular View with collapsable={false} so Android captures perfectly */}
         <View ref={receiptRef} collapsable={false} style={styles.receiptWrapper}>
           <ReceiptCard data={receiptData} />
         </View>
 
+        {/* Action Buttons */}
         <View style={styles.actionContainer}>
           <TouchableOpacity
             style={styles.shareBtn}
             onPress={handleShareReceipt}
-            disabled={sharing}
+            disabled={sharing || saving}
           >
             {sharing ? (
-              <ActivityIndicator color="#000000" />
+              <ActivityIndicator color="#000000" size="small" />
             ) : (
               <>
                 <Ionicons name="share-social" size={18} color="#000000" />
@@ -115,10 +233,17 @@ export default function TransactionDetailScreen() {
 
           <TouchableOpacity
             style={styles.downloadBtn}
-            onPress={handleShareReceipt}
+            onPress={handleSaveToGallery}
+            disabled={sharing || saving}
           >
-            <Ionicons name="download-outline" size={18} color="#FFFFFF" />
-            <Text style={styles.downloadBtnText}>Save Image</Text>
+            {saving ? (
+              <ActivityIndicator color="#FFFFFF" size="small" />
+            ) : (
+              <>
+                <Ionicons name="download-outline" size={18} color="#FFFFFF" />
+                <Text style={styles.downloadBtnText}>Save Image</Text>
+              </>
+            )}
           </TouchableOpacity>
         </View>
 
@@ -138,6 +263,41 @@ const styles = StyleSheet.create({
   screen: {
     flex: 1,
     backgroundColor: '#000000',
+  },
+  centerContainer: {
+    flex: 1,
+    backgroundColor: '#000000',
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 24,
+  },
+  loadingText: {
+    color: 'rgba(255, 255, 255, 0.6)',
+    marginTop: 12,
+    fontSize: 14,
+  },
+  errorTitle: {
+    color: '#FFFFFF',
+    fontSize: 18,
+    fontWeight: '700',
+    marginTop: 16,
+    marginBottom: 6,
+  },
+  errorSub: {
+    color: 'rgba(255, 255, 255, 0.5)',
+    fontSize: 13,
+    textAlign: 'center',
+    marginBottom: 20,
+  },
+  backButton: {
+    paddingHorizontal: 20,
+    paddingVertical: 10,
+    backgroundColor: 'rgba(255, 255, 255, 0.1)',
+    borderRadius: 12,
+  },
+  backButtonText: {
+    color: '#FFFFFF',
+    fontWeight: '600',
   },
   topBar: {
     flexDirection: 'row',
