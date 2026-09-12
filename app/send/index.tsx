@@ -6,6 +6,7 @@ import { useThemeStore, ThemeColors } from '../../lib/theme';
 
 // TODO: replace with lib/api/accountId resolve call
 type ResolvedProfile = { name: string; accountId: string } | null;
+type TransferMode = 'ulmara' | 'external';
 
 function fakeResolve(id: string): Promise<ResolvedProfile> {
   return new Promise((resolve) => {
@@ -22,6 +23,7 @@ export default function SendIndex() {
   const styles = getStyles(colors);
 
   const [accountId, setAccountId] = useState('');
+  const [transferMode, setTransferMode] = useState<TransferMode>('ulmara');
   const [profile, setProfile] = useState<ResolvedProfile>(null);
   const [resolving, setResolving] = useState(false);
   const [asset, setAsset] = useState<(typeof ASSETS)[number]>('USDT');
@@ -42,6 +44,10 @@ export default function SendIndex() {
 
   const handleContinue = () => {
     setError(null);
+    if (transferMode === 'external') {
+      router.push('/send/external-wallet');
+      return;
+    }
     if (!profile) return setError('Enter a valid 10-digit Account ID');
     const amt = parseFloat(amount);
     if (!amt || amt <= 0) return setError('Enter a valid amount');
@@ -64,6 +70,34 @@ export default function SendIndex() {
         </View>
 
         <View style={styles.body}>
+          <Text style={styles.sectionEyebrow}>TRANSFER TYPE</Text>
+          <View style={styles.modeRow}>
+            <Pressable
+              style={[styles.modeCard, transferMode === 'ulmara' && styles.modeCardActive]}
+              onPress={() => setTransferMode('ulmara')}
+            >
+              <View style={[styles.modeIcon, transferMode === 'ulmara' && styles.modeIconActive]}>
+                <Text style={styles.modeIconText}>@</Text>
+              </View>
+              <Text style={[styles.modeTitle, transferMode === 'ulmara' && styles.modeTitleActive]}>Transfer to Ulmara</Text>
+              <Text style={styles.modeDescription}>Use an Account ID</Text>
+            </Pressable>
+            <Pressable
+              style={[styles.modeCard, transferMode === 'external' && styles.modeCardActive]}
+              onPress={() => setTransferMode('external')}
+            >
+              <View style={[styles.modeIcon, transferMode === 'external' && styles.modeIconActive]}>
+                <Text style={styles.modeIconText}>↗</Text>
+              </View>
+              <Text style={[styles.modeTitle, transferMode === 'external' && styles.modeTitleActive]}>Transfer to external wallet</Text>
+              <Text style={styles.modeDescription}>Send to a blockchain address</Text>
+            </Pressable>
+          </View>
+          {transferMode === 'external' && (
+            <Text style={styles.riskNote}>External transfers cannot be reversed. Check the address and network carefully.</Text>
+          )}
+
+          {transferMode === 'ulmara' && <>
           <Text style={styles.label}>Recipient Account ID</Text>
           <TextInput
             style={styles.input}
@@ -118,11 +152,12 @@ export default function SendIndex() {
           <Pressable style={styles.externalLink} onPress={() => router.push('/send/external-wallet')}>
             <Text style={styles.externalLinkText}>Send to an external wallet instead</Text>
           </Pressable>
+          </>}
         </View>
 
         <View style={styles.footer}>
           <Pressable style={styles.primaryBtn} onPress={handleContinue}>
-            <Text style={styles.primaryBtnText}>Continue</Text>
+            <Text style={styles.primaryBtnText}>{transferMode === 'external' ? 'Continue to external wallet' : 'Continue'}</Text>
           </Pressable>
         </View>
       </KeyboardAvoidingView>
@@ -140,6 +175,23 @@ function getStyles(colors: ThemeColors) {
     back: { color: colors.textPrimary, fontSize: 28 },
     headerTitle: { color: colors.textPrimary, fontSize: 17, fontWeight: '700' },
     body: { flex: 1, paddingHorizontal: 20, paddingTop: 12 },
+    sectionEyebrow: { color: colors.textMuted, fontSize: 11, fontWeight: '800', letterSpacing: 1.2, marginBottom: 10 },
+    modeRow: { flexDirection: 'row', gap: 10, marginBottom: 12 },
+    modeCard: {
+      flex: 1, minHeight: 138, padding: 14, borderRadius: 16,
+      backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border,
+    },
+    modeCardActive: { backgroundColor: colors.primarySoft, borderColor: colors.primary },
+    modeIcon: {
+      width: 32, height: 32, borderRadius: 11, backgroundColor: colors.surfaceElevated,
+      alignItems: 'center', justifyContent: 'center', marginBottom: 12,
+    },
+    modeIconActive: { backgroundColor: colors.primaryLight },
+    modeIconText: { color: colors.primary, fontSize: 17, fontWeight: '800' },
+    modeTitle: { color: colors.textPrimary, fontSize: 13, fontWeight: '800', lineHeight: 17 },
+    modeTitleActive: { color: colors.primary },
+    modeDescription: { color: colors.textMuted, fontSize: 11, lineHeight: 15, marginTop: 5 },
+    riskNote: { color: colors.warning, fontSize: 12, lineHeight: 17, marginBottom: 8 },
     label: { fontSize: 13, color: colors.textMuted, marginBottom: 8, fontWeight: '500' },
     input: {
       backgroundColor: colors.surface, borderRadius: 12, paddingHorizontal: 16, paddingVertical: 14,

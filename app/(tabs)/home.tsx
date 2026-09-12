@@ -168,9 +168,6 @@ export default function Home() {
         {/* Recent Transactions Section */}
         <View style={styles.sectionHeader}>
           <Text style={[styles.sectionTitle, { color: colors.textPrimary }]}>Recent Transactions</Text>
-          <Pressable onPress={() => router.push('/(tabs)/balances')}>
-            <Text style={[styles.viewAllText, { color: colors.primary }]}>View All →</Text>
-          </Pressable>
         </View>
 
         <View style={[styles.transactionsCard, { backgroundColor: colors.surface, borderColor: colors.border }]}>
