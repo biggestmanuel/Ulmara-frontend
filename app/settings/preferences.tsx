@@ -22,7 +22,6 @@ export default function Preferences() {
   const { colors, mode, setMode } = useThemeStore();
   const [currency, setCurrency] = useState<(typeof CURRENCIES)[number]>('USD');
   const [languageCode, setLanguageCode] = useState('en');
-  const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
@@ -33,8 +32,6 @@ export default function Preferences() {
         if (me.defaultLanguage) setLanguageCode(me.defaultLanguage);
       } catch (err) {
         console.error('Failed to load preferences:', err);
-      } finally {
-        setLoading(false);
       }
     })();
   }, []);

@@ -1,57 +1,42 @@
-import { useMemo, useState } from 'react';
-import { View, Text, StyleSheet, Pressable, FlatList } from 'react-native';
+import { useEffect, useMemo, useState } from 'react';
+import { View, Text, StyleSheet, Pressable, FlatList, ActivityIndicator } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { router } from 'expo-router';
 import { useThemeStore, ThemeColors } from '../../lib/theme';
-
-// TODO: replace with stores/txStore + lib/api/transactions
-type Tx = {
-  id: string;
-  type: 'sent' | 'received' | 'deposit' | 'withdraw';
-  counterparty: string;
-  amount: string;
-  asset: string;
-  network: string;
-  time: string;
-  status: 'complete' | 'processing';
-};
-
-const MOCK_TRANSACTIONS: Tx[] = [
-  { id: '1', type: 'received', counterparty: '7729 104 552', amount: '+120.00', asset: 'USDT', network: 'TON', time: '2h ago', status: 'complete' },
-  { id: '2', type: 'sent', counterparty: '0192 883 210', amount: '-45.00', asset: 'USDT', network: 'BSC', time: 'Yesterday', status: 'complete' },
-  { id: '3', type: 'deposit', counterparty: 'Bank Deposit', amount: '+50,000.00', asset: 'NGN', network: 'Bachs', time: '2 days ago', status: 'complete' },
-  { id: '4', type: 'sent', counterparty: '5510 992 034', amount: '-0.05', asset: 'ETH', network: 'ETH', time: '3 days ago', status: 'processing' },
-  { id: '5', type: 'withdraw', counterparty: 'Bank Withdrawal', amount: '-20,000.00', asset: 'NGN', network: 'Bachs', time: '5 days ago', status: 'complete' },
-];
+import { useTxStore } from '../../stores/txStore';
+import type { Transaction } from '../../lib/api/transactions';
 
 const FILTERS = ['All', 'Sent', 'Received', 'Deposits'] as const;
 type Filter = (typeof FILTERS)[number];
 
-function matchesFilter(tx: Tx, filter: Filter): boolean {
+function matchesFilter(tx: Transaction, filter: Filter): boolean {
   if (filter === 'All') return true;
-  if (filter === 'Sent') return tx.type === 'sent';
-  if (filter === 'Received') return tx.type === 'received';
-  return tx.type === 'deposit' || tx.type === 'withdraw';
+  if (filter === 'Sent') return tx.direction === 'sent';
+  if (filter === 'Received') return tx.direction === 'received';
+  return false;
 }
 
-function txLabel(tx: Tx): string {
-  if (tx.type === 'deposit' || tx.type === 'withdraw') return tx.counterparty;
-  return tx.type === 'sent' ? `To ${tx.counterparty}` : `From ${tx.counterparty}`;
+function txLabel(tx: Transaction): string {
+  return tx.direction === 'sent' ? `To ${tx.counterpartyAccountId}` : `From ${tx.counterpartyAccountId}`;
 }
 
-function txIcon(tx: Tx): string {
-  if (tx.type === 'sent' || tx.type === 'withdraw') return '↑';
-  return tx.type === 'received' ? '↓' : '+';
+function txIcon(tx: Transaction): string {
+  return tx.direction === 'sent' ? '↑' : '↓';
 }
 
 export default function Activity() {
   const { colors } = useThemeStore();
   const styles = getStyles(colors);
+  const { items, isLoading, isLoadingMore, nextCursor, fetchInitial, fetchMore } = useTxStore();
   const [filter, setFilter] = useState<Filter>('All');
 
+  useEffect(() => {
+    fetchInitial();
+  }, [fetchInitial]);
+
   const filtered = useMemo(
-    () => MOCK_TRANSACTIONS.filter((tx) => matchesFilter(tx, filter)),
-    [filter]
+    () => items.filter((tx) => matchesFilter(tx, filter)),
+    [items, filter]
   );
 
   return (
@@ -75,6 +60,11 @@ export default function Activity() {
         keyExtractor={(item) => item.id}
         contentContainerStyle={styles.list}
         ListEmptyComponent={<Text style={styles.empty}>No transactions in this category</Text>}
+        refreshing={isLoading}
+        onRefresh={fetchInitial}
+        onEndReached={() => nextCursor && fetchMore()}
+        onEndReachedThreshold={0.4}
+        ListFooterComponent={isLoadingMore ? <ActivityIndicator color={colors.primary} /> : null}
         renderItem={({ item }) => (
           <Pressable style={styles.txRow} onPress={() => router.push(`/transaction/${item.id}`)}>
             <View style={styles.txIconWrap}>
@@ -83,12 +73,12 @@ export default function Activity() {
             <View style={styles.txDetails}>
               <Text style={styles.txLabel}>{txLabel(item)}</Text>
               <Text style={styles.txMeta}>
-                {item.network} · {item.time}
-                {item.status === 'processing' ? ' · Processing' : ''}
+                {item.network} · {new Date(item.createdAt).toLocaleDateString()}
+                {item.status === 'processing' ? ' · Processing' : item.status === 'failed' ? ' · Failed' : ''}
               </Text>
             </View>
             <Text style={[styles.txAmount, item.amount.startsWith('+') && styles.txAmountPositive]}>
-              {item.amount} {item.asset}
+              {item.direction === 'sent' ? '-' : '+'}{item.amount} {item.symbol}
             </Text>
           </Pressable>
         )}

@@ -3,18 +3,11 @@ import { View, Text, TextInput, StyleSheet, Pressable, KeyboardAvoidingView, Pla
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { router } from 'expo-router';
 import { useThemeStore, ThemeColors } from '../../lib/theme';
+import { resolveAccountId } from '../../lib/api/accountId';
 
 // TODO: replace with lib/api/accountId resolve call
-type ResolvedProfile = { name: string; accountId: string } | null;
+type ResolvedProfile = { name: string; accountId: string; wallets?: { chain: string; address: string }[] } | null;
 type TransferMode = 'ulmara' | 'external';
-
-function fakeResolve(id: string): Promise<ResolvedProfile> {
-  return new Promise((resolve) => {
-    setTimeout(() => {
-      resolve(id.length === 10 ? { name: 'Chidi Okafor', accountId: id } : null);
-    }, 500);
-  });
-}
 
 const ASSETS = ['USDT', 'BTC', 'ETH', 'SOL', 'TON'] as const;
 
@@ -36,10 +29,10 @@ export default function SendIndex() {
     if (digits.length !== 10) return;
 
     setResolving(true);
-    fakeResolve(digits).then((p) => {
-      setProfile(p);
-      setResolving(false);
-    });
+    resolveAccountId(digits)
+      .then((resolved) => setProfile(resolved ? { name: resolved.name ?? 'Ulmara user', accountId: resolved.accountId, wallets: resolved.wallets } : null))
+      .catch(() => setProfile(null))
+      .finally(() => setResolving(false));
   }, [accountId]);
 
   const handleContinue = () => {
@@ -54,7 +47,7 @@ export default function SendIndex() {
 
     router.push({
       pathname: '/send/network-select',
-      params: { accountId: profile.accountId, recipientName: profile.name, asset, amount },
+      params: { accountId: profile.accountId, recipientName: profile.name, asset, amount, wallets: JSON.stringify(profile.wallets ?? []) },
     });
   };
 

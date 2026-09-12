@@ -3,42 +3,31 @@ import { View, Text, TextInput, StyleSheet, Pressable, Share, KeyboardAvoidingVi
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { router } from 'expo-router';
 import { useThemeStore, ThemeColors } from '../../lib/theme';
+import QRCode from 'react-native-qrcode-svg';
+import { useUserStore } from '../../stores/userStore';
+import { createPaymentRequest } from '../../lib/api/transactions';
 
 const ASSETS = ['USDT', 'BTC', 'ETH', 'SOL', 'TON'] as const;
-
-// TODO: replace with stores/userStore
-const MOCK_ACCOUNT_ID = '4821093471';
 
 function formatAccountId(id: string): string {
   return id.replace(/(\d{4})(\d{3})(\d{3})/, '$1 $2 $3');
 }
 
-// Kept black-on-white regardless of theme, same as a real QR code, for scannability.
-function QRPlaceholder({ styles }: { styles: ReturnType<typeof getStyles> }) {
-  return (
-    <View style={styles.qrBox}>
-      <View style={styles.qrGrid}>
-        {Array.from({ length: 49 }).map((_, i) => (
-          <View key={i} style={[styles.qrCell, (i * 7 + i) % 3 === 0 && styles.qrCellFilled]} />
-        ))}
-      </View>
-    </View>
-  );
-}
-
 export default function PaymentRequest() {
   const { colors } = useThemeStore();
   const styles = getStyles(colors);
+  const accountId = useUserStore((state) => state.accountId) ?? '';
 
   const [asset, setAsset] = useState<(typeof ASSETS)[number]>('USDT');
   const [amount, setAmount] = useState('');
   const [note, setNote] = useState('');
   const [generated, setGenerated] = useState(false);
+  const [requestLink, setRequestLink] = useState('');
 
-  const requestLink = `https://accountwallet.app/pay/${MOCK_ACCOUNT_ID}?amount=${amount}&asset=${asset}`;
-
-  const handleGenerate = () => {
+  const handleGenerate = async () => {
     if (!amount || parseFloat(amount) <= 0) return;
+    const request = await createPaymentRequest({ amount, symbol: asset, note });
+    setRequestLink(request.link);
     setGenerated(true);
   };
 
@@ -64,10 +53,10 @@ export default function PaymentRequest() {
         </View>
 
         <View style={styles.body}>
-          <QRPlaceholder styles={styles} />
+          <View style={styles.qrBox}><QRCode value={requestLink} size={160} /></View>
           <Text style={styles.requestAmount}>{amount} {asset}</Text>
           {note ? <Text style={styles.note}>{note}</Text> : null}
-          <Text style={styles.accountId}>{formatAccountId(MOCK_ACCOUNT_ID)}</Text>
+          <Text style={styles.accountId}>{formatAccountId(accountId)}</Text>
         </View>
 
         <View style={styles.footer}>
@@ -171,9 +160,6 @@ function getStyles(colors: ThemeColors) {
       width: 200, height: 200, backgroundColor: '#FFFFFF', borderRadius: 20,
       alignItems: 'center', justifyContent: 'center', padding: 16, alignSelf: 'center',
     },
-    qrGrid: { width: 160, height: 160, flexDirection: 'row', flexWrap: 'wrap' },
-    qrCell: { width: '14.28%', height: '14.28%', backgroundColor: 'transparent' },
-    qrCellFilled: { backgroundColor: '#0B0B0F' },
     requestAmount: { color: colors.textPrimary, fontSize: 26, fontWeight: '700', marginTop: 20, textAlign: 'center' },
     note: { color: colors.textMuted, fontSize: 14, marginTop: 6, textAlign: 'center' },
     accountId: { color: colors.textMuted, fontSize: 14, marginTop: 16, textAlign: 'center', letterSpacing: 1 },

@@ -3,6 +3,8 @@ import { View, Text, TextInput, StyleSheet, Pressable, KeyboardAvoidingView, Pla
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { router } from 'expo-router';
 import { useThemeStore, ThemeColors } from '../../lib/theme';
+import { forgotPassword } from '../../lib/api/auth';
+import { toApiError } from '../../lib/api/client';
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
@@ -20,11 +22,10 @@ export default function ForgotPassword() {
 
     setLoading(true);
     try {
-      // TODO: replace with lib/api/client password-reset call
-      await new Promise((r) => setTimeout(r, 800));
+      await forgotPassword({ email: email.trim() });
       setSent(true);
-    } catch {
-      setError('Could not send reset link. Try again.');
+    } catch (err) {
+      setError(toApiError(err).message);
     } finally {
       setLoading(false);
     }

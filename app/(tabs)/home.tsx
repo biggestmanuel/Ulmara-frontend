@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react';
+import { useEffect, useState, useMemo } from 'react';
 import {
   View,
   Text,
@@ -15,6 +15,7 @@ import * as Clipboard from 'expo-clipboard';
 import { useUserStore } from '../../stores/userStore';
 import { useWalletStore } from '../../stores/walletStore';
 import { useThemeStore } from '../../lib/theme';
+import { useTxStore } from '../../stores/txStore';
 
 function formatAccountId(id?: string | null): string {
   if (!id) return '---- --- ---';
@@ -29,13 +30,6 @@ const QUICK_ACTIONS = [
   { label: 'Withdraw', symbol: '⤓', route: '/deposit-withdraw/withdraw' },
 ] as const;
 
-// TODO: replace with stores/txStore + lib/api/transactions
-const MOCK_RECENT_TRANSACTIONS = [
-  { id: '1', title: 'Transfer from 8821 042 119', amount: '+₦150,000.00', sub: 'Today, 1:42 PM', isPositive: true },
-  { id: '2', title: 'Sent to 0192 481 992', amount: '-₦25,000.00', sub: 'Yesterday, 8:15 PM', isPositive: false },
-  { id: '3', title: 'Deposit via Bank Transfer', amount: '+₦50,000.00', sub: 'Sep 07, 11:20 AM', isPositive: true },
-];
-
 export default function Home() {
   const { colors, isDark } = useThemeStore();
   const [balanceHidden, setBalanceHidden] = useState(false);
@@ -45,6 +39,12 @@ export default function Home() {
   const balances = useWalletStore((s) => s.balances);
   const isLoadingBalances = useWalletStore((s) => s.isLoadingBalances);
   const refreshBalances = useWalletStore((s) => s.refreshBalances);
+  const transactions = useTxStore((s) => s.items);
+  const fetchTransactions = useTxStore((s) => s.fetchInitial);
+
+  useEffect(() => {
+    fetchTransactions();
+  }, [fetchTransactions]);
 
   const displayName = profile?.name?.trim() || 'Biggest Manuel';
   const initial = displayName.charAt(0).toUpperCase();
@@ -171,38 +171,39 @@ export default function Home() {
         </View>
 
         <View style={[styles.transactionsCard, { backgroundColor: colors.surface, borderColor: colors.border }]}>
-          {MOCK_RECENT_TRANSACTIONS.map((tx, idx) => (
+          {transactions.slice(0, 3).map((tx, idx, recentTransactions) => (
             <View
               key={tx.id}
               style={[
                 styles.txRow,
-                idx < MOCK_RECENT_TRANSACTIONS.length - 1 && { borderBottomWidth: 1, borderBottomColor: colors.divider },
+                idx < recentTransactions.length - 1 && { borderBottomWidth: 1, borderBottomColor: colors.divider },
               ]}
+              
             >
               <View style={styles.txLeft}>
                 <View
                   style={[
                     styles.txIconBox,
-                    { backgroundColor: tx.isPositive ? (isDark ? '#1C2E24' : '#EAF7EE') : (isDark ? '#2E1C1C' : '#FEECEC') },
+                    { backgroundColor: tx.direction === 'received' ? (isDark ? '#1C2E24' : '#EAF7EE') : (isDark ? '#2E1C1C' : '#FEECEC') },
                   ]}
                 >
-                  <Text style={{ fontSize: 16, color: tx.isPositive ? colors.success : colors.error }}>
-                    {tx.isPositive ? '↓' : '↑'}
+                  <Text style={{ fontSize: 16, color: tx.direction === 'received' ? colors.success : colors.error }}>
+                    {tx.direction === 'received' ? '↓' : '↑'}
                   </Text>
                 </View>
                 <View>
-                  <Text style={[styles.txTitle, { color: colors.textPrimary }]}>{tx.title}</Text>
-                  <Text style={[styles.txSub, { color: colors.textMuted }]}>{tx.sub}</Text>
+                  <Text style={[styles.txTitle, { color: colors.textPrimary }]}>{tx.direction === 'received' ? 'Received' : 'Sent'} {tx.counterpartyAccountId}</Text>
+                  <Text style={[styles.txSub, { color: colors.textMuted }]}>{tx.network} · {new Date(tx.createdAt).toLocaleDateString()}</Text>
                 </View>
               </View>
 
               <Text
                 style={[
                   styles.txAmount,
-                  { color: tx.isPositive ? colors.success : colors.textPrimary },
+                  { color: tx.direction === 'received' ? colors.success : colors.textPrimary },
                 ]}
               >
-                {tx.amount}
+                {tx.direction === 'received' ? '+' : '-'}{tx.amount} {tx.symbol}
               </Text>
             </View>
           ))}

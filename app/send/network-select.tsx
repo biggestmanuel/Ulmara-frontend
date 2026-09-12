@@ -33,7 +33,7 @@ export default function NetworkSelect() {
   const styles = getStyles(colors);
 
   const params = useLocalSearchParams<{
-    accountId: string; recipientName: string; asset: string; amount: string;
+    accountId: string; recipientName: string; asset: string; amount: string; wallets?: string;
   }>();
 
   const options = NETWORKS_BY_ASSET[params.asset] ?? NETWORKS_BY_ASSET.USDT;
@@ -42,9 +42,12 @@ export default function NetworkSelect() {
   const [advanced, setAdvanced] = useState(false);
 
   const handleContinue = () => {
+    const wallets = params.wallets ? JSON.parse(params.wallets) as { chain: string; address: string }[] : [];
+    const targetAddress = wallets.find((wallet) => wallet.chain === selected.id)?.address;
+    if (!targetAddress) return;
     router.push({
       pathname: '/send/confirm',
-      params: { ...params, network: selected.id, networkName: selected.name, fee: selected.fee },
+      params: { ...params, targetAddress, network: selected.id, networkName: selected.name, fee: selected.fee },
     });
   };
 

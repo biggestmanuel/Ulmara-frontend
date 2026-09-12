@@ -4,6 +4,7 @@ export interface AccountIdProfile {
   accountId: string;
   name?: string;
   photoUrl?: string;
+  wallets?: { chain: string; address: string }[];
 }
 
 interface ApiEnvelope<T> {
@@ -16,10 +17,10 @@ interface ApiEnvelope<T> {
 export async function resolveAccountId(accountId: string): Promise<AccountIdProfile | null> {
   try {
     const { data } = await apiClient.get<
-      ApiEnvelope<{ accountId: string; profile: { id: string; name: string | null; photoUrl: string | null } }>
+      ApiEnvelope<{ accountId: string; profile: { id: string; name: string | null; photoUrl: string | null; wallets?: { chain: string; address: string }[] } }>
     >(`/api/account/${accountId}`);
     const { accountId: id, profile } = data.data;
-    return { accountId: id, name: profile?.name ?? undefined, photoUrl: profile?.photoUrl ?? undefined };
+    return { accountId: id, name: profile?.name ?? undefined, photoUrl: profile?.photoUrl ?? undefined, wallets: profile?.wallets };
   } catch (err: any) {
     if (err?.status === 404) return null;
     throw err;

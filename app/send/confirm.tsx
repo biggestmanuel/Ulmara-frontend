@@ -3,15 +3,10 @@ import { View, Text, StyleSheet, Pressable, ActivityIndicator } from 'react-nati
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { router, useLocalSearchParams } from 'expo-router';
 import { useThemeStore, ThemeColors } from '../../lib/theme';
-
-// TODO: replace with lib/api/accountId resolved address lookup
-function mockResolvedAddress(network: string): string {
-  const prefixes: Record<string, string> = {
-    TON: 'EQD4FPq-', BSC: '0x8f3Cc2', TRON: 'TXy9pQ2m',
-    ETH: '0x9aB1c4', BASE: '0x2eF701', SOL: '7xKXtg2C',
-  };
-  return `${prefixes[network] ?? '0x0000'}...${network.toLowerCase()}9d21`;
-}
+import { broadcastTransaction, sendPayment } from '../../lib/api/transactions';
+import { toApiError } from '../../lib/api/client';
+import { useTxStore } from '../../stores/txStore';
+import { signEvmNativeTransfer } from '../../lib/signing/evm';
 
 export default function SendConfirm() {
   const { colors } = useThemeStore();
@@ -19,25 +14,45 @@ export default function SendConfirm() {
 
   const params = useLocalSearchParams<{
     accountId?: string; recipientName?: string; externalAddress?: string;
-    asset: string; amount: string; network: string; networkName: string; fee: string;
+    asset: string; amount: string; network: string; networkName: string; fee: string; targetAddress?: string;
   }>();
 
   const isExternal = !params.accountId;
   const [showAddress, setShowAddress] = useState(false);
   const [sending, setSending] = useState(false);
   const [done, setDone] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const upsertTransaction = useTxStore((state) => state.upsertTransaction);
 
-  const resolvedAddress = isExternal
-    ? params.externalAddress
-    : mockResolvedAddress(params.network);
+  const resolvedAddress = isExternal ? params.externalAddress : params.targetAddress;
 
   const handleSend = async () => {
+    setError(null);
+    if (isExternal) {
+      setError('External wallet transfers are not available yet. Your funds were not sent.');
+      return;
+    }
+
+    if (!params.accountId || !params.asset || !params.amount || !params.network) {
+      setError('This transfer is missing required details. Go back and try again.');
+      return;
+    }
+
     setSending(true);
     try {
-      // TODO: replace with real send via lib/api/transactions + lib/gas/gasAbstraction
-      await new Promise((r) => setTimeout(r, 1400));
+      const created = await sendPayment({
+        recipientAccountId: params.accountId,
+        amount: params.amount,
+        symbol: params.asset,
+        network: params.network,
+      });
+      const signedTx = await signEvmNativeTransfer({ network: params.network, asset: params.asset, to: params.targetAddress!, amount: params.amount });
+      const broadcast = await broadcastTransaction(created.transaction.id, signedTx);
+      upsertTransaction(broadcast);
       setDone(true);
       setTimeout(() => router.replace('/(tabs)/home'), 1200);
+    } catch (err) {
+      setError(toApiError(err).message);
     } finally {
       setSending(false);
     }
@@ -98,6 +113,7 @@ export default function SendConfirm() {
             Double-check the details above. Crypto transactions can't be reversed once sent.
           </Text>
         </View>
+        {error && <Text style={styles.error}>{error}</Text>}
       </View>
 
       <View style={styles.footer}>
@@ -146,6 +162,7 @@ function getStyles(colors: ThemeColors) {
       borderColor: `${colors.warning}40`, padding: 14, marginTop: 20,
     },
     warningText: { color: colors.warning, fontSize: 12, lineHeight: 17 },
+    error: { color: colors.error, fontSize: 13, lineHeight: 18, marginTop: 12, textAlign: 'center' },
     footer: { paddingHorizontal: 20, paddingBottom: 32 },
     primaryBtn: {
       backgroundColor: colors.primary, borderRadius: 14, paddingVertical: 16,

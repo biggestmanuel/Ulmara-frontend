@@ -1,0 +1,6 @@
+module.exports = {
+  extends: 'expo',
+  rules: {
+    'react-hooks/set-state-in-effect': 'off',
+  },
+};

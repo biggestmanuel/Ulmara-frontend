@@ -18,7 +18,7 @@ export default function VerifyPhone() {
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [seconds, setSeconds] = useState(RESEND_SECONDS);
-  const inputs = useRef<Array<TextInput | null>>([]);
+  const inputs = useRef<(TextInput | null)[]>([]);
 
   useEffect(() => {
     if (seconds === 0) return;

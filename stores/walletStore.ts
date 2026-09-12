@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import { getChainModule, ChainId } from '../lib/chains';
 import { getSecureItem, SecureStorageKeys } from '../lib/storage/secureStorage';
+import { fetchWalletAddresses, fetchWalletBalances, toFrontendChainId } from '../lib/api/wallet';
 
 const NATIVE_SYMBOLS: Record<ChainId, string> = {
   eth: 'ETH',
@@ -44,6 +45,17 @@ export const useWalletStore = create<WalletState>((set, get) => ({
     const cachedAddresses = await getSecureItem(SecureStorageKeys.ACCOUNT_ID);
     set({ isHydrated: true });
     if (cachedAddresses) {
+      try {
+        const serverAddresses = await fetchWalletAddresses();
+        const addresses = serverAddresses.reduce<Partial<Record<ChainId, string>>>((result, wallet) => {
+          const chainId = toFrontendChainId(wallet.chain);
+          if (chainId) result[chainId] = wallet.address;
+          return result;
+        }, {});
+        set({ addresses });
+      } catch (err) {
+        console.error('Failed to hydrate wallet addresses:', err);
+      }
       await get().refreshBalances();
     }
   },
@@ -59,6 +71,24 @@ export const useWalletStore = create<WalletState>((set, get) => ({
 
     set({ isLoadingBalances: true });
     try {
+      const serverBalances = await fetchWalletBalances();
+      if (serverBalances.length > 0) {
+        const balances = serverBalances.flatMap((entry) => {
+          const chainId = toFrontendChainId(entry.chain);
+          if (!chainId || entry.balance === null) return [];
+          return [{
+            id: `${chainId}:native`,
+            chainId,
+            symbol: NATIVE_SYMBOLS[chainId],
+            balance: entry.balance,
+            address: entry.address,
+          }];
+        });
+        if (balances.length > 0) {
+          set({ balances });
+          return;
+        }
+      }
       const results = await Promise.all(
         chainIds.map(async (chainId) => {
           const address = addresses[chainId]!;

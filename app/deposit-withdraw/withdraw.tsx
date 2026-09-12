@@ -11,11 +11,6 @@ const CHAIN_LABELS: Record<string, string> = {
   sol: 'Solana', tron: 'TRON', ton: 'TON',
 };
 
-// TODO: replace with lib/ramp/paystack.ts withdrawal call once that's wired
-function fakeWithdraw(): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, 1200));
-}
-
 export default function Withdraw() {
   const { colors } = useThemeStore();
   const styles = getStyles(colors);
@@ -27,9 +22,7 @@ export default function Withdraw() {
   const [amount, setAmount] = useState('');
   const [bankName, setBankName] = useState('');
   const [accountNumber, setAccountNumber] = useState('');
-  const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [done, setDone] = useState(false);
   const [prices, setPrices] = useState<Record<PriceSymbol, number>>({} as any);
   const [loadingRate, setLoadingRate] = useState(false);
 
@@ -46,7 +39,7 @@ export default function Withdraw() {
       .then(setPrices)
       .catch((err) => console.error('Failed to fetch price:', err))
       .finally(() => setLoadingRate(false));
-  }, [selected?.symbol]);
+  }, [selected]);
 
   const amt = parseFloat(amount) || 0;
   const balanceNum = selected ? parseFloat(selected.balance) || 0 : 0;
@@ -66,30 +59,7 @@ export default function Withdraw() {
     if (bankName.trim().length < 2) return setError('Enter your bank name');
     if (accountNumber.replace(/\D/g, '').length !== 10) return setError('Enter a valid 10-digit account number');
 
-    setLoading(true);
-    try {
-      await fakeWithdraw();
-      setDone(true);
-      setTimeout(() => router.replace('/(tabs)/home'), 1200);
-    } catch {
-      setError('Withdrawal failed. Try again.');
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  if (done) {
-    return (
-      <SafeAreaView style={styles.container}>
-        <View style={styles.successWrap}>
-          <View style={styles.successCircle}>
-            <Text style={styles.successCheck}>✓</Text>
-          </View>
-          <Text style={styles.successTitle}>Withdrawal Started</Text>
-          <Text style={styles.successSubtitle}>Funds typically arrive within a few minutes</Text>
-        </View>
-      </SafeAreaView>
-    );
+    setError('Fiat withdrawals are unavailable until Paystack is configured.');
   }
 
   return (
@@ -168,8 +138,8 @@ export default function Withdraw() {
         </View>
 
         <View style={styles.footer}>
-          <Pressable style={styles.primaryBtn} onPress={handleWithdraw} disabled={loading}>
-            {loading ? <ActivityIndicator color="#fff" /> : <Text style={styles.primaryBtnText}>Withdraw</Text>}
+          <Pressable style={styles.primaryBtn} onPress={handleWithdraw}>
+            <Text style={styles.primaryBtnText}>Withdraw</Text>
           </Pressable>
         </View>
       </KeyboardAvoidingView>

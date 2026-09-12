@@ -3,9 +3,6 @@ import {
   saveEvmMnemonic, 
   saveSolMnemonic, 
   saveTonMnemonic,
-  getEvmMnemonic,
-  getSolMnemonic,
-  getTonMnemonic 
 } from './storage/secureStorage';
 import { useWalletStore } from '../stores/walletStore';
 import type { ChainId } from '../types/chain';

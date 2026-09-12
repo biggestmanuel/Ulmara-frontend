@@ -1,5 +1,5 @@
 import { View, StyleSheet } from 'react-native';
-import { Typography, Badge, LoadingSpinner } from '../ui';
+import { Badge, LoadingSpinner } from '../ui';
 
 type Status = 'processing' | 'complete' | 'failed';
 

@@ -4,24 +4,8 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { router } from 'expo-router';
 import { useThemeStore, ThemeColors } from '../../lib/theme';
 
-// TODO: replace with lib/ramp/bachs.ts — create deposit session, get bank transfer details
 const ASSETS = ['USDT', 'BTC', 'ETH', 'SOL', 'TON'] as const;
 const QUICK_AMOUNTS = ['5000', '10000', '25000', '50000'];
-
-type MockBankDetails = { bankName: string; accountNumber: string; accountName: string; reference: string };
-
-function fakeCreateDepositSession(amountNgn: string): Promise<MockBankDetails> {
-  return new Promise((resolve) => {
-    setTimeout(() => {
-      resolve({
-        bankName: 'Wema Bank',
-        accountNumber: '8102734491',
-        accountName: 'Bachs/AccountWallet',
-        reference: `DEP-${Date.now().toString().slice(-8)}`,
-      });
-    }, 900);
-  });
-}
 
 export default function Deposit() {
   const { colors } = useThemeStore();
@@ -30,7 +14,6 @@ export default function Deposit() {
   const [amount, setAmount] = useState('');
   const [asset, setAsset] = useState<(typeof ASSETS)[number]>('USDT');
   const [loading, setLoading] = useState(false);
-  const [details, setDetails] = useState<MockBankDetails | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const handleGenerate = async () => {
@@ -40,52 +23,13 @@ export default function Deposit() {
 
     setLoading(true);
     try {
-      const res = await fakeCreateDepositSession(amount);
-      setDetails(res);
+      setError('Fiat deposits are unavailable until Paystack is configured.');
     } catch {
-      setError('Could not start deposit. Try again.');
+      setError('Fiat deposits are unavailable until Paystack is configured.');
     } finally {
       setLoading(false);
     }
   };
-
-  if (details) {
-    return (
-      <SafeAreaView style={styles.container}>
-        <View style={styles.header}>
-          <Pressable onPress={() => setDetails(null)}>
-            <Text style={styles.back}>‹</Text>
-          </Pressable>
-          <Text style={styles.headerTitle}>Bank Transfer</Text>
-          <View style={{ width: 24 }} />
-        </View>
-
-        <View style={styles.body}>
-          <Text style={styles.transferAmount}>₦{parseFloat(amount).toLocaleString('en-NG')}</Text>
-          <Text style={styles.transferSubtitle}>Transfer this exact amount to complete your deposit</Text>
-
-          <View style={styles.detailsCard}>
-            <DetailRow styles={styles} label="Bank Name" value={details.bankName} />
-            <DetailRow styles={styles} label="Account Number" value={details.accountNumber} />
-            <DetailRow styles={styles} label="Account Name" value={details.accountName} />
-            <DetailRow styles={styles} label="Reference" value={details.reference} />
-          </View>
-
-          <View style={styles.warningBox}>
-            <Text style={styles.warningText}>
-              Include the reference in your transfer narration. {asset} will be credited automatically once payment is confirmed.
-            </Text>
-          </View>
-        </View>
-
-        <View style={styles.footer}>
-          <Pressable style={styles.primaryBtn} onPress={() => router.replace('/(tabs)/home')}>
-            <Text style={styles.primaryBtnText}>I've Sent the Transfer</Text>
-          </Pressable>
-        </View>
-      </SafeAreaView>
-    );
-  }
 
   return (
     <SafeAreaView style={styles.container}>
@@ -140,15 +84,6 @@ export default function Deposit() {
         </View>
       </KeyboardAvoidingView>
     </SafeAreaView>
-  );
-}
-
-function DetailRow({ styles, label, value }: { styles: ReturnType<typeof getStyles>; label: string; value: string }) {
-  return (
-    <View style={styles.detailRow}>
-      <Text style={styles.detailLabel}>{label}</Text>
-      <Text style={styles.detailValue}>{value}</Text>
-    </View>
   );
 }
 

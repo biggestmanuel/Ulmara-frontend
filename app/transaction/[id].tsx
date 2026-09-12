@@ -55,7 +55,7 @@ export default function TransactionDetailScreen() {
         })
         .finally(() => setLoadingDirect(false));
     }
-  }, [id, storeTx]);
+  }, [fetchInitial, id, storeTx]);
 
   const tx = storeTx || fallbackTx;
 
@@ -115,7 +115,7 @@ export default function TransactionDetailScreen() {
         } else {
           await MediaLibrary.addAssetsToAlbumAsync([asset], album, false);
         }
-      } catch (albumErr) {
+      } catch {
         // Fallback: asset is safely in camera roll
       }
 

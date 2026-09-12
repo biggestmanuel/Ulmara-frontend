@@ -1,30 +1,15 @@
 import { useState } from 'react';
-import { View, Text, StyleSheet, Pressable, Share, Platform } from 'react-native';
+import { View, Text, StyleSheet, Pressable, Share } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { router } from 'expo-router';
+import QRCode from 'react-native-qrcode-svg';
+import * as Clipboard from 'expo-clipboard';
+import { useUserStore } from '../../stores/userStore';
 import { useThemeStore, ThemeColors } from '../../lib/theme';
 
 // NOTE: swap this placeholder for a real QR renderer, e.g. react-native-qrcode-svg
 // <QRCode value={`accountwallet://pay/${accountId}`} size={200} />
 // Kept black-on-white regardless of theme, same as a real QR code, for scannability.
-function QRPlaceholder({ value, styles }: { value: string; styles: ReturnType<typeof getStyles> }) {
-  return (
-    <View style={styles.qrBox}>
-      <View style={styles.qrGrid}>
-        {Array.from({ length: 49 }).map((_, i) => (
-          <View
-            key={i}
-            style={[styles.qrCell, (i * 7 + i) % 3 === 0 && styles.qrCellFilled]}
-          />
-        ))}
-      </View>
-    </View>
-  );
-}
-
-// TODO: replace with stores/userStore
-const MOCK_ACCOUNT_ID = '4821093471';
-
 function formatAccountId(id: string): string {
   return id.replace(/(\d{4})(\d{3})(\d{3})/, '$1 $2 $3');
 }
@@ -35,14 +20,15 @@ type Method = (typeof METHODS)[number];
 export default function ReceiveIndex() {
   const { colors } = useThemeStore();
   const styles = getStyles(colors);
+  const accountId = useUserStore((state) => state.accountId) ?? '';
 
   const [method, setMethod] = useState<Method>('QR Code');
   const [copied, setCopied] = useState(false);
 
-  const shareLink = `https://accountwallet.app/pay/${MOCK_ACCOUNT_ID}`;
+  const shareLink = `https://ulmara.app/pay/${accountId}`;
 
-  const handleCopy = () => {
-    // TODO: use expo-clipboard's setStringAsync
+  const handleCopy = async () => {
+    await Clipboard.setStringAsync(method === 'Link' ? shareLink : accountId);
     setCopied(true);
     setTimeout(() => setCopied(false), 1500);
   };
@@ -50,7 +36,7 @@ export default function ReceiveIndex() {
   const handleShare = async () => {
     try {
       await Share.share({
-        message: `Send me crypto via my Account ID: ${formatAccountId(MOCK_ACCOUNT_ID)}\n${shareLink}`,
+        message: `Send me crypto via my Account ID: ${formatAccountId(accountId)}\n${shareLink}`,
       });
     } catch {
       // user cancelled or share failed silently
@@ -82,8 +68,8 @@ export default function ReceiveIndex() {
       <View style={styles.body}>
         {method === 'QR Code' && (
           <>
-            <QRPlaceholder value={shareLink} styles={styles} />
-            <Text style={styles.accountId}>{formatAccountId(MOCK_ACCOUNT_ID)}</Text>
+            <View style={styles.qrBox}><QRCode value={shareLink} size={180} /></View>
+            <Text style={styles.accountId}>{formatAccountId(accountId)}</Text>
             <Text style={styles.helperText}>Scan to send crypto directly to this account</Text>
           </>
         )}
@@ -91,7 +77,7 @@ export default function ReceiveIndex() {
         {method === 'Account ID' && (
           <View style={styles.idCard}>
             <Text style={styles.idLabel}>Your Account ID</Text>
-            <Text style={styles.idValue}>{formatAccountId(MOCK_ACCOUNT_ID)}</Text>
+            <Text style={styles.idValue}>{formatAccountId(accountId)}</Text>
             <Pressable style={styles.copyBtn} onPress={handleCopy}>
               <Text style={styles.copyBtnText}>{copied ? 'Copied' : 'Copy Account ID'}</Text>
             </Pressable>
@@ -147,9 +133,6 @@ function getStyles(colors: ThemeColors) {
       width: 220, height: 220, backgroundColor: '#FFFFFF', borderRadius: 20,
       alignItems: 'center', justifyContent: 'center', padding: 16,
     },
-    qrGrid: { width: 180, height: 180, flexDirection: 'row', flexWrap: 'wrap' },
-    qrCell: { width: '14.28%', height: '14.28%', backgroundColor: 'transparent' },
-    qrCellFilled: { backgroundColor: '#0B0B0F' },
     accountId: { color: colors.textPrimary, fontSize: 22, fontWeight: '700', marginTop: 24, letterSpacing: 1 },
     helperText: { color: colors.textMuted, fontSize: 13, marginTop: 8, textAlign: 'center' },
     idCard: {
