@@ -75,7 +75,7 @@ export default function SettingsScreen() {
         <View style={[styles.card, { backgroundColor: colors.surface, borderColor: colors.border }]}>
           <Pressable
             style={[styles.row, { borderBottomWidth: 1, borderBottomColor: colors.divider }]}
-            onPress={() => router.push('/(auth)/verify-pin')}
+            onPress={() => router.push('/settings/security')}
           >
             <Text style={[styles.rowText, { color: colors.textPrimary }]}>Change 6-Digit PIN</Text>
             <Text style={[styles.rowArrow, { color: colors.textMuted }]}>→</Text>

@@ -3,6 +3,9 @@ import { View, Text, TextInput, StyleSheet, Pressable, KeyboardAvoidingView, Pla
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { router } from 'expo-router';
 import { useThemeStore, ThemeColors } from '../../lib/theme';
+import { ethers } from 'ethers';
+import { PublicKey } from '@solana/web3.js';
+import { validateExternalAddress, type SupportedTriVerifyChain } from '../../lib/validation/triverify';
 
 // TODO: replace with lib/validation/triverify.ts address format + existence check
 // (pending TriVerify's network-first API redesign, see project notes)
@@ -10,9 +13,12 @@ const NETWORKS = ['ETH', 'BSC', 'TRON', 'SOL', 'TON', 'BASE', 'Polygon'] as cons
 type Network = (typeof NETWORKS)[number];
 
 function looksValid(address: string, network: Network): boolean {
-  if (address.length < 20) return false;
-  if (network === 'SOL' || network === 'TON') return true;
-  return address.startsWith('0x') || address.startsWith('T');
+  if (network === 'SOL') {
+    try { new PublicKey(address); return true; } catch { return false; }
+  }
+  if (network === 'TON') return address.length >= 40 && address.length <= 70;
+  if (network === 'TRON') return /^T[1-9A-HJ-NP-Za-km-z]{33}$/.test(address);
+  return ethers.isAddress(address);
 }
 
 const ASSETS = ['USDT', 'BTC', 'ETH', 'SOL', 'TON'] as const;
@@ -27,17 +33,28 @@ export default function ExternalWallet() {
   const [amount, setAmount] = useState('');
   const [error, setError] = useState<string | null>(null);
 
-  const handleContinue = () => {
+  const handleContinue = async () => {
     setError(null);
     if (!address.trim()) return setError('Enter a wallet address');
-    if (!looksValid(address.trim(), network)) return setError(`This doesn't look like a valid ${network} address`);
+    const normalizedAddress = address.trim();
+    if (!looksValid(normalizedAddress, network)) return setError(`This doesn't look like a valid ${network} address`);
+    if (network === 'ETH' || network === 'SOL' || network === 'TRON' || network === 'TON') {
+      try {
+        const result = await validateExternalAddress(normalizedAddress, network as SupportedTriVerifyChain);
+        if (!result.formatValid || result.exists === false) {
+          return setError(`The ${network} address could not be validated.`);
+        }
+      } catch {
+        return setError('Address validation is temporarily unavailable. Try again later.');
+      }
+    }
     const amt = parseFloat(amount);
     if (!amt || amt <= 0) return setError('Enter a valid amount');
 
     router.push({
       pathname: '/send/confirm',
       params: {
-        externalAddress: address.trim(),
+        externalAddress: normalizedAddress,
         asset,
         amount,
         network,

@@ -40,11 +40,30 @@ export default function NetworkSelect() {
   const recommended = useMemo(() => pickRecommended(options), [options]);
   const [selected, setSelected] = useState<NetworkOption>(recommended);
   const [advanced, setAdvanced] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   const handleContinue = () => {
-    const wallets = params.wallets ? JSON.parse(params.wallets) as { chain: string; address: string }[] : [];
+    let wallets: { chain: string; address: string }[] = [];
+    try {
+      const parsed: unknown = params.wallets ? JSON.parse(params.wallets) : [];
+      if (Array.isArray(parsed)) {
+        wallets = parsed.filter(
+          (wallet): wallet is { chain: string; address: string } =>
+            typeof wallet === 'object' && wallet !== null &&
+            typeof (wallet as { chain?: unknown }).chain === 'string' &&
+            typeof (wallet as { address?: unknown }).address === 'string'
+        );
+      }
+    } catch {
+      setError('Could not read the recipient wallet details. Go back and try again.');
+      return;
+    }
     const targetAddress = wallets.find((wallet) => wallet.chain === selected.id)?.address;
-    if (!targetAddress) return;
+    if (!targetAddress) {
+      setError(`The recipient has no ${selected.name} wallet.`);
+      return;
+    }
+    setError(null);
     router.push({
       pathname: '/send/confirm',
       params: { ...params, targetAddress, network: selected.id, networkName: selected.name, fee: selected.fee },
@@ -99,6 +118,7 @@ export default function NetworkSelect() {
                     <Text style={styles.badgeText}>Best</Text>
                   </View>
                 )}
+                {error && <Text style={styles.error}>{error}</Text>}
               </Pressable>
             ))}
           </>
@@ -151,5 +171,6 @@ function getStyles(colors: ThemeColors) {
     alignItems: 'center', justifyContent: 'center', height: 54,
   },
   primaryBtnText: { color: '#FFFFFF', fontSize: 16, fontWeight: '600' },
+  error: { color: colors.error, fontSize: 13, marginTop: 14, textAlign: 'center' },
 });
 }

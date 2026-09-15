@@ -37,6 +37,10 @@ export default function SendConfirm() {
       setError('This transfer is missing required details. Go back and try again.');
       return;
     }
+    if (params.network !== 'ETH' || params.asset !== 'ETH') {
+      setError('This wallet currently supports native ETH transfers on Ethereum only.');
+      return;
+    }
 
     setSending(true);
     try {

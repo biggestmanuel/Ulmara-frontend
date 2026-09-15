@@ -9,12 +9,9 @@ export const apiClient: AxiosInstance = axios.create({
   headers: { 'Content-Type': 'application/json' },
 });
 
-// Attach session token to every request
 apiClient.interceptors.request.use(async (config) => {
   const token = await getSecureItem(SecureStorageKeys.SESSION_TOKEN);
-  if (token) {
-    config.headers.Authorization = `Bearer ${token}`;
-  }
+  if (token) config.headers.Authorization = `Bearer ${token}`;
   return config;
 });
 
@@ -24,8 +21,6 @@ export interface ApiErrorShape {
   message: string;
 }
 
-// Normalize all API errors into one predictable shape so screens
-// don't need to know about axios internals
 export function toApiError(err: unknown): ApiErrorShape {
   if (axios.isAxiosError(err)) {
     const axiosErr = err as AxiosError<{ code?: string; message?: string }>;

@@ -23,7 +23,8 @@ export interface RegisterWalletsResult {
 }
 
 // In-memory cache so retries don't regenerate keys
-let inMemoryWallet: any = null;
+type GeneratedWallet = Awaited<ReturnType<typeof import('./keyGeneration')['generateWallet']>>;
+let inMemoryWallet: GeneratedWallet | null = null;
 
 export async function setupNonCustodialWallet(): Promise<RegisterWalletsResult> {
   const { generateWallet, toPublicAddresses } = await import('./keyGeneration');
@@ -36,9 +37,14 @@ export async function setupNonCustodialWallet(): Promise<RegisterWalletsResult> 
     inMemoryWallet = wallet;
 
     // 1. Persist secrets locally
-    await saveEvmMnemonic(wallet.evmMnemonic);
-    await saveSolMnemonic(wallet.solMnemonic);
-    await saveTonMnemonic(wallet.tonMnemonic);
+    const saved = await Promise.all([
+      saveEvmMnemonic(wallet.evmMnemonic),
+      saveSolMnemonic(wallet.solMnemonic),
+      saveTonMnemonic(wallet.tonMnemonic),
+    ]);
+    if (saved.some((value) => !value)) {
+      throw new Error('Could not securely store wallet recovery material. Wallet setup was not completed.');
+    }
   }
 
   // 2. Register only public addresses
