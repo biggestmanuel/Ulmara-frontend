@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-require-imports, import/first */
 // Must stay the very first thing executed in this file
 require('../lib/polyfills');
 
