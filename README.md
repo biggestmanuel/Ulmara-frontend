@@ -6,7 +6,7 @@ Non-custodial multi-chain crypto wallet. Send and receive using a 10-digit Accou
 
 - React Native + Expo (`expo-router`)
 - Zustand for state (`stores/`)
-- Chains: TON, BSC, ETH, SOL, Base, Polygon, TRON (`@ton/*`, `ethers`, `@solana/web3.js`, `tronweb`)
+- Chains: TON, BSC, ETH, SOL, Base, Polygon, TRON, BTC (`@ton/*`, `ethers`, `@solana/web3.js`, `tronweb`)
 - Address validation via TriVerify SDK
 - Secure storage: `expo-secure-store`, `react-native-mmkv`
 - Key generation: `bip39`, `ed25519-hd-key`, `react-native-fast-pbkdf2`
@@ -48,7 +48,7 @@ Fill in `.env`:
 ```
 EXPO_PUBLIC_API_BASE_URL=
 EXPO_PUBLIC_RPC_ETH / BSC / BASE / POLYGON / SOL / TRON / TON=
-EXPO_PUBLIC_TRIVERIFY_API_KEY=
+# TriVerify is called by the backend; do not put its key in the app.
 EXPO_PUBLIC_BACHS_API_KEY=          # primary NGN ramp
 EXPO_PUBLIC_PAYSTACK_PUBLIC_KEY=    # fallback ramp
 EXPO_PUBLIC_FLUTTERWAVE_PUBLIC_KEY= # fallback ramp
@@ -72,7 +72,7 @@ npm run typecheck
 - tsc / lint clean
 - Theme rollout (burnt-orange, ~20 screens) done
 - Receipt sharing done
-- External-wallet address validation redesign blocked on a TriVerify API change (infer-network → confirm-match-selected-network)
+- External-wallet validation is proxied through the backend (TriVerify credentials are not shipped in the app)
 - ERC-20/USDT token support not yet implemented (native coins only)
 
 ## Notes

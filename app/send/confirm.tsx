@@ -7,6 +7,9 @@ import { broadcastTransaction, sendPayment } from '../../lib/api/transactions';
 import { toApiError } from '../../lib/api/client';
 import { useTxStore } from '../../stores/txStore';
 import { signEvmNativeTransfer } from '../../lib/signing/evm';
+import { getSigningAdapter } from '../../lib/signing/chainAdapters';
+import { prepareExternalTransfer, submitExternalTransfer } from '../../lib/api/externalTransfers';
+import type { ChainId } from '../../lib/chains';
 
 export default function SendConfirm() {
   const { colors } = useThemeStore();
@@ -29,7 +32,34 @@ export default function SendConfirm() {
   const handleSend = async () => {
     setError(null);
     if (isExternal) {
-      setError('External wallet transfers are not available yet. Your funds were not sent.');
+      if (!params.externalAddress || !params.asset || !params.amount || !params.network) {
+        setError('This transfer is missing required details. Go back and try again.');
+        return;
+      }
+      const chain = params.network.toLowerCase() as ChainId;
+      const adapter = getSigningAdapter(chain);
+      if (adapter.availability === 'unavailable') {
+        setError(`External sending is unavailable: ${adapter.unavailableReason}. Your funds were not sent.`);
+        return;
+      }
+      setSending(true);
+      try {
+        const intent = await prepareExternalTransfer({
+          chain,
+          asset: params.asset,
+          amount: params.amount,
+          to: params.externalAddress,
+        });
+        const signed = await adapter.signTransfer({ asset: params.asset, amount: params.amount, to: params.externalAddress, transactionId: intent.id });
+        const submitted = await submitExternalTransfer(intent.id, signed);
+        upsertTransaction(submitted);
+        setDone(true);
+        setTimeout(() => router.replace('/(tabs)/home'), 1200);
+      } catch (err) {
+        setError(toApiError(err).message);
+      } finally {
+        setSending(false);
+      }
       return;
     }
 

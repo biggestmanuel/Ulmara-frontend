@@ -1,31 +1,12 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { View, Text, StyleSheet, Pressable } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { router, useLocalSearchParams } from 'expo-router';
 import { useThemeStore, ThemeColors } from '../../lib/theme';
+import { fetchRouteQuotes, type RouteQuote } from '../../lib/api/routing';
 
-// TODO: replace with lib/routing/recommendedNetwork.ts real fee/speed lookup
-type NetworkOption = { id: string; name: string; fee: string; speed: string };
-
-const NETWORKS_BY_ASSET: Record<string, NetworkOption[]> = {
-  USDT: [
-    { id: 'TON', name: 'TON', fee: '~$0.02', speed: '~5s' },
-    { id: 'BSC', name: 'BNB Smart Chain', fee: '~$0.15', speed: '~3s' },
-    { id: 'TRON', name: 'TRON', fee: '~$1.00', speed: '~3s' },
-    { id: 'ETH', name: 'Ethereum', fee: '~$3.50', speed: '~15s' },
-  ],
-  BTC: [{ id: 'BTC', name: 'Bitcoin', fee: '~$1.20', speed: '~10min' }],
-  ETH: [
-    { id: 'ETH', name: 'Ethereum', fee: '~$2.80', speed: '~15s' },
-    { id: 'BASE', name: 'Base', fee: '~$0.05', speed: '~2s' },
-  ],
-  SOL: [{ id: 'SOL', name: 'Solana', fee: '~$0.001', speed: '~1s' }],
-  TON: [{ id: 'TON', name: 'TON', fee: '~$0.02', speed: '~5s' }],
-};
-
-function pickRecommended(options: NetworkOption[]): NetworkOption {
-  // cheapest fee wins the recommendation
-  return [...options].sort((a, b) => parseFloat(a.fee.replace(/[^0-9.]/g, '')) - parseFloat(b.fee.replace(/[^0-9.]/g, '')))[0];
+function pickRecommended(options: RouteQuote[]): RouteQuote | null {
+  return options.filter((option) => option.available).sort((a, b) => a.estimatedFeeUsd - b.estimatedFeeUsd)[0] ?? null;
 }
 
 export default function NetworkSelect() {
@@ -36,13 +17,30 @@ export default function NetworkSelect() {
     accountId: string; recipientName: string; asset: string; amount: string; wallets?: string;
   }>();
 
-  const options = NETWORKS_BY_ASSET[params.asset] ?? NETWORKS_BY_ASSET.USDT;
-  const recommended = useMemo(() => pickRecommended(options), [options]);
-  const [selected, setSelected] = useState<NetworkOption>(recommended);
+  const [options, setOptions] = useState<RouteQuote[]>([]);
+  const [recommended, setRecommended] = useState<RouteQuote | null>(null);
+  const [selected, setSelected] = useState<RouteQuote | null>(null);
+  const [loading, setLoading] = useState(true);
   const [advanced, setAdvanced] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  useEffect(() => {
+    if (!params.accountId || !params.asset || !params.amount) return;
+    fetchRouteQuotes({ asset: params.asset, amount: params.amount, recipientAccountId: params.accountId })
+      .then((quotes) => {
+        setOptions(quotes);
+        const best = pickRecommended(quotes);
+        setRecommended(best);
+        setSelected(best);
+      })
+      .catch(() => setError('Live network quotes are unavailable. Try again later.'))
+      .finally(() => setLoading(false));
+  }, [params.accountId, params.asset, params.amount]);
 
   const handleContinue = () => {
+    if (!selected || !selected.available) {
+      setError('Select an available network quote before continuing.');
+      return;
+    }
     let wallets: { chain: string; address: string }[] = [];
     try {
       const parsed: unknown = params.wallets ? JSON.parse(params.wallets) : [];
@@ -58,15 +56,15 @@ export default function NetworkSelect() {
       setError('Could not read the recipient wallet details. Go back and try again.');
       return;
     }
-    const targetAddress = wallets.find((wallet) => wallet.chain === selected.id)?.address;
+    const targetAddress = wallets.find((wallet) => wallet.chain.toLowerCase() === selected.network)?.address;
     if (!targetAddress) {
-      setError(`The recipient has no ${selected.name} wallet.`);
+      setError(`The recipient has no ${selected.label} wallet.`);
       return;
     }
     setError(null);
     router.push({
       pathname: '/send/confirm',
-      params: { ...params, targetAddress, network: selected.id, networkName: selected.name, fee: selected.fee },
+      params: { ...params, targetAddress, network: selected.network, networkName: selected.label, fee: `$${selected.estimatedFeeUsd.toFixed(2)}` },
     });
   };
 
@@ -81,18 +79,20 @@ export default function NetworkSelect() {
       </View>
 
       <View style={styles.body}>
-        {!advanced ? (
+        {loading ? <Text style={styles.error}>Getting live network quotes…</Text> : !recommended ? (
+          <Text style={styles.error}>No route is available for this asset and recipient.</Text>
+        ) : !advanced ? (
           <>
             <Text style={styles.sectionLabel}>Recommended</Text>
             <View style={styles.recommendedCard}>
               <View style={styles.recommendedRow}>
-                <Text style={styles.recommendedName}>{recommended.name}</Text>
+                <Text style={styles.recommendedName}>{recommended.label}</Text>
                 <View style={styles.badge}>
                   <Text style={styles.badgeText}>Best</Text>
                 </View>
               </View>
               <Text style={styles.recommendedMeta}>
-                Fee {recommended.fee} · {recommended.speed}
+                Fee ${recommended.estimatedFeeUsd.toFixed(2)} · ~{recommended.estimatedSeconds}s
               </Text>
             </View>
 
@@ -105,15 +105,16 @@ export default function NetworkSelect() {
             <Text style={styles.sectionLabel}>Available Networks</Text>
             {options.map((opt) => (
               <Pressable
-                key={opt.id}
-                style={[styles.networkRow, selected.id === opt.id && styles.networkRowActive]}
+                key={opt.network}
+                style={[styles.networkRow, selected?.network === opt.network && styles.networkRowActive, !opt.available && styles.networkRowDisabled]}
                 onPress={() => setSelected(opt)}
+                disabled={!opt.available}
               >
                 <View>
-                  <Text style={styles.networkName}>{opt.name}</Text>
-                  <Text style={styles.networkMeta}>Fee {opt.fee} · {opt.speed}</Text>
+                  <Text style={styles.networkName}>{opt.label}</Text>
+                  <Text style={styles.networkMeta}>{opt.available ? `Fee $${opt.estimatedFeeUsd.toFixed(2)} · ~${opt.estimatedSeconds}s` : opt.unavailableReason ?? 'Unavailable'}</Text>
                 </View>
-                {opt.id === recommended.id && (
+                {opt.network === recommended.network && (
                   <View style={styles.badgeSmall}>
                     <Text style={styles.badgeText}>Best</Text>
                   </View>
@@ -163,6 +164,7 @@ function getStyles(colors: ThemeColors) {
     padding: 16, marginBottom: 10,
   },
   networkRowActive: { borderColor: colors.primary },
+  networkRowDisabled: { opacity: 0.55 },
   networkName: { color: colors.textPrimary, fontSize: 15, fontWeight: '600' },
   networkMeta: { color: colors.textMuted, fontSize: 12, marginTop: 4 },
   footer: { paddingHorizontal: 20, paddingBottom: 32 },

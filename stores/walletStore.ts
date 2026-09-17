@@ -11,6 +11,7 @@ const NATIVE_SYMBOLS: Record<ChainId, string> = {
   sol: 'SOL',
   tron: 'TRX',
   ton: 'TON',
+  btc: 'BTC',
 };
 
 export interface AssetBalance {
@@ -89,7 +90,7 @@ export const useWalletStore = create<WalletState>((set, get) => ({
           return;
         }
       }
-      const results = await Promise.all(
+      const results = await Promise.allSettled(
         chainIds.map(async (chainId) => {
           const address = addresses[chainId]!;
           const adapter = await getChainModule(chainId);
@@ -104,7 +105,11 @@ export const useWalletStore = create<WalletState>((set, get) => ({
           return balanceEntry;
         })
       );
-      set({ balances: results });
+      set({
+        balances: results
+          .filter((result): result is PromiseFulfilledResult<AssetBalance> => result.status === 'fulfilled')
+          .map((result) => result.value),
+      });
     } catch (err) {
       console.error('Failed to refresh balances:', err);
     } finally {

@@ -1,4 +1,4 @@
-export type ChainId = 'eth' | 'bsc' | 'base' | 'polygon' | 'sol' | 'tron' | 'ton';
+export type ChainId = 'eth' | 'bsc' | 'base' | 'polygon' | 'sol' | 'tron' | 'ton' | 'btc';
 
 export interface ChainAdapter {
   getBalance: (address: string) => Promise<string>;
@@ -14,6 +14,9 @@ const loaders: Record<ChainId, () => Promise<ChainAdapter>> = {
   sol: () => import('./sol'),
   tron: () => import('./tron'),
   ton: () => import('./ton'),
+  // Bitcoin balances and transactions are resolved by the backend; there is
+  // intentionally no client-side Bitcoin signer in this V1 build.
+  btc: () => import('./btc'),
 };
 
 const cache: Partial<Record<ChainId, ChainAdapter>> = {};

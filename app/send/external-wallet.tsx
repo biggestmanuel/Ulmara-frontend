@@ -7,9 +7,7 @@ import { ethers } from 'ethers';
 import { PublicKey } from '@solana/web3.js';
 import { validateExternalAddress, type SupportedTriVerifyChain } from '../../lib/validation/triverify';
 
-// TODO: replace with lib/validation/triverify.ts address format + existence check
-// (pending TriVerify's network-first API redesign, see project notes)
-const NETWORKS = ['ETH', 'BSC', 'TRON', 'SOL', 'TON', 'BASE', 'Polygon'] as const;
+const NETWORKS = ['ETH', 'BSC', 'TRON', 'SOL', 'TON', 'BASE', 'Polygon', 'BTC'] as const;
 type Network = (typeof NETWORKS)[number];
 
 function looksValid(address: string, network: Network): boolean {
@@ -18,6 +16,9 @@ function looksValid(address: string, network: Network): boolean {
   }
   if (network === 'TON') return address.length >= 40 && address.length <= 70;
   if (network === 'TRON') return /^T[1-9A-HJ-NP-Za-km-z]{33}$/.test(address);
+  if (network === 'BTC') {
+    return /^(bc1[ac-hj-np-z02-9]{11,71}|[13][a-km-zA-HJ-NP-Z1-9]{25,34})$/.test(address);
+  }
   return ethers.isAddress(address);
 }
 
@@ -38,9 +39,13 @@ export default function ExternalWallet() {
     if (!address.trim()) return setError('Enter a wallet address');
     const normalizedAddress = address.trim();
     if (!looksValid(normalizedAddress, network)) return setError(`This doesn't look like a valid ${network} address`);
-    if (network === 'ETH' || network === 'SOL' || network === 'TRON' || network === 'TON') {
+    if (network === 'ETH' || network === 'BSC' || network === 'BASE' || network === 'Polygon' ||
+      network === 'SOL' || network === 'TRON' || network === 'TON' || network === 'BTC') {
       try {
-        const result = await validateExternalAddress(normalizedAddress, network as SupportedTriVerifyChain);
+        const result = await validateExternalAddress(
+          normalizedAddress,
+          (network === 'Polygon' ? 'POLYGON' : network) as SupportedTriVerifyChain,
+        );
         if (!result.formatValid || result.exists === false) {
           return setError(`The ${network} address could not be validated.`);
         }
@@ -59,7 +64,7 @@ export default function ExternalWallet() {
         amount,
         network,
         networkName: network,
-        fee: '~$0.50',
+        fee: 'Fee calculated by network',
       },
     });
   };

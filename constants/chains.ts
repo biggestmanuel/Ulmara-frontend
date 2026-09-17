@@ -1,4 +1,4 @@
-export type ChainId = 'ton' | 'bsc' | 'eth' | 'sol' | 'base' | 'polygon' | 'tron';
+export type ChainId = 'ton' | 'bsc' | 'eth' | 'sol' | 'base' | 'polygon' | 'tron' | 'btc';
 
 export interface ChainConfig {
   id: ChainId;
@@ -16,6 +16,7 @@ export const CHAINS: Record<ChainId, ChainConfig> = {
   base: { id: 'base', name: 'Base', symbol: 'ETH', isEvm: true, decimals: 18 },
   polygon: { id: 'polygon', name: 'Polygon', symbol: 'MATIC', isEvm: true, decimals: 18 },
   tron: { id: 'tron', name: 'Tron', symbol: 'TRX', isEvm: false, decimals: 6 },
+  btc: { id: 'btc', name: 'Bitcoin', symbol: 'BTC', isEvm: false, decimals: 8 },
 };
 
 export const CHAIN_LIST: ChainConfig[] = Object.values(CHAINS);

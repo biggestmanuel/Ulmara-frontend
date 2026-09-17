@@ -1,11 +1,10 @@
 import { useEffect, useState } from 'react';
 import { View, Text, TextInput, StyleSheet, Pressable, KeyboardAvoidingView, Platform, ActivityIndicator } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { router } from 'expo-router';
+import { router, useLocalSearchParams } from 'expo-router';
 import { useThemeStore, ThemeColors } from '../../lib/theme';
-import { resolveAccountId } from '../../lib/api/accountId';
+import { resolveAccountIdForTransfer } from '../../lib/api/accountId';
 
-// TODO: replace with lib/api/accountId resolve call
 type ResolvedProfile = { name: string; accountId: string; wallets?: { chain: string; address: string }[] } | null;
 type TransferMode = 'ulmara' | 'external';
 
@@ -14,8 +13,9 @@ const ASSETS = ['USDT', 'BTC', 'ETH', 'SOL', 'TON'] as const;
 export default function SendIndex() {
   const { colors } = useThemeStore();
   const styles = getStyles(colors);
+  const prefilled = useLocalSearchParams<{ accountId?: string }>();
 
-  const [accountId, setAccountId] = useState('');
+  const [accountId, setAccountId] = useState(() => (prefilled.accountId ?? '').replace(/\D/g, '').slice(0, 10));
   const [transferMode, setTransferMode] = useState<TransferMode>('ulmara');
   const [profile, setProfile] = useState<ResolvedProfile>(null);
   const [resolving, setResolving] = useState(false);
@@ -29,7 +29,7 @@ export default function SendIndex() {
     if (digits.length !== 10) return;
 
     setResolving(true);
-    resolveAccountId(digits)
+    resolveAccountIdForTransfer(digits)
       .then((resolved) => setProfile(resolved ? { name: resolved.name ?? 'Ulmara user', accountId: resolved.accountId, wallets: resolved.wallets } : null))
       .catch(() => setProfile(null))
       .finally(() => setResolving(false));

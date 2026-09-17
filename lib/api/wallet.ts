@@ -29,7 +29,7 @@ export async function fetchWalletBalances(): Promise<WalletBalance[]> {
 
 export function toFrontendChainId(chain: string): ChainId | null {
   const normalized = chain.toLowerCase();
-  return ['eth', 'bsc', 'base', 'polygon', 'sol', 'tron', 'ton'].includes(normalized)
+  return ['eth', 'bsc', 'base', 'polygon', 'sol', 'tron', 'ton', 'btc'].includes(normalized)
     ? normalized as ChainId
     : null;
 }

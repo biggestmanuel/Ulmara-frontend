@@ -1,4 +1,4 @@
-export type ChainId = 'ton' | 'bsc' | 'eth' | 'sol' | 'base' | 'polygon' | 'tron';
+export type ChainId = 'ton' | 'bsc' | 'eth' | 'sol' | 'base' | 'polygon' | 'tron' | 'btc';
 
 export interface ChainConfig {
   id: ChainId;

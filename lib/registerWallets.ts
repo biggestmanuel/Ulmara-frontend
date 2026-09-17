@@ -7,7 +7,7 @@ import {
 import { useWalletStore } from '../stores/walletStore';
 import type { ChainId } from '../types/chain';
 
-const CHAIN_ID_TO_BACKEND: Record<ChainId, string> = {
+const CHAIN_ID_TO_BACKEND: Partial<Record<ChainId, string>> = {
   eth: 'ETH',
   bsc: 'BSC',
   base: 'BASE',
@@ -50,7 +50,7 @@ export async function setupNonCustodialWallet(): Promise<RegisterWalletsResult> 
   // 2. Register only public addresses
   const addresses = toPublicAddresses(wallet);
   const payload = addresses.map(({ chain, address }) => ({
-    chain: CHAIN_ID_TO_BACKEND[chain],
+    chain: CHAIN_ID_TO_BACKEND[chain]!,
     address,
   }));
 

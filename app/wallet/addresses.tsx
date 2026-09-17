@@ -10,7 +10,7 @@ import { useThemeStore, ThemeColors } from '../../lib/theme';
 
 const CHAIN_LABELS: Record<string, string> = {
   eth: 'Ethereum', bsc: 'BSC', base: 'Base', polygon: 'Polygon',
-  sol: 'Solana', tron: 'TRON', ton: 'TON',
+  sol: 'Solana',   tron: 'TRON', ton: 'TON', btc: 'Bitcoin',
 };
 
 export default function WalletAddresses() {
@@ -19,6 +19,7 @@ export default function WalletAddresses() {
   const { colors } = useThemeStore();
   const styles = getStyles(colors);
   const [copiedChain, setCopiedChain] = useState<string | null>(null);
+  const [revealed, setRevealed] = useState(false);
 
   const entries = Object.entries(addresses).filter(
     ([chainId]) => !chain || chainId === chain
@@ -43,10 +44,13 @@ export default function WalletAddresses() {
       <ScrollView contentContainerStyle={styles.body}>
         <View style={styles.warningBox}>
           <Text style={styles.warningText}>
-            Only send the matching asset on the matching network to each address below.
-            Sending the wrong asset/network to an address can permanently lose funds.
+            Addresses are hidden by default. Only reveal or copy one when you are
+            depositing directly from a trusted source.
           </Text>
         </View>
+        <Pressable style={styles.revealBtn} onPress={() => setRevealed((value) => !value)}>
+          <Text style={styles.revealBtnText}>{revealed ? 'Hide addresses' : 'Reveal addresses'}</Text>
+        </Pressable>
 
         {entries.length === 0 ? (
           <Text style={styles.emptyText}>No addresses generated yet</Text>
@@ -55,9 +59,9 @@ export default function WalletAddresses() {
             <View key={chainId} style={styles.card}>
               <Text style={styles.chainLabel}>{CHAIN_LABELS[chainId] ?? chainId}</Text>
               <Text style={styles.addressText} numberOfLines={1} ellipsizeMode="middle">
-                {address}
+                {revealed ? address : 'Hidden for your privacy'}
               </Text>
-              <Pressable style={styles.copyBtn} onPress={() => handleCopy(chainId, address!)}>
+              <Pressable style={styles.copyBtn} disabled={!revealed} onPress={() => handleCopy(chainId, address!)}>
                 <Text style={styles.copyBtnText}>
                   {copiedChain === chainId ? 'Copied ✓' : 'Copy Address'}
                 </Text>
@@ -85,6 +89,8 @@ function getStyles(colors: ThemeColors) {
     borderColor: colors.primaryLight, padding: 14, marginBottom: 20,
   },
   warningText: { color: colors.warning, fontSize: 12, lineHeight: 17 },
+  revealBtn: { alignItems: 'center', marginBottom: 16 },
+  revealBtnText: { color: colors.primary, fontSize: 14, fontWeight: '700' },
   emptyText: { color: colors.textMuted, fontSize: 14, textAlign: 'center', marginTop: 40 },
   card: {
     backgroundColor: colors.surface, borderRadius: 14, borderWidth: 1, borderColor: colors.border,

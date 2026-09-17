@@ -25,6 +25,20 @@ export async function resolveAccountId(accountId: string): Promise<AccountIdProf
     if (err?.status === 404) return null;
     throw err;
   }
+
+}
+
+export async function resolveAccountIdForTransfer(accountId: string): Promise<AccountIdProfile | null> {
+  try {
+    const { data } = await apiClient.get<
+      ApiEnvelope<{ accountId: string; profile: { id: string; name: string | null; photoUrl: string | null; wallets?: { chain: string; address: string }[] } }>
+    >(`/api/account/resolve/${accountId}`);
+    const { accountId: id, profile } = data.data;
+    return { accountId: id, name: profile?.name ?? undefined, photoUrl: profile?.photoUrl ?? undefined, wallets: profile?.wallets };
+  } catch (err: any) {
+    if (err?.status === 404) return null;
+    throw err;
+  }
 }
 
 // Server generates and immediately persists a new Account ID for the logged-in

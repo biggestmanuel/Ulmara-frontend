@@ -1,9 +1,8 @@
-import axios from 'axios';
+import { apiClient } from '../api/client';
 
-const apiKey = process.env.EXPO_PUBLIC_TRIVERIFY_API_KEY ?? '';
-const baseUrl = 'https://api.tribridge.tech/v1';
-
-export type SupportedTriVerifyChain = 'ETH' | 'BTC' | 'SOL' | 'TRON' | 'SUI' | 'TON';
+export type SupportedTriVerifyChain =
+  | 'ETH' | 'BTC' | 'SOL' | 'TRON' | 'SUI' | 'TON'
+  | 'BSC' | 'BASE' | 'POLYGON';
 
 export interface AddressValidationResult {
   address: string;
@@ -12,21 +11,17 @@ export interface AddressValidationResult {
   exists: boolean | null;
 }
 
-const triVerifyClient = axios.create({
-  baseURL: baseUrl,
-  timeout: 8000,
-  headers: { Authorization: `Bearer ${apiKey}` },
-});
-
+/**
+ * Validate through the authenticated backend proxy. TriVerify credentials
+ * must never be bundled in the mobile application.
+ */
 export async function validateExternalAddress(
   address: string,
   chain: SupportedTriVerifyChain
 ): Promise<AddressValidationResult> {
-  const { data } = await triVerifyClient.post('/validate', { address, chain });
-  return {
-    address,
-    chain,
-    formatValid: data.formatValid,
-    exists: data.exists ?? null,
-  };
+  const { data } = await apiClient.post<{ data: AddressValidationResult }>(
+    '/api/validation/address',
+    { address, chain },
+  );
+  return data.data;
 }

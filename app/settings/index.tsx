@@ -73,6 +73,10 @@ export default function SettingsScreen() {
         {/* Security */}
         <Text style={[styles.sectionTitle, { color: colors.textMuted }]}>SECURITY & BACKUP</Text>
         <View style={[styles.card, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+          <Pressable style={[styles.row, { borderBottomWidth: 1, borderBottomColor: colors.divider }]} onPress={() => router.push('/contacts')}>
+            <Text style={[styles.rowText, { color: colors.textPrimary }]}>Contacts</Text>
+            <Text style={[styles.rowArrow, { color: colors.textMuted }]}>→</Text>
+          </Pressable>
           <Pressable
             style={[styles.row, { borderBottomWidth: 1, borderBottomColor: colors.divider }]}
             onPress={() => router.push('/settings/security')}

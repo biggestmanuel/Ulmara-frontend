@@ -119,3 +119,31 @@ export async function createPaymentRequest(
   const { data } = await apiClient.post<ApiEnvelope<PaymentRequestResult>>('/api/payment/request', payload);
   return data.data;
 }
+
+export interface PaymentLink {
+  id: string;
+  status: 'OPEN' | 'FULFILLED' | 'CANCELLED' | 'EXPIRED';
+  amount?: string | null;
+  symbol?: string | null;
+  note?: string | null;
+  requesterAccountId: string;
+  requesterName?: string | null;
+  expiresAt?: string | null;
+}
+
+export async function getPaymentLink(id: string): Promise<PaymentLink> {
+  const { data } = await apiClient.get<ApiEnvelope<PaymentLink>>(`/api/payment/request/${id}`);
+  return data.data;
+}
+
+export async function fulfillPaymentLink(id: string, input: {
+  amount?: string;
+  symbol?: string;
+  network?: string;
+}): Promise<SendResult> {
+  const { data } = await apiClient.post<ApiEnvelope<BackendTransaction>>(
+    `/api/payment/request/${id}/fulfill`,
+    input,
+  );
+  return { transaction: normalizeTransaction(data.data) };
+}
