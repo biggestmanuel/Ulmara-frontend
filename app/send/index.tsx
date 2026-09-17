@@ -4,11 +4,10 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { router, useLocalSearchParams } from 'expo-router';
 import { useThemeStore, ThemeColors } from '../../lib/theme';
 import { resolveAccountIdForTransfer } from '../../lib/api/accountId';
+import { NATIVE_ASSET_SYMBOLS, type NativeAssetSymbol } from '../../constants/chains';
 
 type ResolvedProfile = { name: string; accountId: string; wallets?: { chain: string; address: string }[] } | null;
 type TransferMode = 'ulmara' | 'external';
-
-const ASSETS = ['USDT', 'BTC', 'ETH', 'SOL', 'TON'] as const;
 
 export default function SendIndex() {
   const { colors } = useThemeStore();
@@ -19,7 +18,7 @@ export default function SendIndex() {
   const [transferMode, setTransferMode] = useState<TransferMode>('ulmara');
   const [profile, setProfile] = useState<ResolvedProfile>(null);
   const [resolving, setResolving] = useState(false);
-  const [asset, setAsset] = useState<(typeof ASSETS)[number]>('USDT');
+  const [asset, setAsset] = useState<NativeAssetSymbol>('ETH');
   const [amount, setAmount] = useState('');
   const [error, setError] = useState<string | null>(null);
 
@@ -119,7 +118,7 @@ export default function SendIndex() {
 
           <Text style={[styles.label, { marginTop: 24 }]}>Asset</Text>
           <View style={styles.assetRow}>
-            {ASSETS.map((a) => (
+            {NATIVE_ASSET_SYMBOLS.map((a) => (
               <Pressable
                 key={a}
                 style={[styles.assetChip, asset === a && styles.assetChipActive]}

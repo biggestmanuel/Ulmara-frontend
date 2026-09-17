@@ -23,4 +23,7 @@ export const CHAIN_LIST: ChainConfig[] = Object.values(CHAINS);
 
 export const EVM_CHAINS: ChainId[] = CHAIN_LIST.filter((c) => c.isEvm).map((c) => c.id);
 
+export const NATIVE_ASSET_SYMBOLS = ['ETH', 'BNB', 'MATIC', 'SOL', 'TRX', 'TON', 'BTC'] as const;
+export type NativeAssetSymbol = (typeof NATIVE_ASSET_SYMBOLS)[number];
+
 export const DEFAULT_CHAIN: ChainId = 'eth';

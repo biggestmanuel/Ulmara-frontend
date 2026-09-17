@@ -3,8 +3,8 @@ import { View, Text, TextInput, StyleSheet, Pressable, KeyboardAvoidingView, Pla
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { router } from 'expo-router';
 import { useThemeStore, ThemeColors } from '../../lib/theme';
+import { NATIVE_ASSET_SYMBOLS, type NativeAssetSymbol } from '../../constants/chains';
 
-const ASSETS = ['USDT', 'BTC', 'ETH', 'SOL', 'TON'] as const;
 const QUICK_AMOUNTS = ['5000', '10000', '25000', '50000'];
 
 export default function Deposit() {
@@ -12,7 +12,7 @@ export default function Deposit() {
   const styles = getStyles(colors);
 
   const [amount, setAmount] = useState('');
-  const [asset, setAsset] = useState<(typeof ASSETS)[number]>('USDT');
+  const [asset, setAsset] = useState<NativeAssetSymbol>('ETH');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -45,7 +45,7 @@ export default function Deposit() {
         <View style={styles.body}>
           <Text style={styles.label}>Receive as</Text>
           <View style={styles.chipRow}>
-            {ASSETS.map((a) => (
+            {NATIVE_ASSET_SYMBOLS.map((a) => (
               <Pressable
                 key={a}
                 style={[styles.chip, asset === a && styles.chipActive]}

@@ -23,7 +23,7 @@ export default function TabsLayout() {
       tabBar={({ state, descriptors, navigation }) => (
         <View style={[styles.dockWrap, { paddingBottom: Math.max(insets.bottom, 10) }]}>
           <View style={[styles.dock, { backgroundColor: colors.surface, borderColor: colors.border }]}>
-            {tabs.map((tab) => {
+            {tabs.slice(0, 2).map((tab) => {
               const route = state.routes.find((item) => item.name === tab.name);
               if (!route) return null;
               const focused = state.routes[state.index]?.name === route.name;
@@ -51,6 +51,25 @@ export default function TabsLayout() {
               <Ionicons name="arrow-up" size={25} color="#FFFFFF" />
               <Text style={styles.sendLabel}>Send</Text>
             </Pressable>
+            {tabs.slice(2).map((tab) => {
+              const route = state.routes.find((item) => item.name === tab.name);
+              if (!route) return null;
+              const focused = state.routes[state.index]?.name === route.name;
+              return (
+                <Pressable
+                  key={route.key}
+                  accessibilityRole="button"
+                  accessibilityState={focused ? { selected: true } : {}}
+                  onPress={() => navigation.navigate(route.name)}
+                  style={styles.dockItem}
+                >
+                  <View style={[styles.iconBubble, focused && { backgroundColor: colors.primaryLight }]}>
+                    <Ionicons name={tab.icon} size={20} color={focused ? colors.primary : colors.textMuted} />
+                  </View>
+                  <Text style={[styles.dockLabel, { color: focused ? colors.primary : colors.textMuted }]}>{tab.label}</Text>
+                </Pressable>
+              );
+            })}
           </View>
         </View>
       )}
