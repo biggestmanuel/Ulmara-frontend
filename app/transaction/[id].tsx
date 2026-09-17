@@ -13,7 +13,6 @@ import { Ionicons } from '@expo/vector-icons';
 import { captureRef } from 'react-native-view-shot';
 import * as Sharing from 'expo-sharing';
 import * as Clipboard from 'expo-clipboard';
-import * as MediaLibrary from 'expo-media-library';
 
 import { useTxStore } from '../../stores/txStore';
 import { useUserStore } from '../../stores/userStore';
@@ -96,6 +95,7 @@ export default function TransactionDetailScreen() {
   const handleSaveToGallery = async () => {
     try {
       setSaving(true);
+      const MediaLibrary = await import('expo-media-library');
       const { status } = await MediaLibrary.requestPermissionsAsync();
       if (status !== 'granted') {
         Alert.alert(
@@ -120,8 +120,9 @@ export default function TransactionDetailScreen() {
       }
 
       Alert.alert('Saved!', 'Receipt saved to your Photos/Gallery.');
-    } catch (err: any) {
-      Alert.alert('Save Failed', err?.message || 'Unable to save receipt image.');
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : 'Unable to save receipt image.';
+      Alert.alert('Save Failed', message);
     } finally {
       setSaving(false);
     }
