@@ -16,7 +16,7 @@ export function Avatar({ uri, fallbackInitial = '?', size = 44 }: AvatarProps) {
   }
   return (
     <View style={[styles.fallback, { backgroundColor: colors.primaryLight }, dimension]}>
-      <Typography variant="label">{fallbackInitial.toUpperCase()}</Typography>
+      <Typography variant="label" color={colors.primary}>{fallbackInitial.toUpperCase()}</Typography>
     </View>
   );
 }

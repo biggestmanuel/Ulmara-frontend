@@ -128,24 +128,34 @@ export default function Signup() {
 
 function getStyles(colors: ThemeColors) {
   return StyleSheet.create({
-  container: { flex: 1, backgroundColor: colors.background, justifyContent: 'space-between' },
-  body: { paddingHorizontal: 24, paddingTop: 40, paddingBottom: 20 },
-  title: { fontSize: 28, fontWeight: '700', color: colors.textPrimary },
-  subtitle: { fontSize: 15, color: colors.textMuted, marginTop: 6, marginBottom: 32 },
-  field: { marginBottom: 18 },
-  label: { fontSize: 13, color: colors.textMuted, marginBottom: 8, fontWeight: '500' },
-  input: {
-    backgroundColor: colors.surface, borderRadius: 12, paddingHorizontal: 16, paddingVertical: 14,
-    color: colors.textPrimary, fontSize: 16, borderWidth: 1, borderColor: colors.border,
-  },
-  error: { color: colors.error, fontSize: 13, marginTop: 4 },
-  footer: { paddingHorizontal: 24, paddingBottom: 32, gap: 16 },
-  primaryBtn: {
-    backgroundColor: colors.primary, borderRadius: 14, paddingVertical: 16,
-    alignItems: 'center', justifyContent: 'center', height: 54,
-  },
-  primaryBtnText: { color: '#FFFFFF', fontSize: 16, fontWeight: '600' },
-  secondaryText: { color: colors.textMuted, fontSize: 14, textAlign: 'center' },
-  linkInline: { color: colors.primaryHover, fontWeight: '600' },
-});
+    container: { flex: 1, backgroundColor: colors.background, justifyContent: 'space-between' },
+    body: { paddingHorizontal: 24, paddingTop: 40, paddingBottom: 20 },
+    title: { fontSize: 28, fontWeight: '800', color: colors.textPrimary },
+    subtitle: { fontSize: 15, color: colors.textMuted, marginTop: 6, marginBottom: 32 },
+    field: { marginBottom: 18 },
+    label: { fontSize: 13, color: colors.textMuted, marginBottom: 8, fontWeight: '600' },
+    input: {
+      backgroundColor: colors.surface,
+      borderRadius: 16,
+      paddingHorizontal: 16,
+      paddingVertical: 14,
+      color: colors.textPrimary,
+      fontSize: 16,
+      borderWidth: 1,
+      borderColor: colors.border,
+    },
+    error: { color: colors.error, fontSize: 13, marginTop: 4 },
+    footer: { paddingHorizontal: 24, paddingBottom: 36, gap: 16 },
+    primaryBtn: {
+      backgroundColor: colors.primary,
+      borderRadius: 16,
+      paddingVertical: 16,
+      alignItems: 'center',
+      justifyContent: 'center',
+      height: 54,
+    },
+    primaryBtnText: { color: '#FFFFFF', fontSize: 16, fontWeight: '700' },
+    secondaryText: { color: colors.textMuted, fontSize: 14, textAlign: 'center' },
+    linkInline: { color: colors.primary, fontWeight: '700' },
+  });
 }

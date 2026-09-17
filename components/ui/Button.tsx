@@ -39,20 +39,35 @@ export function Button({ label, variant = 'primary', loading, disabled, style, .
 
 const styles = StyleSheet.create({
   base: {
-    height: 52,
-    borderRadius: 14,
+    height: 54,
+    borderRadius: 16,
     alignItems: 'center',
     justifyContent: 'center',
     paddingHorizontal: 20,
   },
   ghost: { backgroundColor: 'transparent' },
-  disabled: { opacity: 0.4 },
-  pressed: { opacity: 0.85 },
+  disabled: { opacity: 0.45 },
+  pressed: { opacity: 0.85, transform: [{ scale: 0.99 }] },
 });
 
 function getVariantStyle(variant: Variant, colors: ReturnType<typeof useThemeStore.getState>['colors']) {
-  if (variant === 'primary') return { backgroundColor: colors.primary };
-  if (variant === 'secondary') return { backgroundColor: colors.surfaceElevated };
+  if (variant === 'primary') {
+    return {
+      backgroundColor: colors.primary,
+      shadowColor: colors.primary,
+      shadowOffset: { width: 0, height: 4 },
+      shadowOpacity: 0.25,
+      shadowRadius: 8,
+      elevation: 4,
+    };
+  }
+  if (variant === 'secondary') {
+    return {
+      backgroundColor: colors.surfaceElevated,
+      borderWidth: 1,
+      borderColor: colors.border,
+    };
+  }
   if (variant === 'destructive') return { backgroundColor: colors.error };
   return styles.ghost;
 }

@@ -3,12 +3,13 @@ import { useThemeStore } from '../../lib/theme';
 
 export function Card({ style, ...rest }: ViewProps) {
   const colors = useThemeStore((state) => state.colors);
-  return <View style={[styles.card, { backgroundColor: colors.surface }, style]} {...rest} />;
+  return <View style={[styles.card, { backgroundColor: colors.surface, borderColor: colors.border }, style]} {...rest} />;
 }
 
 const styles = StyleSheet.create({
   card: {
-    borderRadius: 18,
-    padding: 16,
+    borderRadius: 20,
+    borderWidth: 1,
+    padding: 18,
   },
 });

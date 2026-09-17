@@ -121,24 +121,44 @@ export default function CreateAccountId() {
 
 function getStyles(colors: ThemeColors) {
   return StyleSheet.create({
-  container: { flex: 1, backgroundColor: colors.background, justifyContent: 'space-between' },
-  body: { flex: 1, paddingHorizontal: 24, paddingTop: 56, alignItems: 'center' },
-  title: { fontSize: 26, fontWeight: '700', color: colors.textPrimary },
-  subtitle: {
-    fontSize: 14, color: colors.textMuted, marginTop: 10, marginBottom: 36,
-    textAlign: 'center', lineHeight: 20, paddingHorizontal: 12,
-  },
-  idCard: {
-    width: '100%', backgroundColor: colors.surface, borderRadius: 16, borderWidth: 1,
-    borderColor: colors.border, paddingVertical: 32, alignItems: 'center', justifyContent: 'center',
-  },
-  idText: { fontSize: 28, fontWeight: '700', color: colors.textPrimary, letterSpacing: 2 },
-  error: { color: colors.error, fontSize: 13, marginTop: 16, textAlign: 'center' },
-  footer: { paddingHorizontal: 24, paddingBottom: 32 },
-  primaryBtn: {
-    backgroundColor: colors.primary, borderRadius: 14, paddingVertical: 16,
-    alignItems: 'center', justifyContent: 'center', height: 54,
-  },
-  primaryBtnText: { color: '#FFFFFF', fontSize: 16, fontWeight: '600' },
-});
+    container: { flex: 1, backgroundColor: colors.background, justifyContent: 'space-between' },
+    body: { flex: 1, paddingHorizontal: 24, paddingTop: 56, alignItems: 'center' },
+    title: { fontSize: 28, fontWeight: '800', color: colors.textPrimary },
+    subtitle: {
+      fontSize: 14,
+      color: colors.textMuted,
+      marginTop: 10,
+      marginBottom: 36,
+      textAlign: 'center',
+      lineHeight: 22,
+      paddingHorizontal: 12,
+    },
+    idCard: {
+      width: '100%',
+      backgroundColor: colors.surface,
+      borderRadius: 20,
+      borderWidth: 1,
+      borderColor: colors.border,
+      paddingVertical: 36,
+      alignItems: 'center',
+      justifyContent: 'center',
+      shadowColor: colors.primary,
+      shadowOffset: { width: 0, height: 4 },
+      shadowOpacity: 0.1,
+      shadowRadius: 12,
+      elevation: 4,
+    },
+    idText: { fontSize: 28, fontWeight: '800', color: colors.textPrimary, letterSpacing: 2 },
+    error: { color: colors.error, fontSize: 13, marginTop: 16, textAlign: 'center' },
+    footer: { paddingHorizontal: 24, paddingBottom: 36 },
+    primaryBtn: {
+      backgroundColor: colors.primary,
+      borderRadius: 16,
+      paddingVertical: 16,
+      alignItems: 'center',
+      justifyContent: 'center',
+      height: 54,
+    },
+    primaryBtnText: { color: '#FFFFFF', fontSize: 16, fontWeight: '700' },
+  });
 }

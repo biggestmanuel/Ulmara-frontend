@@ -215,7 +215,7 @@ function getStyles(colors: ThemeColors) {
     width: 32,
     height: 32,
     borderRadius: 8,
-    backgroundColor: '#14B8A6',
+    backgroundColor: colors.primary,
     alignItems: 'center',
     justifyContent: 'center',
   },

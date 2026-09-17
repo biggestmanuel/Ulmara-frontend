@@ -9,7 +9,9 @@ export default function Welcome() {
   return (
     <SafeAreaView style={styles.container}>
       <View style={styles.body}>
-        <View style={styles.logoDot} />
+        <View style={[styles.logoBadge, { backgroundColor: colors.primary }]}>
+          <Text style={styles.logoLetter}>U</Text>
+        </View>
         <Text style={styles.title}>Send crypto with{'\n'}just an ID</Text>
         <Text style={styles.subtitle}>
           No wallet addresses to copy. No mistakes to make.
@@ -31,20 +33,48 @@ export default function Welcome() {
 
 function getStyles(colors: ThemeColors) {
   return StyleSheet.create({
-  container: { flex: 1, backgroundColor: colors.background, justifyContent: 'space-between' },
-  body: { flex: 1, justifyContent: 'center', paddingHorizontal: 28 },
-  logoDot: {
-    width: 56, height: 56, borderRadius: 16,
-    backgroundColor: colors.primary, marginBottom: 24,
-  },
-  title: { fontSize: 34, fontWeight: '700', color: colors.textPrimary, lineHeight: 40 },
-  subtitle: { fontSize: 16, color: colors.textMuted, marginTop: 16, lineHeight: 22 },
-  footer: { paddingHorizontal: 24, paddingBottom: 32, gap: 12 },
-  primaryBtn: {
-    backgroundColor: colors.primary, borderRadius: 14, paddingVertical: 16, alignItems: 'center',
-  },
-  primaryBtnText: { color: '#FFFFFF', fontSize: 16, fontWeight: '600' },
-  secondaryBtn: { paddingVertical: 14, alignItems: 'center' },
-  secondaryBtnText: { color: colors.textMuted, fontSize: 15, fontWeight: '500' },
-});
+    container: { flex: 1, backgroundColor: colors.background, justifyContent: 'space-between' },
+    body: { flex: 1, justifyContent: 'center', paddingHorizontal: 28 },
+    logoBadge: {
+      width: 64,
+      height: 64,
+      borderRadius: 20,
+      alignItems: 'center',
+      justifyContent: 'center',
+      marginBottom: 28,
+      shadowColor: colors.primary,
+      shadowOffset: { width: 0, height: 6 },
+      shadowOpacity: 0.3,
+      shadowRadius: 12,
+      elevation: 8,
+    },
+    logoLetter: {
+      color: '#FFFFFF',
+      fontSize: 32,
+      fontWeight: '900',
+    },
+    title: { fontSize: 34, fontWeight: '800', color: colors.textPrimary, lineHeight: 42, letterSpacing: -0.5 },
+    subtitle: { fontSize: 16, color: colors.textMuted, marginTop: 16, lineHeight: 24 },
+    footer: { paddingHorizontal: 24, paddingBottom: 36, gap: 12 },
+    primaryBtn: {
+      backgroundColor: colors.primary,
+      borderRadius: 16,
+      paddingVertical: 16,
+      alignItems: 'center',
+      justifyContent: 'center',
+      height: 54,
+    },
+    primaryBtnText: { color: '#FFFFFF', fontSize: 16, fontWeight: '700' },
+    secondaryBtn: {
+      backgroundColor: colors.surfaceElevated,
+      borderRadius: 16,
+      paddingVertical: 16,
+      alignItems: 'center',
+      justifyContent: 'center',
+      height: 54,
+      borderWidth: 1,
+      borderColor: colors.border,
+    },
+    secondaryBtnText: { color: colors.textPrimary, fontSize: 15, fontWeight: '600' },
+  });
 }

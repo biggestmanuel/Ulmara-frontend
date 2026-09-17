@@ -97,8 +97,8 @@ export default function Home() {
           </View>
         </View>
 
-        {/* Burnt Orange Hero Card */}
-        <View style={[styles.heroCard, { backgroundColor: colors.primary }]}>
+        {/* Soft Purple Hero Card */}
+        <View style={[styles.heroCard, { backgroundColor: colors.primary, shadowColor: colors.primary }]}>
           {/* Top of card: Account ID + Copy */}
           <View style={styles.heroCardTop}>
             <View style={styles.idGroup}>
@@ -253,9 +253,8 @@ const styles = StyleSheet.create({
     borderRadius: 24,
     padding: 22,
     marginTop: 8,
-    shadowColor: '#14B8A6',
     shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 0.2,
+    shadowOpacity: 0.25,
     shadowRadius: 16,
     elevation: 8,
   },

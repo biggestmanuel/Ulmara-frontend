@@ -1,4 +1,5 @@
 import { Text, TextProps, StyleSheet } from 'react-native';
+import { useThemeStore } from '../../lib/theme';
 
 type Variant = 'h1' | 'h2' | 'h3' | 'body' | 'bodySmall' | 'caption' | 'label';
 
@@ -8,7 +9,8 @@ interface TypographyProps extends TextProps {
 }
 
 export function Typography({ variant = 'body', color, style, ...rest }: TypographyProps) {
-  return <Text style={[styles[variant], color ? { color } : null, style]} {...rest} />;
+  const defaultColor = useThemeStore((state) => state.colors.textPrimary);
+  return <Text style={[styles[variant], { color: color ?? defaultColor }, style]} {...rest} />;
 }
 
 const styles = StyleSheet.create({

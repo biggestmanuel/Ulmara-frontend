@@ -24,14 +24,22 @@ export function NetworkSelector({ options, selectedId, onSelect }: NetworkSelect
         return (
           <Pressable
             key={opt.id}
-            style={[styles.row, { borderColor: active ? colors.primary : colors.border }]}
+            style={[
+              styles.row,
+              {
+                backgroundColor: active ? colors.primarySoft : colors.surface,
+                borderColor: active ? colors.primary : colors.border,
+              },
+            ]}
             onPress={() => onSelect(opt.id)}
           >
             <View style={styles.left}>
-              <Typography variant="label">{opt.label}</Typography>
+              <Typography variant="label" color={active ? colors.primary : colors.textPrimary}>
+                {opt.label}
+              </Typography>
               {opt.recommended ? <Badge label="Recommended" tone="success" /> : null}
             </View>
-            <Typography variant="caption">{opt.estimatedFee}</Typography>
+            <Typography variant="caption" color={colors.textMuted}>{opt.estimatedFee}</Typography>
           </Pressable>
         );
       })}
@@ -40,13 +48,13 @@ export function NetworkSelector({ options, selectedId, onSelect }: NetworkSelect
 }
 
 const styles = StyleSheet.create({
-  list: { gap: 8 },
+  list: { gap: 10 },
   row: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    padding: 14,
-    borderRadius: 12,
+    padding: 16,
+    borderRadius: 16,
     borderWidth: 1,
   },
   left: { flexDirection: 'row', alignItems: 'center', gap: 8 },
