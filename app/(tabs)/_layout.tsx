@@ -22,7 +22,7 @@ export default function TabsLayout() {
       }}
       tabBar={({ state, descriptors, navigation }) => (
         <View style={[styles.dockWrap, { paddingBottom: Math.max(insets.bottom, 10) }]}>
-          <View style={[styles.dock, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+          <View style={[styles.dock, { backgroundColor: colors.surface, borderColor: colors.border, shadowColor: colors.textPrimary }]}>
             {tabs.slice(0, 2).map((tab) => {
               const route = state.routes.find((item) => item.name === tab.name);
               if (!route) return null;
@@ -36,7 +36,7 @@ export default function TabsLayout() {
                   style={styles.dockItem}
                 >
                   <View style={[styles.iconBubble, focused && { backgroundColor: colors.primaryLight }]}>
-                    <Ionicons name={tab.icon} size={20} color={focused ? colors.primary : colors.textMuted} />
+                    <Ionicons name={tab.icon} size={21} color={focused ? colors.primary : colors.textMuted} />
                   </View>
                   <Text style={[styles.dockLabel, { color: focused ? colors.primary : colors.textMuted }]}>{tab.label}</Text>
                 </Pressable>
@@ -105,25 +105,25 @@ export default function TabsLayout() {
 const styles = StyleSheet.create({
   dockWrap: { paddingHorizontal: 16, backgroundColor: 'transparent' },
   dock: {
-    minHeight: 76,
-    borderRadius: 28,
+    minHeight: 78,
+    borderRadius: 26,
     borderWidth: 1,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-around',
-    paddingHorizontal: 8,
+    paddingHorizontal: 10,
     shadowOffset: { width: 0, height: 8 },
     shadowOpacity: 0.16,
     shadowRadius: 18,
-    elevation: 10,
+    elevation: 8,
   },
   dockItem: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 3 },
   iconBubble: { width: 38, height: 30, borderRadius: 15, alignItems: 'center', justifyContent: 'center' },
-  dockLabel: { fontSize: 10, fontWeight: '700' },
+  dockLabel: { fontSize: 10, fontWeight: '700', letterSpacing: 0.1 },
   sendButton: {
-    width: 62,
-    height: 62,
-    borderRadius: 22,
+    width: 64,
+    height: 64,
+    borderRadius: 23,
     alignItems: 'center',
     justifyContent: 'center',
     marginTop: -28,

@@ -23,5 +23,5 @@ export function Avatar({ uri, fallbackInitial = '?', size = 44 }: AvatarProps) {
 
 const styles = StyleSheet.create({
   image: { backgroundColor: '#EEE' },
-  fallback: { alignItems: 'center', justifyContent: 'center' },
+  fallback: { alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: 'rgba(99,91,255,0.18)' },
 });

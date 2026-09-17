@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { View, Text, StyleSheet, Pressable, FlatList, ActivityIndicator } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { router } from 'expo-router';
+import { Ionicons } from '@expo/vector-icons';
 import { useThemeStore, ThemeColors } from '../../lib/theme';
 import { useTxStore } from '../../stores/txStore';
 import type { Transaction } from '../../lib/api/transactions';
@@ -18,10 +19,6 @@ function matchesFilter(tx: Transaction, filter: Filter): boolean {
 
 function txLabel(tx: Transaction): string {
   return tx.direction === 'sent' ? `To ${tx.counterpartyAccountId}` : `From ${tx.counterpartyAccountId}`;
-}
-
-function txIcon(tx: Transaction): string {
-  return tx.direction === 'sent' ? '↑' : '↓';
 }
 
 export default function Activity() {
@@ -68,7 +65,11 @@ export default function Activity() {
         renderItem={({ item }) => (
           <Pressable style={styles.txRow} onPress={() => router.push(`/transaction/${item.id}`)}>
             <View style={styles.txIconWrap}>
-              <Text style={styles.txIcon}>{txIcon(item)}</Text>
+              <Ionicons
+                name={item.direction === 'sent' ? 'arrow-up-outline' : 'arrow-down-outline'}
+                size={18}
+                color={item.direction === 'sent' ? colors.primary : colors.success}
+              />
             </View>
             <View style={styles.txDetails}>
               <Text style={styles.txLabel}>{txLabel(item)}</Text>

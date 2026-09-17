@@ -20,11 +20,11 @@ export function Header({ title, showBack, right }: HeaderProps) {
 
 const styles = StyleSheet.create({
   row: {
-    height: 52,
+    height: 60,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingHorizontal: 16,
+    paddingHorizontal: 20,
   },
   side: { width: 44 },
   right: { alignItems: 'flex-end' },

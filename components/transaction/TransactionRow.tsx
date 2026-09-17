@@ -1,4 +1,5 @@
-import { Pressable, View, Text, StyleSheet } from 'react-native';
+import { Pressable, View, StyleSheet } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
 import { Typography } from '../ui';
 import { TransactionStatus } from './TransactionStatus';
 import { useThemeStore } from '../../lib/theme';
@@ -42,9 +43,11 @@ export function TransactionRow({
             },
           ]}
         >
-          <Text style={{ fontSize: 16, color: isReceived ? colors.success : colors.error }}>
-            {isReceived ? '↓' : '↑'}
-          </Text>
+          <Ionicons
+            name={isReceived ? 'arrow-down-outline' : 'arrow-up-outline'}
+            size={18}
+            color={isReceived ? colors.success : colors.error}
+          />
         </View>
         <View style={styles.details}>
           <Typography variant="label">{isReceived ? 'From' : 'To'} {counterparty}</Typography>

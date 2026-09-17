@@ -1,6 +1,7 @@
 import { View, Text, StyleSheet, Pressable, ScrollView, Alert } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { router } from 'expo-router';
+import { Ionicons } from '@expo/vector-icons';
 import * as Clipboard from 'expo-clipboard';
 
 import { useUserStore } from '../../stores/userStore';
@@ -60,9 +61,12 @@ export default function ProfileScreen() {
             style={[styles.idCardPill, { backgroundColor: isDark ? colors.surfaceElevated : colors.primaryLight }]}
             onPress={handleCopyId}
           >
-            <Text style={[styles.idCardPillText, { color: colors.primary }]}>
-              ID: {formatAccountId(accountId)} ❐
-            </Text>
+            <View style={styles.idContent}>
+              <Text style={[styles.idCardPillText, { color: colors.primary }]}>
+                ID: {formatAccountId(accountId)}
+              </Text>
+              <Ionicons name="copy-outline" size={14} color={colors.primary} />
+            </View>
           </Pressable>
         </View>
 
@@ -73,10 +77,10 @@ export default function ProfileScreen() {
             onPress={() => router.push('/settings' as any)}
           >
             <View style={styles.menuLeft}>
-              <Text style={{ fontSize: 18 }}>⚙️</Text>
+              <Ionicons name="settings-outline" size={20} color={colors.primary} />
               <Text style={[styles.menuLabel, { color: colors.textPrimary }]}>Settings</Text>
             </View>
-            <Text style={[styles.arrow, { color: colors.textMuted }]}>→</Text>
+            <Ionicons name="chevron-forward" size={18} color={colors.textMuted} />
           </Pressable>
         </View>
 
@@ -121,6 +125,7 @@ const styles = StyleSheet.create({
     marginTop: 14,
   },
   idCardPillText: { fontSize: 13, fontWeight: '800', letterSpacing: 0.5 },
+  idContent: { flexDirection: 'row', alignItems: 'center', gap: 6 },
   menuCard: { borderRadius: 20, borderWidth: 1, overflow: 'hidden', marginBottom: 20 },
   menuRow: {
     flexDirection: 'row',

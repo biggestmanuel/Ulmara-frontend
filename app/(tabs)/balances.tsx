@@ -11,6 +11,7 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { router } from 'expo-router';
+import { Ionicons } from '@expo/vector-icons';
 import * as Clipboard from 'expo-clipboard';
 
 import { useWalletStore, AssetBalance } from '../../stores/walletStore';
@@ -114,7 +115,10 @@ export default function BalancesScreen() {
                     style={styles.copyAddressBtn}
                     onPress={() => handleCopy(selectedAsset.address, `${selectedAsset.chainId.toUpperCase()} Address`)}
                   >
-                    <Text style={[styles.copyAddressText, { color: colors.primary }]}>Copy Address ❐</Text>
+                    <View style={styles.copyAddressContent}>
+                      <Ionicons name="copy-outline" size={14} color={colors.primary} />
+                      <Text style={[styles.copyAddressText, { color: colors.primary }]}>Copy Address</Text>
+                    </View>
                   </Pressable>
                 </View>
 
@@ -181,6 +185,7 @@ const styles = StyleSheet.create({
   addressBox: { padding: 14, borderRadius: 16, borderWidth: 1, marginBottom: 20 },
   fullAddress: { fontSize: 13, fontFamily: 'monospace', lineHeight: 18 },
   copyAddressBtn: { marginTop: 10, alignSelf: 'flex-start' },
+  copyAddressContent: { flexDirection: 'row', alignItems: 'center', gap: 6 },
   copyAddressText: { fontSize: 13, fontWeight: '700' },
   modalActions: { flexDirection: 'row', gap: 12 },
   modalBtn: { flex: 1, paddingVertical: 14, borderRadius: 14, alignItems: 'center', justifyContent: 'center' },

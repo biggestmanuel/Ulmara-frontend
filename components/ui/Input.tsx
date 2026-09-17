@@ -49,10 +49,11 @@ const styles = StyleSheet.create({
   wrapper: { gap: 6 },
   label: { marginBottom: 2, fontWeight: '600' },
   input: {
-    height: 54,
-    borderRadius: 16,
+    height: 56,
+    borderRadius: 17,
     borderWidth: 1,
     paddingHorizontal: 16,
     fontSize: 15,
+    fontWeight: '500',
   },
 });

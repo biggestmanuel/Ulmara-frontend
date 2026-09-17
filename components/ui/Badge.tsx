@@ -29,7 +29,7 @@ const styles = StyleSheet.create({
   base: {
     alignSelf: 'flex-start',
     paddingHorizontal: 10,
-    paddingVertical: 4,
+    paddingVertical: 5,
     borderRadius: 999,
   },
 });

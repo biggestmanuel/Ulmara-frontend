@@ -14,9 +14,9 @@ export function Typography({ variant = 'body', color, style, ...rest }: Typograp
 }
 
 const styles = StyleSheet.create({
-  h1: { fontSize: 28, fontWeight: '700', letterSpacing: -0.3 },
-  h2: { fontSize: 22, fontWeight: '700' },
-  h3: { fontSize: 18, fontWeight: '600' },
+  h1: { fontSize: 30, fontWeight: '800', letterSpacing: -0.6 },
+  h2: { fontSize: 23, fontWeight: '800', letterSpacing: -0.2 },
+  h3: { fontSize: 18, fontWeight: '700' },
   body: { fontSize: 15, fontWeight: '400' },
   bodySmall: { fontSize: 13, fontWeight: '400' },
   caption: { fontSize: 12, fontWeight: '400', opacity: 0.6 },

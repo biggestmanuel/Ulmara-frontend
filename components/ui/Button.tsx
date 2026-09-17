@@ -39,11 +39,11 @@ export function Button({ label, variant = 'primary', loading, disabled, style, .
 
 const styles = StyleSheet.create({
   base: {
-    height: 54,
-    borderRadius: 16,
+    height: 56,
+    borderRadius: 18,
     alignItems: 'center',
     justifyContent: 'center',
-    paddingHorizontal: 20,
+    paddingHorizontal: 22,
   },
   ghost: { backgroundColor: 'transparent' },
   disabled: { opacity: 0.45 },

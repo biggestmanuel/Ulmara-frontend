@@ -10,6 +10,7 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { router } from 'expo-router';
+import { Ionicons } from '@expo/vector-icons';
 import * as Clipboard from 'expo-clipboard';
 
 import { useUserStore } from '../../stores/userStore';
@@ -24,10 +25,10 @@ function formatAccountId(id?: string | null): string {
 
 // 4 Quick Actions with squared curved-edge buttons (squircles)
 const QUICK_ACTIONS = [
-  { label: 'Send', symbol: '↗', route: '/send' },
-  { label: 'Receive', symbol: '↙', route: '/receive' },
-  { label: 'Deposit Fiat', symbol: '₦', route: '/deposit-withdraw/deposit' },
-  { label: 'Withdraw', symbol: '⤓', route: '/deposit-withdraw/withdraw' },
+  { label: 'Send', icon: 'arrow-up-outline' as const, route: '/send' },
+  { label: 'Receive', icon: 'arrow-down-outline' as const, route: '/receive' },
+  { label: 'Deposit Fiat', icon: 'add-circle-outline' as const, route: '/deposit-withdraw/deposit' },
+  { label: 'Withdraw', icon: 'arrow-down-circle-outline' as const, route: '/deposit-withdraw/withdraw' },
 ] as const;
 
 export default function Home() {
@@ -92,7 +93,7 @@ export default function Home() {
               onPress={() => router.push('/(tabs)/profile')}
               hitSlop={10}
             >
-              <Text style={{ fontSize: 18 }}>🔔</Text>
+              <Ionicons name="notifications-outline" size={20} color={colors.textPrimary} />
             </Pressable>
           </View>
         </View>
@@ -106,7 +107,10 @@ export default function Home() {
               <Text style={styles.idValue}>{formatAccountId(accountId)}</Text>
             </View>
             <Pressable style={styles.copyPill} onPress={handleCopyId} hitSlop={10}>
-              <Text style={styles.copyPillText}>Copy ❐</Text>
+              <View style={styles.copyPillContent}>
+                <Ionicons name="copy-outline" size={14} color="#FFFFFF" />
+                <Text style={styles.copyPillText}>Copy</Text>
+              </View>
             </Pressable>
           </View>
 
@@ -142,7 +146,10 @@ export default function Home() {
               style={[styles.cardActionBtn, styles.cardActionBtnSecondary]}
               onPress={() => router.push('/send')}
             >
-              <Text style={styles.cardActionBtnTextSecondary}>⇄ Transfer</Text>
+              <View style={styles.transferContent}>
+                <Ionicons name="swap-horizontal-outline" size={16} color="#FFFFFF" />
+                <Text style={styles.cardActionBtnTextSecondary}>Transfer</Text>
+              </View>
             </Pressable>
           </View>
         </View>
@@ -158,7 +165,7 @@ export default function Home() {
                 ]}
                 onPress={() => router.push(action.route as any)}
               >
-                <Text style={[styles.squircleSymbol, { color: colors.primary }]}>{action.symbol}</Text>
+                <Ionicons name={action.icon} size={22} color={colors.primary} />
               </Pressable>
               <Text style={[styles.squircleLabel, { color: colors.textPrimary }]}>{action.label}</Text>
             </View>
@@ -275,6 +282,7 @@ const styles = StyleSheet.create({
     paddingVertical: 5,
     borderRadius: 12,
   },
+  copyPillContent: { flexDirection: 'row', alignItems: 'center', gap: 5 },
   copyPillText: { color: '#FFFFFF', fontSize: 12, fontWeight: '700' },
   balanceContainer: { marginVertical: 16 },
   balanceHeader: { flexDirection: 'row', alignItems: 'center', gap: 10 },
@@ -298,6 +306,7 @@ const styles = StyleSheet.create({
     borderColor: 'rgba(255, 255, 255, 0.3)',
   },
   cardActionBtnTextSecondary: { color: '#FFFFFF', fontSize: 14, fontWeight: '800' },
+  transferContent: { flexDirection: 'row', alignItems: 'center', gap: 6 },
   quickActionsGrid: {
     flexDirection: 'row',
     justifyContent: 'space-between',

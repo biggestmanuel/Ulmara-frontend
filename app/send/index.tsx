@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { View, Text, TextInput, StyleSheet, Pressable, KeyboardAvoidingView, Platform, ActivityIndicator } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { router, useLocalSearchParams } from 'expo-router';
+import { Ionicons } from '@expo/vector-icons';
 import { useThemeStore, ThemeColors } from '../../lib/theme';
 import { resolveAccountIdForTransfer } from '../../lib/api/accountId';
 import { NATIVE_ASSET_SYMBOLS, type NativeAssetSymbol } from '../../constants/chains';
@@ -69,7 +70,7 @@ export default function SendIndex() {
               onPress={() => setTransferMode('ulmara')}
             >
               <View style={[styles.modeIcon, transferMode === 'ulmara' && styles.modeIconActive]}>
-                <Text style={styles.modeIconText}>@</Text>
+                <Ionicons name="person-outline" size={17} color={colors.primary} />
               </View>
               <Text style={[styles.modeTitle, transferMode === 'ulmara' && styles.modeTitleActive]}>Transfer to Ulmara</Text>
               <Text style={styles.modeDescription}>Use an Account ID</Text>
@@ -79,7 +80,7 @@ export default function SendIndex() {
               onPress={() => setTransferMode('external')}
             >
               <View style={[styles.modeIcon, transferMode === 'external' && styles.modeIconActive]}>
-                <Text style={styles.modeIconText}>↗</Text>
+                <Ionicons name="arrow-up-outline" size={17} color={colors.primary} />
               </View>
               <Text style={[styles.modeTitle, transferMode === 'external' && styles.modeTitleActive]}>Transfer to external wallet</Text>
               <Text style={styles.modeDescription}>Send to a blockchain address</Text>

@@ -1,17 +1,17 @@
 export const COLORS = {
-  background: '#121212',
-  surface: '#1C1A22',
-  surfaceAlt: '#262330',
-  primary: '#9B59B6',
-  primaryMuted: '#8E44AD',
-  primaryLight: '#2C1E38',
+  background: '#0D0F17',
+  surface: '#151824',
+  surfaceAlt: '#202438',
+  primary: '#8B84FF',
+  primaryMuted: '#716AF0',
+  primaryLight: '#282653',
   success: '#22C55E',
   warning: '#F59E0B',
   error: '#EF4444',
-  textPrimary: '#FAFAFA',
-  textSecondary: '#C4BFD2',
-  textMuted: '#837D94',
-  border: '#2E2A3A',
+  textPrimary: '#F6F7FB',
+  textSecondary: '#B8BBD0',
+  textMuted: '#8589A1',
+  border: '#2A2E43',
 };
 
 export const SPACING = {
