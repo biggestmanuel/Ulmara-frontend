@@ -3,6 +3,7 @@ import { View, Text, TextInput, StyleSheet, Pressable, KeyboardAvoidingView, Pla
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { router } from 'expo-router';
 import { useThemeStore, ThemeColors } from '../../lib/theme';
+import { NATIVE_ASSET_SYMBOLS, type NativeAssetSymbol } from '../../constants/chains';
 import { ethers } from 'ethers';
 import { PublicKey } from '@solana/web3.js';
 import { validateExternalAddress, type SupportedTriVerifyChain } from '../../lib/validation/triverify';
@@ -22,15 +23,13 @@ function looksValid(address: string, network: Network): boolean {
   return ethers.isAddress(address);
 }
 
-const ASSETS = ['USDT', 'BTC', 'ETH', 'SOL', 'TON'] as const;
-
 export default function ExternalWallet() {
   const { colors } = useThemeStore();
   const styles = getStyles(colors);
 
   const [address, setAddress] = useState('');
   const [network, setNetwork] = useState<Network>('ETH');
-  const [asset, setAsset] = useState<(typeof ASSETS)[number]>('USDT');
+  const [asset, setAsset] = useState<NativeAssetSymbol>('ETH');
   const [amount, setAmount] = useState('');
   const [error, setError] = useState<string | null>(null);
 
@@ -113,7 +112,7 @@ export default function ExternalWallet() {
 
           <Text style={[styles.label, { marginTop: 20 }]}>Asset</Text>
           <View style={styles.chipRow}>
-            {ASSETS.map((a) => (
+            {NATIVE_ASSET_SYMBOLS.map((a) => (
               <Pressable
                 key={a}
                 style={[styles.chip, asset === a && styles.chipActive]}

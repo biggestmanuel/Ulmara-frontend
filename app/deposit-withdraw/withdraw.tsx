@@ -8,7 +8,7 @@ import { useThemeStore, ThemeColors } from '../../lib/theme';
 
 const CHAIN_LABELS: Record<string, string> = {
   eth: 'Ethereum', bsc: 'BSC', base: 'Base', polygon: 'Polygon',
-  sol: 'Solana', tron: 'TRON', ton: 'TON',
+  sol: 'Solana', tron: 'TRON', ton: 'TON', btc: 'Bitcoin',
 };
 
 export default function Withdraw() {

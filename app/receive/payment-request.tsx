@@ -3,11 +3,10 @@ import { View, Text, TextInput, StyleSheet, Pressable, Share, KeyboardAvoidingVi
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { router } from 'expo-router';
 import { useThemeStore, ThemeColors } from '../../lib/theme';
+import { NATIVE_ASSET_SYMBOLS, type NativeAssetSymbol } from '../../constants/chains';
 import QRCode from 'react-native-qrcode-svg';
 import { useUserStore } from '../../stores/userStore';
 import { createPaymentRequest } from '../../lib/api/transactions';
-
-const ASSETS = ['USDT', 'BTC', 'ETH', 'SOL', 'TON'] as const;
 
 function formatAccountId(id: string): string {
   return id.replace(/(\d{4})(\d{3})(\d{3})/, '$1 $2 $3');
@@ -18,7 +17,7 @@ export default function PaymentRequest() {
   const styles = getStyles(colors);
   const accountId = useUserStore((state) => state.accountId) ?? '';
 
-  const [asset, setAsset] = useState<(typeof ASSETS)[number]>('USDT');
+  const [asset, setAsset] = useState<NativeAssetSymbol>('ETH');
   const [amount, setAmount] = useState('');
   const [note, setNote] = useState('');
   const [generated, setGenerated] = useState(false);
@@ -85,7 +84,7 @@ export default function PaymentRequest() {
         <View style={styles.body}>
           <Text style={styles.label}>Asset</Text>
           <View style={styles.chipRow}>
-            {ASSETS.map((a) => (
+            {NATIVE_ASSET_SYMBOLS.map((a) => (
               <Pressable
                 key={a}
                 style={[styles.chip, asset === a && styles.chipActive]}
