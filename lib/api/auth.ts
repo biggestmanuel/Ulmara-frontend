@@ -14,6 +14,10 @@ export interface AuthUser {
 export interface AuthResult {
   user: AuthUser;
   token: string;
+  devVerificationCodes?: {
+    email: string;
+    phone?: string;
+  };
 }
 
 interface ApiEnvelope<T> {
@@ -45,9 +49,16 @@ export async function verifyPhone(input: { userId: string; code: string }): Prom
   return data.data;
 }
 
-// NOTE: backend has no resend-code endpoint yet (verify-email/verify-phone just
-// validate any 6-digit code — no OTP delivery is wired up server-side). Resend
-// buttons on the verify screens are UI-only until that exists.
+export async function resendCode(input: {
+  userId: string;
+  channel: 'email' | 'phone';
+}): Promise<{ success: boolean; devCode?: string }> {
+  const { data } = await apiClient.post<ApiEnvelope<{ success: boolean; devCode?: string }>>(
+    '/api/auth/resend-code',
+    input
+  );
+  return data.data;
+}
 
 export async function forgotPassword(input: {
   email: string;
@@ -101,5 +112,13 @@ export async function listSessions(): Promise<SessionInfo[]> {
 
 export async function revokeSession(id: string): Promise<{ success: boolean }> {
   const { data } = await apiClient.delete<ApiEnvelope<{ success: boolean }>>(`/api/auth/sessions/${id}`);
+  return data.data;
+}
+
+// Permanent account deletion. The backend wipes the user, their wallets
+// metadata and sessions; the caller is responsible for wiping local
+// secure storage (mnemonics, session token, account id) afterwards.
+export async function deleteAccount(): Promise<{ success: boolean }> {
+  const { data } = await apiClient.delete<ApiEnvelope<{ success: boolean }>>('/api/auth/me');
   return data.data;
 }

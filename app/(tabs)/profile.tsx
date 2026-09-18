@@ -1,12 +1,15 @@
 import { useState } from 'react';
-import { View, Text, StyleSheet, Pressable, ScrollView, Alert, Modal } from 'react-native';
+import { View, Text, StyleSheet, Pressable, ScrollView, Modal } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { router } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
-import * as Clipboard from 'expo-clipboard';
 
 import { useUserStore } from '../../stores/userStore';
+import { useAuthGateStore } from '../../stores/authGateStore';
 import { useThemeStore } from '../../lib/theme';
+import { deleteAccount } from '../../lib/api/auth';
+import type { ApiErrorShape } from '../../lib/api/client';
+import { useCopyToast, CopyToast } from '../../components/ui/CopyToast';
 
 function formatAccountId(id?: string | null): string {
   if (!id) return '---- --- ---';
@@ -19,6 +22,10 @@ export default function ProfileScreen() {
   const profile = useUserStore((s) => s.profile);
   const logout = useUserStore((s) => s.logout);
   const [showLogoutModal, setShowLogoutModal] = useState(false);
+  const [showDeleteModal, setShowDeleteModal] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
+  const { copyToClipboard, message: toastMessage, visible: toastVisible } = useCopyToast();
 
   const displayName = profile?.name?.trim() || 'Biggest Manuel';
   const email = profile?.email || 'user@ulmara.io';
@@ -26,8 +33,7 @@ export default function ProfileScreen() {
 
   const handleCopyId = async () => {
     if (accountId) {
-      await Clipboard.setStringAsync(accountId);
-      Alert.alert('Copied', 'Account ID copied to clipboard');
+      await copyToClipboard(accountId, 'Account ID copied to clipboard');
     }
   };
 
@@ -39,6 +45,24 @@ export default function ProfileScreen() {
     setShowLogoutModal(false);
     await logout();
     router.replace('/(auth)/welcome');
+  };
+
+  const confirmDeleteAccount = async () => {
+    setDeleting(true);
+    setDeleteError(null);
+    try {
+      // Server-side wipe first; if it fails, keep the session so the user
+      // can retry instead of being stranded logged-out with a live account.
+      await deleteAccount();
+      setShowDeleteModal(false);
+      await logout();
+      await useAuthGateStore.getState().check();
+      router.replace('/(auth)/welcome');
+    } catch (err) {
+      setDeleteError((err as ApiErrorShape).message ?? 'Could not delete your account. Try again.');
+    } finally {
+      setDeleting(false);
+    }
   };
 
   return (
@@ -89,6 +113,18 @@ export default function ProfileScreen() {
         >
           <Text style={[styles.logoutText, { color: colors.error }]}>Log Out</Text>
         </Pressable>
+
+        {/* Delete account (permanent) */}
+        <Pressable
+          style={styles.deleteAccountBtn}
+          onPress={() => {
+            setDeleteError(null);
+            setShowDeleteModal(true);
+          }}
+        >
+          <Text style={[styles.deleteAccountText, { color: colors.textMuted }]}>Delete Account</Text>
+        </Pressable>
+
         <Modal
           visible={showLogoutModal}
           transparent
@@ -112,6 +148,44 @@ export default function ProfileScreen() {
             </View>
           </View>
         </Modal>
+
+        {/* Delete account confirmation — same modal design, destructive copy */}
+        <Modal
+          visible={showDeleteModal}
+          transparent
+          animationType="fade"
+          onRequestClose={() => setShowDeleteModal(false)}
+        >
+          <View style={styles.modalOverlay}>
+            <View style={[styles.logoutModal, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+              <Text style={[styles.modalTitle, { color: colors.error }]}>Delete account?</Text>
+              <Text style={[styles.modalMessage, { color: colors.textSecondary }]}>
+                This permanently deletes your account, wallets and transaction history. This
+                cannot be undone.
+              </Text>
+              {deleteError && <Text style={[styles.deleteError, { color: colors.error }]}>{deleteError}</Text>}
+              <View style={styles.modalActions}>
+                <Pressable
+                  style={styles.modalButton}
+                  onPress={() => setShowDeleteModal(false)}
+                  disabled={deleting}
+                >
+                  <Text style={[styles.modalButtonText, { color: colors.textMuted }]}>Cancel</Text>
+                </Pressable>
+                <Pressable
+                  style={[styles.modalButton, { backgroundColor: colors.error, opacity: deleting ? 0.6 : 1 }]}
+                  onPress={confirmDeleteAccount}
+                  disabled={deleting}
+                >
+                  <Text style={styles.confirmButtonText}>{deleting ? 'Deleting…' : 'Delete Forever'}</Text>
+                </Pressable>
+              </View>
+            </View>
+          </View>
+        </Modal>
+
+        {/* Copy confirmation — styled to match the modals above */}
+        <CopyToast message={toastMessage ?? ''} visible={toastVisible} onHide={() => {}} />
       </ScrollView>
     </SafeAreaView>
   );
@@ -166,6 +240,14 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   logoutText: { fontSize: 15, fontWeight: '800' },
+  deleteAccountBtn: {
+    paddingVertical: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginTop: 8,
+  },
+  deleteAccountText: { fontSize: 13, fontWeight: '600' },
+  deleteError: { fontSize: 13, marginTop: 12 },
   modalOverlay: {
     flex: 1,
     backgroundColor: 'rgba(0, 0, 0, 0.65)',

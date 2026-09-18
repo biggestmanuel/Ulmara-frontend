@@ -3,16 +3,14 @@ import { View, Text, StyleSheet, Pressable, Share } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { router } from 'expo-router';
 import QRCode from 'react-native-qrcode-svg';
-import * as Clipboard from 'expo-clipboard';
 import { useUserStore } from '../../stores/userStore';
 import { useThemeStore, ThemeColors } from '../../lib/theme';
+import { formatAccountId } from '../../lib/format';
+import { useCopyToast, CopyToast } from '../../components/ui/CopyToast';
 
 // NOTE: swap this placeholder for a real QR renderer, e.g. react-native-qrcode-svg
 // <QRCode value={`accountwallet://pay/${accountId}`} size={200} />
 // Kept black-on-white regardless of theme, same as a real QR code, for scannability.
-function formatAccountId(id: string): string {
-  return id.replace(/(\d{4})(\d{3})(\d{3})/, '$1 $2 $3');
-}
 
 const METHODS = ['Account ID', 'QR Code', 'Link'] as const;
 type Method = (typeof METHODS)[number];
@@ -23,14 +21,15 @@ export default function ReceiveIndex() {
   const accountId = useUserStore((state) => state.accountId) ?? '';
 
   const [method, setMethod] = useState<Method>('QR Code');
-  const [copied, setCopied] = useState(false);
+  const { copyToClipboard, message: toastMessage, visible: toastVisible } = useCopyToast();
 
   const shareLink = `https://ulmara.app/pay/${accountId}`;
 
   const handleCopy = async () => {
-    await Clipboard.setStringAsync(method === 'Link' ? shareLink : accountId);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 1500);
+    await copyToClipboard(
+      method === 'Link' ? shareLink : accountId,
+      method === 'Link' ? 'Payment link copied to clipboard' : 'Account ID copied to clipboard'
+    );
   };
 
   const handleShare = async () => {
@@ -79,7 +78,7 @@ export default function ReceiveIndex() {
             <Text style={styles.idLabel}>Your Account ID</Text>
             <Text style={styles.idValue}>{formatAccountId(accountId)}</Text>
             <Pressable style={styles.copyBtn} onPress={handleCopy}>
-              <Text style={styles.copyBtnText}>{copied ? 'Copied' : 'Copy Account ID'}</Text>
+              <Text style={styles.copyBtnText}>Copy Account ID</Text>
             </Pressable>
           </View>
         )}
@@ -89,7 +88,7 @@ export default function ReceiveIndex() {
             <Text style={styles.idLabel}>Shareable Link</Text>
             <Text style={styles.linkValue} numberOfLines={1}>{shareLink}</Text>
             <Pressable style={styles.copyBtn} onPress={handleCopy}>
-              <Text style={styles.copyBtnText}>{copied ? 'Copied' : 'Copy Link'}</Text>
+              <Text style={styles.copyBtnText}>Copy Link</Text>
             </Pressable>
           </View>
         )}
@@ -107,6 +106,9 @@ export default function ReceiveIndex() {
           <Text style={styles.primaryBtnText}>Share</Text>
         </Pressable>
       </View>
+
+      {/* Copy confirmation — styled to match the app's modal design */}
+      <CopyToast message={toastMessage ?? ''} visible={toastVisible} onHide={() => {}} />
     </SafeAreaView>
   );
 }

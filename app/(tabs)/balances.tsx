@@ -7,30 +7,28 @@ import {
   ScrollView,
   RefreshControl,
   Modal,
-  Alert,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { router } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { X } from 'lucide-react-native';
-import * as Clipboard from 'expo-clipboard';
 
 import { useWalletStore, AssetBalance } from '../../stores/walletStore';
 import { useThemeStore } from '../../lib/theme';
 import { CHAINS } from '../../constants/chains';
+import { useCopyToast, CopyToast } from '../../components/ui/CopyToast';
 
 export default function BalancesScreen() {
   const { colors, isDark } = useThemeStore();
   const [selectedAsset, setSelectedAsset] = useState<AssetBalance | null>(null);
+  const { copyToClipboard, message: toastMessage, visible: toastVisible } = useCopyToast();
 
   const balances = useWalletStore((s) => s.balances);
   const isLoadingBalances = useWalletStore((s) => s.isLoadingBalances);
   const refreshBalances = useWalletStore((s) => s.refreshBalances);
 
-  const handleCopy = async (text: string, label: string) => {
-    await Clipboard.setStringAsync(text);
-    Alert.alert('Copied', `${label} copied to clipboard`);
-  };
+  const handleCopy = (text: string, label: string) =>
+    copyToClipboard(text, `${label} copied to clipboard`);
 
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]}>
@@ -149,6 +147,9 @@ export default function BalancesScreen() {
           </View>
         </View>
       </Modal>
+
+      {/* Copy confirmation — styled to match the app's modal design */}
+      <CopyToast message={toastMessage ?? ''} visible={toastVisible} onHide={() => {}} />
     </SafeAreaView>
   );
 }

@@ -6,23 +6,18 @@ import {
   Pressable,
   ScrollView,
   RefreshControl,
-  Alert,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { router } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { Eye, EyeOff, Send, ArrowDownToLine } from 'lucide-react-native';
-import * as Clipboard from 'expo-clipboard';
 
 import { useUserStore } from '../../stores/userStore';
 import { useWalletStore } from '../../stores/walletStore';
 import { useThemeStore } from '../../lib/theme';
 import { useTxStore } from '../../stores/txStore';
-
-function formatAccountId(id?: string | null): string {
-  if (!id) return '---- --- ---';
-  return id.replace(/(\d{4})(\d{3})(\d{3})/, '$1 $2 $3');
-}
+import { formatAccountId } from '../../lib/format';
+import { useCopyToast, CopyToast } from '../../components/ui/CopyToast';
 
 // 4 Quick Actions with squared curved-edge buttons (squircles)
 const QUICK_ACTIONS = [
@@ -57,10 +52,11 @@ export default function Home() {
 
   const totalBalanceNgn = totalBalanceUsd * USD_TO_NGN;
 
+  const { copyToClipboard, message: toastMessage, visible: toastVisible } = useCopyToast();
+
   const handleCopyId = async () => {
     if (accountId) {
-      await Clipboard.setStringAsync(accountId);
-      Alert.alert('Copied', 'Account ID copied to clipboard');
+      await copyToClipboard(accountId, 'Account ID copied to clipboard');
     }
   };
 
@@ -196,6 +192,9 @@ export default function Home() {
             </View>
           ))}
         </View>
+
+        {/* Copy confirmation — styled to match the app's modal design */}
+        <CopyToast message={toastMessage ?? ''} visible={toastVisible} onHide={() => {}} />
       </ScrollView>
     </SafeAreaView>
   );

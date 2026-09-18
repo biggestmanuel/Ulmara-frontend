@@ -3,20 +3,30 @@ import { View, Text, TextInput, StyleSheet, Pressable, ActivityIndicator } from 
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { router, useLocalSearchParams } from 'expo-router';
 
-import { verifyEmail as verifyEmailApi } from '../../lib/api/auth';
+import { verifyEmail as verifyEmailApi, resendCode as resendCodeApi } from '../../lib/api/auth';
 import type { ApiErrorShape } from '../../lib/api/client';
 import { useThemeStore, ThemeColors } from '../../lib/theme';
 
 const CODE_LENGTH = 6;
 const RESEND_SECONDS = 30;
 
+// Splits a 6-digit code into per-input-box digits, or blanks when absent.
+// Module scope — it was previously left inside handleVerify by an
+// interrupted edit, which crashed the screen on load (Property 'toDigits' doesn't exist).
+function toDigits(value?: string): string[] {
+  return value && /^\d{6}$/.test(value) ? value.split('') : Array(CODE_LENGTH).fill('');
+}
+
 export default function VerifyEmail() {
   const { colors } = useThemeStore();
   const styles = getStyles(colors);
-  const { email, userId, phone } = useLocalSearchParams<{ email?: string; userId?: string; phone?: string }>();
-  const [code, setCode] = useState<string[]>(Array(CODE_LENGTH).fill(''));
+  const { email, userId, phone, devEmailCode, devPhoneCode } = useLocalSearchParams<{
+    email?: string; userId?: string; phone?: string; devEmailCode?: string; devPhoneCode?: string;
+  }>();
+  const [code, setCode] = useState<string[]>(() => toDigits(devEmailCode));
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const [resending, setResending] = useState(false);
   const [seconds, setSeconds] = useState(RESEND_SECONDS);
   const inputs = useRef<(TextInput | null)[]>([]);
 
@@ -53,7 +63,7 @@ export default function VerifyEmail() {
       await verifyEmailApi({ userId, code: otp });
       router.push({
         pathname: '/(auth)/verify-phone',
-        params: { phone, userId },
+        params: { phone, userId, devPhoneCode },
       });
     } catch (err) {
       setError((err as ApiErrorShape).message ?? 'Invalid code. Please try again.');
@@ -62,10 +72,20 @@ export default function VerifyEmail() {
     }
   };
 
-  const handleResend = () => {
-    if (seconds > 0) return;
-    setSeconds(RESEND_SECONDS);
-    // TODO: trigger resend email API call
+  const handleResend = async () => {
+    if (seconds > 0 || resending || !userId) return;
+    setResending(true);
+    setError(null);
+    try {
+      const result = await resendCodeApi({ userId, channel: 'email' });
+      // Dev mode returns the fresh code; drop it straight into the boxes.
+      if (result.devCode) setCode(toDigits(result.devCode));
+      setSeconds(RESEND_SECONDS);
+    } catch (err) {
+      setError((err as ApiErrorShape).message ?? 'Could not resend the code. Try again.');
+    } finally {
+      setResending(false);
+    }
   };
 
   return (
@@ -97,9 +117,9 @@ export default function VerifyEmail() {
 
         {error && <Text style={styles.error}>{error}</Text>}
 
-        <Pressable onPress={handleResend} disabled={seconds > 0}>
-          <Text style={[styles.resend, seconds > 0 && styles.resendDisabled]}>
-            {seconds > 0 ? `Resend code in ${seconds}s` : 'Resend code'}
+        <Pressable onPress={handleResend} disabled={seconds > 0 || resending || !userId}>
+          <Text style={[styles.resend, (seconds > 0 || resending) && styles.resendDisabled]}>
+            {resending ? 'Resending…' : seconds > 0 ? `Resend code in ${seconds}s` : 'Resend code'}
           </Text>
         </Pressable>
       </View>

@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { View, Text, TextInput, StyleSheet, Pressable, KeyboardAvoidingView, Platform, ActivityIndicator, ScrollView } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { router } from 'expo-router';
+import { Ionicons } from '@expo/vector-icons';
 
 import { signup as signupApi } from '../../lib/api/auth';
 import type { ApiErrorShape } from '../../lib/api/client';
@@ -17,6 +18,7 @@ export default function Signup() {
   const [email, setEmail] = useState('');
   const [phone, setPhone] = useState('');
   const [password, setPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
@@ -28,6 +30,12 @@ export default function Signup() {
     return null;
   };
 
+  // Matches the backend's signup phone regex: optional +, 10-15 digits.
+  const normalizePhone = (raw: string) => {
+    const digits = raw.replace(/[^\d]/g, '');
+    return raw.trim().startsWith('+') ? `+${digits}` : digits;
+  };
+
   const handleSignup = async () => {
     const err = validate();
     setError(err);
@@ -35,15 +43,25 @@ export default function Signup() {
 
     setLoading(true);
     try {
-      const { user, token } = await signupApi({ email, phone, password });
+      const { user, token, devVerificationCodes } = await signupApi({
+        email: email.trim().toLowerCase(),
+        phone: normalizePhone(phone),
+        password,
+      });
       await setSecureItem(SecureStorageKeys.SESSION_TOKEN, token);
       router.push({
         pathname: '/(auth)/verify-email',
-        params: { email, phone, userId: user.id },
+        params: {
+          email,
+          phone,
+          userId: user.id,
+          devEmailCode: devVerificationCodes?.email,
+          devPhoneCode: devVerificationCodes?.phone,
+        },
       });
     } catch (err) {
       // apiClient's response interceptor already normalizes rejected errors
-      // to ApiErrorShape — don't re-wrap with toApiError here.
+      // to a readable ApiErrorShape (409/500 included) — don't re-wrap here.
       setError((err as ApiErrorShape).message);
     } finally {
       setLoading(false);
@@ -98,14 +116,29 @@ export default function Signup() {
 
           <View style={styles.field}>
             <Text style={styles.label}>Password</Text>
-            <TextInput
-              style={styles.input}
-              placeholder="At least 8 characters"
-              placeholderTextColor={colors.textMuted}
-              secureTextEntry
-              value={password}
-              onChangeText={setPassword}
-            />
+            <View style={styles.passwordWrap}>
+              <TextInput
+                style={styles.input}
+                placeholder="At least 8 characters"
+                placeholderTextColor={colors.textMuted}
+                secureTextEntry={!showPassword}
+                autoCapitalize="none"
+                value={password}
+                onChangeText={setPassword}
+              />
+              <Pressable
+                style={styles.eyeBtn}
+                onPress={() => setShowPassword((v) => !v)}
+                hitSlop={8}
+                accessibilityLabel={showPassword ? 'Hide password' : 'Show password'}
+              >
+                <Ionicons
+                  name={showPassword ? 'eye-off-outline' : 'eye-outline'}
+                  size={20}
+                  color={colors.textMuted}
+                />
+              </Pressable>
+            </View>
           </View>
 
           {error && <Text style={styles.error}>{error}</Text>}
@@ -144,6 +177,8 @@ function getStyles(colors: ThemeColors) {
       borderWidth: 1,
       borderColor: colors.border,
     },
+    passwordWrap: { position: 'relative', justifyContent: 'center' },
+    eyeBtn: { position: 'absolute', right: 16 },
     error: { color: colors.error, fontSize: 13, marginTop: 4 },
     footer: { paddingHorizontal: 24, paddingBottom: 36, gap: 16 },
     primaryBtn: {

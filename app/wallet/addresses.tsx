@@ -1,8 +1,8 @@
 import { useState } from 'react';
 import { View, Text, StyleSheet, Pressable, ScrollView } from 'react-native';
+import { useCopyToast, CopyToast } from '../../components/ui/CopyToast';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { router, useLocalSearchParams } from 'expo-router';
-import * as Clipboard from 'expo-clipboard';
 import { useWalletStore } from '../../stores/walletStore';
 import { useThemeStore, ThemeColors } from '../../lib/theme';
 
@@ -18,18 +18,15 @@ export default function WalletAddresses() {
   const addresses = useWalletStore((s) => s.addresses);
   const { colors } = useThemeStore();
   const styles = getStyles(colors);
-  const [copiedChain, setCopiedChain] = useState<string | null>(null);
   const [revealed, setRevealed] = useState(false);
+  const { copyToClipboard, message: toastMessage, visible: toastVisible } = useCopyToast();
 
   const entries = Object.entries(addresses).filter(
     ([chainId]) => !chain || chainId === chain
   );
 
-  const handleCopy = async (chainId: string, address: string) => {
-    await Clipboard.setStringAsync(address);
-    setCopiedChain(chainId);
-    setTimeout(() => setCopiedChain(null), 1500);
-  };
+  const handleCopy = (chainId: string, address: string) =>
+    copyToClipboard(address, `${CHAIN_LABELS[chainId] ?? chainId} address copied to clipboard`);
 
   return (
     <SafeAreaView style={styles.container}>
@@ -62,14 +59,15 @@ export default function WalletAddresses() {
                 {revealed ? address : 'Hidden for your privacy'}
               </Text>
               <Pressable style={styles.copyBtn} disabled={!revealed} onPress={() => handleCopy(chainId, address!)}>
-                <Text style={styles.copyBtnText}>
-                  {copiedChain === chainId ? 'Copied' : 'Copy Address'}
-                </Text>
+                <Text style={styles.copyBtnText}>Copy Address</Text>
               </Pressable>
             </View>
           ))
         )}
       </ScrollView>
+
+      {/* Copy confirmation — styled to match the app's modal design */}
+      <CopyToast message={toastMessage ?? ''} visible={toastVisible} onHide={() => {}} />
     </SafeAreaView>
   );
 }

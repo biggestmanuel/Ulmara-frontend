@@ -76,6 +76,13 @@ export const useUserStore = create<UserState>((set, get) => ({
     // would inherit the stale pinVerified=true from before logout and skip
     // PIN entry entirely.
     useAuthGateStore.getState().resetPinVerified();
+    // Also clear in-memory wallet/tx state so a different account logging in
+    // on the same device never flashes the previous user's balances or
+    // transactions. Dynamic import avoids a static store-import cycle.
+    const { useWalletStore } = await import('./walletStore');
+    const { useTxStore } = await import('./txStore');
+    useWalletStore.setState({ addresses: {}, balances: [], isHydrated: false, isLoadingBalances: false });
+    useTxStore.setState({ items: [], nextCursor: null, isLoading: false, isLoadingMore: false });
     set({ accountId: null, profile: null, biometricEnabled: false });
   },
 }));

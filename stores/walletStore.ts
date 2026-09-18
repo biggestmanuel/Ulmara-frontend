@@ -40,9 +40,8 @@ export const useWalletStore = create<WalletState>((set, get) => ({
   isHydrated: false,
 
   hydrate: async () => {
-    // Wallet addresses are deterministically derived from the user's
-    // secured seed material; this reads whatever's already been derived
-    // and cached rather than re-deriving on every app launch.
+    // Wallet addresses come from the backend (public addresses registered at
+    // signup). We only hydrate them when an account is set up locally.
     const cachedAddresses = await getSecureItem(SecureStorageKeys.ACCOUNT_ID);
     set({ isHydrated: true });
     if (cachedAddresses) {

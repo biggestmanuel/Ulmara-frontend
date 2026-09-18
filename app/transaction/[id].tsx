@@ -12,13 +12,13 @@ import { useLocalSearchParams, useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { captureRef } from 'react-native-view-shot';
 import * as Sharing from 'expo-sharing';
-import * as Clipboard from 'expo-clipboard';
 
 import { useTxStore } from '../../stores/txStore';
 import { useUserStore } from '../../stores/userStore';
 import { useThemeStore, ThemeColors } from '../../lib/theme';
 import { fetchTransactionById, Transaction } from '../../lib/api/transactions';
 import { ReceiptCard, ReceiptData } from '../../components/transaction/ReceiptCard';
+import { useCopyToast, CopyToast } from '../../components/ui/CopyToast';
 
 export default function TransactionDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -29,6 +29,7 @@ export default function TransactionDetailScreen() {
   const [saving, setSaving] = useState(false);
   const [fallbackTx, setFallbackTx] = useState<Transaction | null>(null);
   const [loadingDirect, setLoadingDirect] = useState(false);
+  const { copyToClipboard, message: toastMessage, visible: toastVisible } = useCopyToast();
 
   // 1. User Store
   const { accountId, profile } = useUserStore();
@@ -130,8 +131,7 @@ export default function TransactionDetailScreen() {
 
   const handleCopyId = async () => {
     if (id) {
-      await Clipboard.setStringAsync(id);
-      Alert.alert('Copied', 'Transaction ID copied to clipboard.');
+      await copyToClipboard(id, 'Transaction ID copied to clipboard');
     }
   };
 
@@ -259,6 +259,9 @@ export default function TransactionDetailScreen() {
           <Text style={styles.supportText}>Need help with this transaction?</Text>
         </TouchableOpacity>
       </ScrollView>
+
+      {/* Copy confirmation — styled to match the app's modal design */}
+      <CopyToast message={toastMessage ?? ''} visible={toastVisible} onHide={() => {}} />
     </View>
   );
 }

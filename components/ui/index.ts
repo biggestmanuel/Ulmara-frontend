@@ -6,3 +6,4 @@ export * from './Avatar';
 export * from './Badge';
 export * from './LoadingSpinner';
 export * from './Divider';
+export * from './CopyToast';
