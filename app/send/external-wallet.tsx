@@ -8,7 +8,7 @@ import { ethers } from 'ethers';
 import { PublicKey } from '@solana/web3.js';
 import { validateExternalAddress, type SupportedTriVerifyChain } from '../../lib/validation/triverify';
 
-const NETWORKS = ['ETH', 'BSC', 'TRON', 'SOL', 'TON', 'BASE', 'Polygon', 'BTC'] as const;
+const NETWORKS = ['ETH', 'BSC', 'TRON', 'SOL', 'TON', 'BASE', 'POLYGON', 'BTC'] as const;
 type Network = (typeof NETWORKS)[number];
 
 function looksValid(address: string, network: Network): boolean {
@@ -37,12 +37,12 @@ export default function ExternalWallet() {
     if (!address.trim()) return setError('Enter a wallet address');
     const normalizedAddress = address.trim();
     if (!looksValid(normalizedAddress, network)) return setError(`This doesn't look like a valid ${network} address`);
-    if (network === 'ETH' || network === 'BSC' || network === 'BASE' || network === 'Polygon' ||
+    if (network === 'ETH' || network === 'BSC' || network === 'BASE' || network === 'POLYGON' ||
       network === 'SOL' || network === 'TRON' || network === 'TON' || network === 'BTC') {
       try {
         const result = await validateExternalAddress(
           normalizedAddress,
-          (network === 'Polygon' ? 'POLYGON' : network) as SupportedTriVerifyChain,
+          network as SupportedTriVerifyChain,
         );
         if (!result.formatValid || result.exists === false) {
           return setError(`The ${network} address could not be validated.`);
@@ -57,7 +57,7 @@ export default function ExternalWallet() {
         externalAddress: normalizedAddress,
         asset,
         network,
-        networkName: network,
+        networkName: network === 'POLYGON' ? 'Polygon' : network,
         fee: 'Fee calculated by network',
       },
     });
