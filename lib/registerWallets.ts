@@ -15,6 +15,7 @@ const CHAIN_ID_TO_BACKEND: Partial<Record<ChainId, string>> = {
   tron: 'TRON',
   sol: 'SOL',
   ton: 'TON',
+  btc: 'BTC',
 };
 
 export interface RegisterWalletsResult {

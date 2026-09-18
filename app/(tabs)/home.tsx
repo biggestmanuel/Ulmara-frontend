@@ -11,7 +11,7 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { router } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
-import { Eye, EyeOff, Send, ArrowDownToLine, Landmark, ArrowDownCircle } from 'lucide-react-native';
+import { Eye, EyeOff, Send, ArrowDownToLine } from 'lucide-react-native';
 import * as Clipboard from 'expo-clipboard';
 
 import { useUserStore } from '../../stores/userStore';
@@ -28,8 +28,6 @@ function formatAccountId(id?: string | null): string {
 const QUICK_ACTIONS = [
   { label: 'Send', icon: Send, route: '/send' },
   { label: 'Receive', icon: ArrowDownToLine, route: '/receive' },
-  { label: 'Deposit Fiat', icon: Landmark, route: '/deposit-withdraw/deposit' },
-  { label: 'Withdraw', icon: ArrowDownCircle, route: '/deposit-withdraw/withdraw' },
 ] as const;
 
 export default function Home() {

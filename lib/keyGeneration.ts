@@ -5,6 +5,9 @@ import { Keypair } from '@solana/web3.js';
 import { mnemonicToWalletKey } from '@ton/crypto';
 import { Cell, beginCell, contractAddress } from '@ton/core';
 import { Buffer } from 'buffer';
+import { initEccLib, networks, payments } from 'bitcoinjs-lib';
+import { BIP32Factory } from 'bip32';
+import * as ecc from 'tiny-secp256k1';
 
 import type { ChainId } from '../types/chain';
 
@@ -12,6 +15,10 @@ import type { ChainId } from '../types/chain';
 const EVM_PATH = "m/44'/60'/0'/0/0";
 const TRON_PATH = "m/44'/195'/0'/0/0";
 const SOL_PATH = "m/44'/501'/0'/0'";
+const BTC_PATH = "m/84'/0'/0'/0/0";
+
+const bitcoin = BIP32Factory(ecc);
+initEccLib(ecc);
 
 const ALPHABET = '123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz';
 
@@ -100,6 +107,19 @@ export async function generateWallet(): Promise<GeneratedWallet> {
     });
   }
 
+  const btcRoot = bitcoin.fromSeed(Buffer.from(evmSeed));
+  const btcNode = btcRoot.derivePath(BTC_PATH);
+  const btcAddress = payments.p2wpkh({
+    pubkey: Buffer.from(btcNode.publicKey),
+    network: networks.bitcoin,
+  }).address;
+  if (!btcAddress || !btcNode.privateKey) throw new Error('Could not derive Bitcoin wallet');
+  keys.push({
+    chain: 'btc',
+    address: btcAddress,
+    privateKeyOrSeed: Buffer.from(btcNode.privateKey).toString('hex'),
+  });
+
   console.log('[KeyGen] 3. Deriving TRON...');
   const tronWallet = rootNode.derivePath(TRON_PATH);
   const tronAddress = toTronAddress(tronWallet.address);
@@ -148,7 +168,7 @@ export async function generateWallet(): Promise<GeneratedWallet> {
     privateKeyOrSeed: Buffer.from(tonKeyPair.secretKey).toString('hex'),
   });
 
-  console.log('[KeyGen] SUCCESS! All 7 chains generated!');
+  console.log('[KeyGen] SUCCESS! All 8 chains generated!');
   return { evmMnemonic, solMnemonic, tonMnemonic, keys };
 }
 

@@ -30,7 +30,7 @@ export default function Notifications() {
             styles={styles}
             colors={colors}
             label="Transaction Updates"
-            desc="Sent, received, deposit, and withdrawal status"
+            desc="Sent and received transaction status"
             value={prefs.pushTransactions}
             onChange={() => toggle('pushTransactions')}
           />
