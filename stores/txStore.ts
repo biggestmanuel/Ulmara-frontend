@@ -1,5 +1,8 @@
 import { create } from 'zustand';
 import { fetchTransactions, Transaction } from '../lib/api/transactions';
+import { toApiError } from '../lib/api/client';
+import { useUserStore } from './userStore';
+import { useAuthGateStore } from './authGateStore';
 
 interface TxState {
   items: Transaction[];
@@ -9,6 +12,7 @@ interface TxState {
 
   fetchInitial: () => Promise<void>;
   fetchMore: () => Promise<void>;
+  handleFetchError: (err: unknown) => Promise<void>;
   upsertTransaction: (tx: Transaction) => void;
 }
 
@@ -18,13 +22,23 @@ export const useTxStore = create<TxState>((set, get) => ({
   isLoading: false,
   isLoadingMore: false,
 
+  handleFetchError: async (err: unknown) => {
+    const apiError = toApiError(err);
+    if (apiError.status === 401) {
+      await useUserStore.getState().logout();
+      await useAuthGateStore.getState().check();
+      return;
+    }
+    console.error('Failed to fetch transactions:', apiError);
+  },
+
   fetchInitial: async () => {
     set({ isLoading: true });
     try {
       const { items, nextCursor } = await fetchTransactions({ limit: 30 });
       set({ items, nextCursor });
     } catch (err) {
-      console.error('Failed to fetch transactions:', err);
+      await get().handleFetchError(err);
     } finally {
       set({ isLoading: false });
     }
@@ -39,7 +53,7 @@ export const useTxStore = create<TxState>((set, get) => ({
       const result = await fetchTransactions({ cursor: nextCursor, limit: 30 });
       set({ items: [...items, ...result.items], nextCursor: result.nextCursor });
     } catch (err) {
-      console.error('Failed to fetch more transactions:', err);
+      await get().handleFetchError(err);
     } finally {
       set({ isLoadingMore: false });
     }

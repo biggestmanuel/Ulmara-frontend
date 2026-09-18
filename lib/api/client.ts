@@ -22,6 +22,20 @@ export interface ApiErrorShape {
 }
 
 export function toApiError(err: unknown): ApiErrorShape {
+  if (
+    typeof err === 'object' &&
+    err !== null &&
+    'status' in err &&
+    'code' in err &&
+    'message' in err
+  ) {
+    const apiError = err as Partial<ApiErrorShape>;
+    return {
+      status: typeof apiError.status === 'number' ? apiError.status : null,
+      code: typeof apiError.code === 'string' ? apiError.code : 'unknown_error',
+      message: typeof apiError.message === 'string' ? apiError.message : 'Something went wrong',
+    };
+  }
   if (axios.isAxiosError(err)) {
     const axiosErr = err as AxiosError<{ code?: string; message?: string }>;
     return {
