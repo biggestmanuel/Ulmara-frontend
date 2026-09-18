@@ -22,7 +22,7 @@ export default function TabsLayout() {
       }}
       tabBar={({ state, descriptors, navigation }) => (
         <View style={[styles.dockWrap, { paddingBottom: Math.max(insets.bottom, 10) }]}>
-          <View style={[styles.dock, { backgroundColor: colors.surface, borderColor: colors.border, shadowColor: colors.textPrimary }]}>
+          <View style={[styles.dock, { backgroundColor: colors.background, borderColor: colors.background, shadowColor: colors.textPrimary }]}>
             {tabs.slice(0, 2).map((tab) => {
               const route = state.routes.find((item) => item.name === tab.name);
               if (!route) return null;
@@ -107,7 +107,7 @@ const styles = StyleSheet.create({
   dock: {
     minHeight: 78,
     borderRadius: 26,
-    borderWidth: 1,
+    borderWidth: 0,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-around',

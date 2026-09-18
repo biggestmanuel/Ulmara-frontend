@@ -30,7 +30,6 @@ export default function ExternalWallet() {
   const [address, setAddress] = useState('');
   const [network, setNetwork] = useState<Network>('ETH');
   const [asset, setAsset] = useState<NativeAssetSymbol>('ETH');
-  const [amount, setAmount] = useState('');
   const [error, setError] = useState<string | null>(null);
 
   const handleContinue = async () => {
@@ -52,15 +51,11 @@ export default function ExternalWallet() {
         return setError('Address validation is temporarily unavailable. Try again later.');
       }
     }
-    const amt = parseFloat(amount);
-    if (!amt || amt <= 0) return setError('Enter a valid amount');
-
     router.push({
-      pathname: '/send/confirm',
+      pathname: '/send/external-amount',
       params: {
         externalAddress: normalizedAddress,
         asset,
-        amount,
         network,
         networkName: network,
         fee: 'Fee calculated by network',
@@ -122,16 +117,6 @@ export default function ExternalWallet() {
               </Pressable>
             ))}
           </View>
-
-          <Text style={[styles.label, { marginTop: 20 }]}>Amount</Text>
-          <TextInput
-            style={styles.input}
-            placeholder="0.00"
-            placeholderTextColor={colors.textMuted}
-            keyboardType="decimal-pad"
-            value={amount}
-            onChangeText={setAmount}
-          />
 
           {error && <Text style={styles.error}>{error}</Text>}
         </View>

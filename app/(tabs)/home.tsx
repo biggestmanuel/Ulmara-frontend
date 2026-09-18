@@ -11,6 +11,7 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { router } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
+import { Eye, EyeOff, Send, ArrowDownToLine, Landmark, ArrowDownCircle } from 'lucide-react-native';
 import * as Clipboard from 'expo-clipboard';
 
 import { useUserStore } from '../../stores/userStore';
@@ -25,10 +26,10 @@ function formatAccountId(id?: string | null): string {
 
 // 4 Quick Actions with squared curved-edge buttons (squircles)
 const QUICK_ACTIONS = [
-  { label: 'Send', icon: 'arrow-up-outline' as const, route: '/send' },
-  { label: 'Receive', icon: 'arrow-down-outline' as const, route: '/receive' },
-  { label: 'Deposit Fiat', icon: 'add-circle-outline' as const, route: '/deposit-withdraw/deposit' },
-  { label: 'Withdraw', icon: 'arrow-down-circle-outline' as const, route: '/deposit-withdraw/withdraw' },
+  { label: 'Send', icon: Send, route: '/send' },
+  { label: 'Receive', icon: ArrowDownToLine, route: '/receive' },
+  { label: 'Deposit Fiat', icon: Landmark, route: '/deposit-withdraw/deposit' },
+  { label: 'Withdraw', icon: ArrowDownCircle, route: '/deposit-withdraw/withdraw' },
 ] as const;
 
 export default function Home() {
@@ -90,7 +91,7 @@ export default function Home() {
           <View style={styles.headerIcons}>
             <Pressable
               style={[styles.iconButton, { backgroundColor: colors.surface, borderColor: colors.border }]}
-              onPress={() => router.push('/(tabs)/profile')}
+              onPress={() => router.push('/notifications')}
               hitSlop={10}
             >
               <Ionicons name="notifications-outline" size={20} color={colors.textPrimary} />
@@ -119,7 +120,7 @@ export default function Home() {
             <View style={styles.balanceHeader}>
               <Text style={styles.balanceTitle}>Total Balance</Text>
               <Pressable onPress={() => setBalanceHidden(!balanceHidden)} hitSlop={10}>
-                <Text style={styles.eyeBtn}>{balanceHidden ? '👁 Show' : '👁‍🗨 Hide'}</Text>
+                {balanceHidden ? <Eye size={17} color="#FFFFFF" /> : <EyeOff size={17} color="#FFFFFF" />}
               </Pressable>
             </View>
 
@@ -134,24 +135,6 @@ export default function Home() {
             </Text>
           </View>
 
-          {/* Dual Action Buttons */}
-          <View style={styles.cardActionsRow}>
-            <Pressable
-              style={[styles.cardActionBtn, styles.cardActionBtnPrimary]}
-              onPress={() => router.push('/deposit-withdraw/deposit')}
-            >
-              <Text style={[styles.cardActionBtnTextPrimary, { color: colors.primary }]}>+ Add Money</Text>
-            </Pressable>
-            <Pressable
-              style={[styles.cardActionBtn, styles.cardActionBtnSecondary]}
-              onPress={() => router.push('/send')}
-            >
-              <View style={styles.transferContent}>
-                <Ionicons name="swap-horizontal-outline" size={16} color="#FFFFFF" />
-                <Text style={styles.cardActionBtnTextSecondary}>Transfer</Text>
-              </View>
-            </Pressable>
-          </View>
         </View>
 
         {/* 4 Quick Actions: Squared with Curved Edges (Squircles) */}
@@ -165,7 +148,7 @@ export default function Home() {
                 ]}
                 onPress={() => router.push(action.route as any)}
               >
-                <Ionicons name={action.icon} size={22} color={colors.primary} />
+                <action.icon size={22} color={colors.primary} />
               </Pressable>
               <Text style={[styles.squircleLabel, { color: colors.textPrimary }]}>{action.label}</Text>
             </View>

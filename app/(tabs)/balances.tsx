@@ -12,10 +12,12 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { router } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
+import { X } from 'lucide-react-native';
 import * as Clipboard from 'expo-clipboard';
 
 import { useWalletStore, AssetBalance } from '../../stores/walletStore';
 import { useThemeStore } from '../../lib/theme';
+import { CHAINS } from '../../constants/chains';
 
 export default function BalancesScreen() {
   const { colors, isDark } = useThemeStore();
@@ -41,7 +43,7 @@ export default function BalancesScreen() {
         <View style={styles.header}>
           <Text style={[styles.title, { color: colors.textPrimary }]}>Multi-Chain Balances</Text>
           <Text style={[styles.subtitle, { color: colors.textMuted }]}>
-            7 Decentralized Networks Supported
+            8 Decentralized Networks Supported
           </Text>
         </View>
 
@@ -65,7 +67,7 @@ export default function BalancesScreen() {
                     <Text style={[styles.assetBadgeText, { color: colors.primary }]}>{asset.symbol.slice(0, 3)}</Text>
                   </View>
                   <View>
-                    <Text style={[styles.assetName, { color: colors.textPrimary }]}>{asset.chainId.toUpperCase()}</Text>
+                    <Text style={[styles.assetName, { color: colors.textPrimary }]}>{CHAINS[asset.chainId as keyof typeof CHAINS]?.name ?? asset.chainId}</Text>
                     <Text style={[styles.assetAddress, { color: colors.textMuted }]}>
                       {asset.address ? `${asset.address.slice(0, 6)}...${asset.address.slice(-4)}` : ''}
                     </Text>
@@ -95,7 +97,7 @@ export default function BalancesScreen() {
                     {selectedAsset.chainId.toUpperCase()} Details
                   </Text>
                   <Pressable onPress={() => setSelectedAsset(null)} hitSlop={10}>
-                    <Text style={[styles.closeIcon, { color: colors.textMuted }]}>✕</Text>
+                    <X size={18} color={colors.textMuted} />
                   </Pressable>
                 </View>
 

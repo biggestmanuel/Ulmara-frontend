@@ -1,4 +1,5 @@
-import { View, Text, StyleSheet, Pressable, ScrollView, Alert } from 'react-native';
+import { useState } from 'react';
+import { View, Text, StyleSheet, Pressable, ScrollView, Alert, Modal } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { router } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
@@ -17,6 +18,7 @@ export default function ProfileScreen() {
   const accountId = useUserStore((s) => s.accountId);
   const profile = useUserStore((s) => s.profile);
   const logout = useUserStore((s) => s.logout);
+  const [showLogoutModal, setShowLogoutModal] = useState(false);
 
   const displayName = profile?.name?.trim() || 'Biggest Manuel';
   const email = profile?.email || 'user@ulmara.io';
@@ -30,17 +32,13 @@ export default function ProfileScreen() {
   };
 
   const handleLogout = () => {
-    Alert.alert('Log Out', 'Are you sure you want to log out of Ulmara?', [
-      { text: 'Cancel', style: 'cancel' },
-      {
-        text: 'Log Out',
-        style: 'destructive',
-        onPress: async () => {
-          await logout();
-          router.replace('/(auth)/welcome');
-        },
-      },
-    ]);
+    setShowLogoutModal(true);
+  };
+
+  const confirmLogout = async () => {
+    setShowLogoutModal(false);
+    await logout();
+    router.replace('/(auth)/welcome');
   };
 
   return (
@@ -91,6 +89,29 @@ export default function ProfileScreen() {
         >
           <Text style={[styles.logoutText, { color: colors.error }]}>Log Out</Text>
         </Pressable>
+        <Modal
+          visible={showLogoutModal}
+          transparent
+          animationType="fade"
+          onRequestClose={() => setShowLogoutModal(false)}
+        >
+          <View style={styles.modalOverlay}>
+            <View style={[styles.logoutModal, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+              <Text style={[styles.modalTitle, { color: colors.textPrimary }]}>Log out?</Text>
+              <Text style={[styles.modalMessage, { color: colors.textSecondary }]}>
+                Are you sure you want to log out of Ulmara?
+              </Text>
+              <View style={styles.modalActions}>
+                <Pressable style={styles.modalButton} onPress={() => setShowLogoutModal(false)}>
+                  <Text style={[styles.modalButtonText, { color: colors.textMuted }]}>Cancel</Text>
+                </Pressable>
+                <Pressable style={[styles.modalButton, { backgroundColor: colors.error }]} onPress={confirmLogout}>
+                  <Text style={styles.confirmButtonText}>Log Out</Text>
+                </Pressable>
+              </View>
+            </View>
+          </View>
+        </Modal>
       </ScrollView>
     </SafeAreaView>
   );
@@ -145,4 +166,37 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   logoutText: { fontSize: 15, fontWeight: '800' },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.65)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 24,
+  },
+  logoutModal: {
+    width: '100%',
+    maxWidth: 380,
+    borderRadius: 24,
+    borderWidth: 1,
+    padding: 22,
+  },
+  modalTitle: { fontSize: 20, fontWeight: '800' },
+  modalMessage: { fontSize: 14, lineHeight: 21, marginTop: 8 },
+  modalActions: {
+    flexDirection: 'row',
+    justifyContent: 'flex-end',
+    alignItems: 'center',
+    gap: 10,
+    marginTop: 24,
+  },
+  modalButton: {
+    minWidth: 86,
+    minHeight: 42,
+    borderRadius: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 14,
+  },
+  modalButtonText: { fontSize: 13, fontWeight: '800' },
+  confirmButtonText: { color: '#FFFFFF', fontSize: 13, fontWeight: '800' },
 });

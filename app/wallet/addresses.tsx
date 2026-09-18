@@ -63,7 +63,7 @@ export default function WalletAddresses() {
               </Text>
               <Pressable style={styles.copyBtn} disabled={!revealed} onPress={() => handleCopy(chainId, address!)}>
                 <Text style={styles.copyBtnText}>
-                  {copiedChain === chainId ? 'Copied ✓' : 'Copy Address'}
+                  {copiedChain === chainId ? 'Copied' : 'Copy Address'}
                 </Text>
               </Pressable>
             </View>

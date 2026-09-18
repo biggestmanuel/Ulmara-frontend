@@ -19,6 +19,7 @@ export default function Withdraw() {
   const isLoadingBalances = useWalletStore((s) => s.isLoadingBalances);
 
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [detailsStep, setDetailsStep] = useState(false);
   const [amount, setAmount] = useState('');
   const [bankName, setBankName] = useState('');
   const [accountNumber, setAccountNumber] = useState('');
@@ -98,7 +99,13 @@ export default function Withdraw() {
             <Text style={styles.balanceText}>Available: {selected.balance} {selected.symbol}</Text>
           )}
 
-          <Text style={[styles.label, { marginTop: 20 }]}>Amount</Text>
+          {!detailsStep ? (
+            <Pressable style={[styles.primaryBtn, { marginTop: 24 }]} onPress={() => {
+              if (!selected) setError('Select an asset to withdraw');
+              else setDetailsStep(true);
+            }}><Text style={styles.primaryBtnText}>Continue</Text></Pressable>
+          ) : null}
+          {detailsStep && <><Text style={[styles.label, { marginTop: 20 }]}>Amount</Text>
           <TextInput
             style={styles.input}
             placeholder="0.00"
@@ -135,12 +142,13 @@ export default function Withdraw() {
           />
 
           {error && <Text style={styles.error}>{error}</Text>}
+          </>}
         </View>
 
         <View style={styles.footer}>
-          <Pressable style={styles.primaryBtn} onPress={handleWithdraw}>
+          {detailsStep && <Pressable style={styles.primaryBtn} onPress={handleWithdraw}>
             <Text style={styles.primaryBtnText}>Withdraw</Text>
-          </Pressable>
+          </Pressable>}
         </View>
       </KeyboardAvoidingView>
     </SafeAreaView>

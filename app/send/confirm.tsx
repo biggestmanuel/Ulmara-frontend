@@ -1,6 +1,7 @@
 import { useState } from 'react';
-import { View, Text, StyleSheet, Pressable, ActivityIndicator } from 'react-native';
+import { View, Text, StyleSheet, Pressable, ActivityIndicator, Modal, TextInput } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { Check } from 'lucide-react-native';
 import { router, useLocalSearchParams } from 'expo-router';
 import { useThemeStore, ThemeColors } from '../../lib/theme';
 import { broadcastTransaction, sendPayment } from '../../lib/api/transactions';
@@ -25,6 +26,8 @@ export default function SendConfirm() {
   const [sending, setSending] = useState(false);
   const [done, setDone] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [pinModal, setPinModal] = useState(false);
+  const [pin, setPin] = useState('');
   const upsertTransaction = useTxStore((state) => state.upsertTransaction);
 
   const resolvedAddress = isExternal ? params.externalAddress : params.targetAddress;
@@ -97,7 +100,7 @@ export default function SendConfirm() {
       <SafeAreaView style={styles.container}>
         <View style={styles.successWrap}>
           <View style={styles.successCircle}>
-            <Text style={styles.successCheck}>✓</Text>
+            <Check size={34} color={colors.success} />
           </View>
           <Text style={styles.successTitle}>Sent</Text>
           <Text style={styles.successSubtitle}>
@@ -151,10 +154,22 @@ export default function SendConfirm() {
       </View>
 
       <View style={styles.footer}>
-        <Pressable style={styles.primaryBtn} onPress={handleSend} disabled={sending}>
+        <Pressable style={styles.primaryBtn} onPress={() => setPinModal(true)} disabled={sending}>
           {sending ? <ActivityIndicator color="#fff" /> : <Text style={styles.primaryBtnText}>Confirm & Send</Text>}
         </Pressable>
       </View>
+      <Modal visible={pinModal} transparent animationType="fade">
+        <View style={styles.pinOverlay}>
+          <View style={[styles.pinCard, { backgroundColor: colors.surface }]}>
+            <Text style={styles.pinTitle}>Confirm with PIN</Text>
+            <Text style={styles.pinSubtitle}>Enter your 6-digit PIN to authorize this transfer.</Text>
+            <TextInput autoFocus secureTextEntry keyboardType="number-pad" maxLength={6} value={pin}
+              onChangeText={(value) => { setPin(value); if (value.length === 6) { setPinModal(false); handleSend(); } }}
+              style={[styles.pinInput, { color: colors.textPrimary, borderColor: colors.border }]} />
+            <Pressable onPress={() => setPinModal(false)}><Text style={styles.cancelText}>Cancel</Text></Pressable>
+          </View>
+        </View>
+      </Modal>
     </SafeAreaView>
   );
 }
@@ -207,6 +222,12 @@ function getStyles(colors: ThemeColors) {
       alignItems: 'center', justifyContent: 'center', height: 54,
     },
     primaryBtnText: { color: '#FFFFFF', fontSize: 16, fontWeight: '600' },
+    pinOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.65)', justifyContent: 'center', padding: 24 },
+    pinCard: { borderRadius: 24, padding: 24 },
+    pinTitle: { color: colors.textPrimary, fontSize: 20, fontWeight: '800', textAlign: 'center' },
+    pinSubtitle: { color: colors.textMuted, textAlign: 'center', marginTop: 8, lineHeight: 20 },
+    pinInput: { borderWidth: 1, borderRadius: 12, marginTop: 20, padding: 14, textAlign: 'center', fontSize: 24, letterSpacing: 8 },
+    cancelText: { color: colors.primary, textAlign: 'center', marginTop: 18, fontWeight: '700' },
     successWrap: { flex: 1, alignItems: 'center', justifyContent: 'center' },
     successCircle: {
       width: 72, height: 72, borderRadius: 36, backgroundColor: `${colors.success}22`,

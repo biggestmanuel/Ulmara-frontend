@@ -4,6 +4,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { router } from 'expo-router';
 import { useThemeStore, ThemeMode } from '../../lib/theme';
 import { getEvmMnemonic, getSolMnemonic, getTonMnemonic } from '../../lib/storage/secureStorage';
+import { LockKeyhole, TriangleAlert } from 'lucide-react-native';
 
 export default function SettingsScreen() {
   const { colors, mode, setMode } = useThemeStore();
@@ -87,7 +88,7 @@ export default function SettingsScreen() {
 
           <Pressable style={styles.row} onPress={handleViewSeeds}>
             <Text style={[styles.rowText, { color: colors.primary }]}>View Recovery Phrases</Text>
-            <Text style={[styles.rowArrow, { color: colors.primary }]}>🔒</Text>
+            <LockKeyhole size={16} color={colors.primary} />
           </Pressable>
         </View>
       </ScrollView>
@@ -97,9 +98,10 @@ export default function SettingsScreen() {
         <View style={styles.modalOverlay}>
           <View style={[styles.modalBox, { backgroundColor: colors.surface, borderColor: colors.border }]}>
             <Text style={[styles.modalTitle, { color: colors.textPrimary }]}>Recovery Phrases</Text>
-            <Text style={[styles.modalWarning, { color: colors.error }]}>
-              ⚠️ Never share these phrases with anyone! Anyone with these words can steal your assets.
-            </Text>
+            <View style={styles.warningRow}>
+              <TriangleAlert size={18} color={colors.error} />
+              <Text style={[styles.modalWarning, { color: colors.error }]}>Never share these phrases with anyone! Anyone with these words can steal your assets.</Text>
+            </View>
 
             <ScrollView style={{ maxHeight: 300 }}>
               {seeds && (
@@ -171,6 +173,7 @@ const styles = StyleSheet.create({
   modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.7)', justifyContent: 'center', padding: 20 },
   modalBox: { borderRadius: 24, borderWidth: 1, padding: 20 },
   modalTitle: { fontSize: 18, fontWeight: '800', textAlign: 'center', marginBottom: 6 },
+  warningRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   modalWarning: { fontSize: 12, fontWeight: '700', textAlign: 'center', marginBottom: 14, lineHeight: 18 },
   seedHeading: { fontSize: 13, fontWeight: '800', marginTop: 10, marginBottom: 4 },
   seedText: { padding: 12, borderRadius: 12, fontSize: 13, lineHeight: 20, fontFamily: 'monospace' },

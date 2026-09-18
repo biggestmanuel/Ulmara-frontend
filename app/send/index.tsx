@@ -20,7 +20,6 @@ export default function SendIndex() {
   const [profile, setProfile] = useState<ResolvedProfile>(null);
   const [resolving, setResolving] = useState(false);
   const [asset, setAsset] = useState<NativeAssetSymbol>('ETH');
-  const [amount, setAmount] = useState('');
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -42,12 +41,9 @@ export default function SendIndex() {
       return;
     }
     if (!profile) return setError('Enter a valid 10-digit Account ID');
-    const amt = parseFloat(amount);
-    if (!amt || amt <= 0) return setError('Enter a valid amount');
-
     router.push({
-      pathname: '/send/network-select',
-      params: { accountId: profile.accountId, recipientName: profile.name, asset, amount, wallets: JSON.stringify(profile.wallets ?? []) },
+      pathname: '/send/amount',
+      params: { accountId: profile.accountId, recipientName: profile.name, asset, wallets: JSON.stringify(profile.wallets ?? []) },
     });
   };
 
@@ -129,16 +125,6 @@ export default function SendIndex() {
               </Pressable>
             ))}
           </View>
-
-          <Text style={[styles.label, { marginTop: 24 }]}>Amount</Text>
-          <TextInput
-            style={styles.input}
-            placeholder="0.00"
-            placeholderTextColor={colors.textMuted}
-            keyboardType="decimal-pad"
-            value={amount}
-            onChangeText={setAmount}
-          />
 
           {error && <Text style={styles.error}>{error}</Text>}
 
