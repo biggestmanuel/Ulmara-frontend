@@ -7,7 +7,11 @@ import { Cell, beginCell, contractAddress } from '@ton/core';
 import { Buffer } from 'buffer';
 import { initEccLib, networks, payments } from 'bitcoinjs-lib';
 import { BIP32Factory } from 'bip32';
-import * as ecc from 'tiny-secp256k1';
+// RN-compatible secp256k1: pure JS over @noble/curves (no WASM, no Node fs).
+// tiny-secp256k1's CJS build loads its WASM via fs.readFileSync, which crashes
+// the Metro/Expo bundle. This is a drop-in for the elliptic-style interface
+// that both BIP32Factory and initEccLib expect.
+import * as ecc from '@bitcoinerlab/secp256k1';
 
 import type { ChainId } from '../types/chain';
 
@@ -79,7 +83,6 @@ export interface GeneratedWallet {
 }
 
 export async function generateWallet(): Promise<GeneratedWallet> {
-  console.log('[KeyGen] 1. Generating mnemonics...');
 
   // EVM & TRON (12 words)
   const evmMnemonic = bip39.generateMnemonic(128);
@@ -91,13 +94,11 @@ export async function generateWallet(): Promise<GeneratedWallet> {
   const tonMnemonicPhrase = bip39.generateMnemonic(256);
   const tonMnemonic = tonMnemonicPhrase.split(' ');
 
-  console.log('[KeyGen] 2. Deriving EVM chains...');
   const keys: DerivedChainKey[] = [];
 
   const evmSeed = await bip39.mnemonicToSeed(evmMnemonic);
   const rootNode = HDNodeWallet.fromSeed(evmSeed);
   const evmWallet = rootNode.derivePath(EVM_PATH);
-  console.log('[KeyGen] EVM Address:', evmWallet.address);
 
   for (const chain of ['eth', 'bsc', 'base', 'polygon'] as ChainId[]) {
     keys.push({
@@ -120,10 +121,8 @@ export async function generateWallet(): Promise<GeneratedWallet> {
     privateKeyOrSeed: Buffer.from(btcNode.privateKey).toString('hex'),
   });
 
-  console.log('[KeyGen] 3. Deriving TRON...');
   const tronWallet = rootNode.derivePath(TRON_PATH);
   const tronAddress = toTronAddress(tronWallet.address);
-  console.log('[KeyGen] TRON Address:', tronAddress);
 
   keys.push({
     chain: 'tron',
@@ -131,12 +130,10 @@ export async function generateWallet(): Promise<GeneratedWallet> {
     privateKeyOrSeed: tronWallet.privateKey,
   });
 
-  console.log('[KeyGen] 4. Deriving Solana...');
   const solSeed = await bip39.mnemonicToSeed(solMnemonic);
   const { key: solDerivedSeed } = derivePath(SOL_PATH, solSeed.toString('hex'));
   const solKeypair = Keypair.fromSeed(solDerivedSeed);
   const solAddress = solKeypair.publicKey.toBase58();
-  console.log('[KeyGen] Solana Address:', solAddress);
 
   keys.push({
     chain: 'sol',
@@ -144,7 +141,6 @@ export async function generateWallet(): Promise<GeneratedWallet> {
     privateKeyOrSeed: Buffer.from(solKeypair.secretKey).toString('hex'),
   });
 
-  console.log('[KeyGen] 5. Deriving TON...');
   const tonKeyPair = await mnemonicToWalletKey(tonMnemonic);
 
   // Build Wallet V4 R2 directly using @ton/core (NO @ton/ton dependency!)
@@ -160,7 +156,6 @@ export async function generateWallet(): Promise<GeneratedWallet> {
 
   const address = contractAddress(workchain, { code, data });
   const tonAddress = address.toString({ bounceable: false });
-  console.log('[KeyGen] TON Address:', tonAddress);
 
   keys.push({
     chain: 'ton',
@@ -168,7 +163,6 @@ export async function generateWallet(): Promise<GeneratedWallet> {
     privateKeyOrSeed: Buffer.from(tonKeyPair.secretKey).toString('hex'),
   });
 
-  console.log('[KeyGen] SUCCESS! All 8 chains generated!');
   return { evmMnemonic, solMnemonic, tonMnemonic, keys };
 }
 
