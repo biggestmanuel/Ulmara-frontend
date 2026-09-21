@@ -1,4 +1,5 @@
-import { useState } from 'react';
+import { useRef, useState } from 'react';
+import { randomUUID } from 'expo-crypto';
 import { View, Text, StyleSheet, Pressable, ActivityIndicator, Modal, TextInput } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Check } from 'lucide-react-native';
@@ -33,9 +34,23 @@ export default function SendConfirm() {
   const [pinError, setPinError] = useState<string | null>(null);
   const upsertTransaction = useTxStore((state) => state.upsertTransaction);
 
+  // One idempotency key per transfer attempt (this screen). Every request of
+  // the attempt carries it: if the server created the transaction but the
+  // response was lost (mobile network timeout, app killed mid-flight), the
+  // retry returns the original transaction instead of sending twice.
+  const idempotencyKeyRef = useRef<string | null>(null);
+  if (idempotencyKeyRef.current === null) idempotencyKeyRef.current = randomUUID();
+  const idempotencyKey = idempotencyKeyRef.current;
+
+  // Synchronous double-submit guard: React state updates are async, so two
+  // taps in the same instant can both observe sending === false. A ref check
+  // runs before either request is built.
+  const submitLockRef = useRef(false);
+
   const resolvedAddress = isExternal ? params.externalAddress : params.targetAddress;
 
   const handleSend = async (authorizationPin: string) => {
+    if (submitLockRef.current) return;
     setError(null);
     setPinError(null);
     if (isExternal) {
@@ -49,6 +64,7 @@ export default function SendConfirm() {
         setPinError(`External sending is unavailable: ${adapter.unavailableReason}. Your funds were not sent.`);
         return;
       }
+      submitLockRef.current = true;
       setSending(true);
       // Stage tracks how far the flow got so failures map to the right copy:
       // prepare (PIN/TriVerify), sign (local), submit (server-side verification).
@@ -64,6 +80,7 @@ export default function SendConfirm() {
           to: params.externalAddress,
           pin: authorizationPin,
         });
+        const submitIdempotencyKey = randomUUID();
         stage = 'sign';
         // Stage 2 — sign locally; keys never leave the device. The intent id
         // binds the signature to the server-verified transfer details.
@@ -71,7 +88,7 @@ export default function SendConfirm() {
         stage = 'submit';
         // Stage 3 — the server re-verifies the signature against the prepared
         // intent (recipient/amount/chain) before broadcasting anything.
-        const submitted = await submitExternalTransfer(intent.id, signed);
+        const submitted = await submitExternalTransfer(intent.id, signed, submitIdempotencyKey);
         upsertTransaction(submitted);
         setPinModal(false);
         setDone(true);
@@ -101,6 +118,7 @@ export default function SendConfirm() {
         }
       } finally {
         setSending(false);
+        submitLockRef.current = false;
       }
       return;
     }
@@ -114,6 +132,7 @@ export default function SendConfirm() {
       return;
     }
 
+    submitLockRef.current = true;
     setSending(true);
     try {
       const created = await sendPayment({
@@ -122,9 +141,10 @@ export default function SendConfirm() {
         symbol: params.asset,
         network: params.network,
         pin: authorizationPin,
+        idempotencyKey,
       });
       const signedTx = await signEvmNativeTransfer({ network: params.network, asset: params.asset, to: params.targetAddress!, amount: params.amount });
-      const broadcast = await broadcastTransaction(created.transaction.id, signedTx);
+      const broadcast = await broadcastTransaction(created.transaction.id, signedTx, idempotencyKey);
       upsertTransaction(broadcast);
       setPinModal(false);
       setDone(true);
@@ -136,6 +156,7 @@ export default function SendConfirm() {
       setPin('');
     } finally {
       setSending(false);
+      submitLockRef.current = false;
     }
   };
 
@@ -198,7 +219,13 @@ export default function SendConfirm() {
       </View>
 
       <View style={styles.footer}>
-        <Pressable style={styles.primaryBtn} onPress={() => setPinModal(true)} disabled={sending}>
+        {/* Disabled while a request is in flight; the onPress guard is a
+            synchronous backstop for double-taps that beat the state update. */}
+        <Pressable
+          style={styles.primaryBtn}
+          onPress={() => { if (!sending) setPinModal(true); }}
+          disabled={sending}
+        >
           {sending ? <ActivityIndicator color="#fff" /> : <Text style={styles.primaryBtnText}>Confirm & Send</Text>}
         </Pressable>
       </View>

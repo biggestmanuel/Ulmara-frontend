@@ -34,10 +34,16 @@ export async function prepareExternalTransfer(input: {
   return data.data;
 }
 
-export async function submitExternalTransfer(intentId: string, signedTransaction: string): Promise<Transaction> {
+// The key identifies the submit attempt: a retry after a lost response
+// returns the original transaction instead of creating a second ledger row.
+export async function submitExternalTransfer(
+  intentId: string,
+  signedTransaction: string,
+  idempotencyKey: string
+): Promise<Transaction> {
   const { data } = await apiClient.post<ApiEnvelope<BackendSubmitResponse>>(
     `/api/transaction/external/${intentId}/submit`,
-    { signedTransaction },
+    { signedTransaction, idempotencyKey },
   );
   const backend = data.data;
   return {

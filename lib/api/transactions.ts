@@ -23,6 +23,12 @@ export interface SendPayload {
   network: string;
   /** Authorization PIN — verified server-side before the transaction is created. */
   pin: string;
+  /**
+   * Client-generated UUID, one per transfer attempt. A retry (mobile network
+   * timeout-and-retry, double-tap) with the same key returns the original
+   * transaction instead of creating a second transfer.
+   */
+  idempotencyKey: string;
 }
 
 export interface SendResult {
@@ -76,14 +82,21 @@ export async function sendPayment(payload: SendPayload): Promise<SendResult> {
     amount: payload.amount,
     network: payload.network,
     pin: payload.pin,
+    idempotencyKey: payload.idempotencyKey,
   });
   return { transaction: normalizeTransaction(data.data) };
 }
 
-export async function broadcastTransaction(transactionId: string, signedTx: string): Promise<Transaction> {
+// The key identifies the transfer attempt, so a broadcast retry after a lost
+// response returns the transaction instead of enqueueing a second broadcast.
+export async function broadcastTransaction(
+  transactionId: string,
+  signedTx: string,
+  idempotencyKey: string
+): Promise<Transaction> {
   const { data } = await apiClient.post<ApiEnvelope<BackendTransaction>>(
     `/api/transaction/${transactionId}/broadcast`,
-    { signedTx },
+    { signedTx, idempotencyKey },
   );
   return normalizeTransaction(data.data);
 }
