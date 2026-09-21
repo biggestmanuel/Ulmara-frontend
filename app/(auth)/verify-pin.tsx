@@ -27,9 +27,10 @@ export default function VerifyPin() {
   const resetPinVerified = useAuthGateStore((s) => s.resetPinVerified);
   const checkAuthGate = useAuthGateStore((s) => s.check);
 
-  // DEV ONLY — remove before shipping. Wipes every locally-persisted
-  // auth/wallet key so the next launch is a true fresh install (guest
-  // state), instead of manually deleting SecureStore keys by hand.
+  // DEV ONLY: the button below is only rendered when __DEV__, so release
+  // builds never include it. Wipes every locally-persisted auth/wallet key so
+  // the next launch is a true fresh install (guest state), instead of manually
+  // deleting SecureStore keys by hand.
   const handleDevReset = async () => {
     setResetting(true);
     try {
@@ -108,14 +109,15 @@ export default function VerifyPin() {
         ))}
       </View>
 
-      {/* DEV ONLY — remove before shipping */}
-      <Pressable style={styles.devResetBtn} onPress={handleDevReset} disabled={resetting}>
-        {resetting ? (
-          <ActivityIndicator color={colors.error} size="small" />
-        ) : (
-          <Text style={styles.devResetText}>Reset local data (dev)</Text>
-        )}
-      </Pressable>
+      {__DEV__ && (
+        <Pressable style={styles.devResetBtn} onPress={handleDevReset} disabled={resetting}>
+          {resetting ? (
+            <ActivityIndicator color={colors.error} size="small" />
+          ) : (
+            <Text style={styles.devResetText}>Reset local data (dev)</Text>
+          )}
+        </Pressable>
+      )}
     </SafeAreaView>
   );
 }

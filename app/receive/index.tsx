@@ -8,9 +8,9 @@ import { useThemeStore, ThemeColors } from '../../lib/theme';
 import { formatAccountId } from '../../lib/format';
 import { useCopyToast, CopyToast } from '../../components/ui/CopyToast';
 
-// NOTE: swap this placeholder for a real QR renderer, e.g. react-native-qrcode-svg
-// <QRCode value={`accountwallet://pay/${accountId}`} size={200} />
-// Kept black-on-white regardless of theme, same as a real QR code, for scannability.
+// QR rendering uses react-native-qrcode-svg: black modules on a white card,
+// regardless of theme, for maximum scanner contrast. Encodes the https
+// payment link (same URL the Share button sends).
 
 const METHODS = ['Account ID', 'QR Code', 'Link'] as const;
 type Method = (typeof METHODS)[number];
