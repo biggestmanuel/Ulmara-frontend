@@ -34,7 +34,9 @@ interface ApiEnvelope<T> {
   data: T;
 }
 
-interface BackendTransaction {
+// Shared with externalTransfers.ts, which maps the submit response into the
+// app-wide Transaction shape without importing the normalizer.
+export interface BackendTransaction {
   id: string;
   recipientAccountId: string;
   asset: string;

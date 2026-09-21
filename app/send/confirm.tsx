@@ -5,7 +5,7 @@ import { Check } from 'lucide-react-native';
 import { router, useLocalSearchParams } from 'expo-router';
 import { useThemeStore, ThemeColors } from '../../lib/theme';
 import { broadcastTransaction, sendPayment } from '../../lib/api/transactions';
-import { toApiError } from '../../lib/api/client';
+import { toApiError, type ApiErrorShape } from '../../lib/api/client';
 import { useTxStore } from '../../stores/txStore';
 import { signEvmNativeTransfer } from '../../lib/signing/evm';
 import { getSigningAdapter } from '../../lib/signing/chainAdapters';
@@ -50,23 +50,55 @@ export default function SendConfirm() {
         return;
       }
       setSending(true);
+      // Stage tracks how far the flow got so failures map to the right copy:
+      // prepare (PIN/TriVerify), sign (local), submit (server-side verification).
+      let stage: 'prepare' | 'sign' | 'submit' = 'prepare';
       try {
-        // The PIN rides with the transfer request and is verified server-side
-        // (5 wrong attempts -> 15-minute lockout) before anything is created.
+        // Stage 1 — authorize + validate on the server. The PIN rides with the
+        // prepare request (same 5-attempt/15-minute lockout as internal sends)
+        // and a rejected prepare leaves no intent behind.
         const intent = await prepareExternalTransfer({
           chain,
           asset: params.asset,
           amount: params.amount,
           to: params.externalAddress,
+          pin: authorizationPin,
         });
+        stage = 'sign';
+        // Stage 2 — sign locally; keys never leave the device. The intent id
+        // binds the signature to the server-verified transfer details.
         const signed = await adapter.signTransfer({ asset: params.asset, amount: params.amount, to: params.externalAddress, transactionId: intent.id });
+        stage = 'submit';
+        // Stage 3 — the server re-verifies the signature against the prepared
+        // intent (recipient/amount/chain) before broadcasting anything.
         const submitted = await submitExternalTransfer(intent.id, signed);
         upsertTransaction(submitted);
+        setPinModal(false);
         setDone(true);
         setTimeout(() => router.replace('/(tabs)/home'), 1200);
       } catch (err) {
-        setPinError(toApiError(err).message);
-        setPin('');
+        const apiError = toApiError(err);
+        if (apiError.status === 409 || apiError.status === 410) {
+          // Dead intent (reused/expired): restart the flow cleanly — close the
+          // modal and surface the message on the confirm screen instead of
+          // inviting a retry against an id that can never go through.
+          setPin('');
+          setPinError(null);
+          setPinModal(false);
+          setError('This request has expired, please try again.');
+        } else if (stage === 'sign') {
+          // Local signing failure (e.g. signing credentials unavailable) is not
+          // a server rejection — show it on the confirm screen.
+          setPin('');
+          setPinError(null);
+          setPinModal(false);
+          setError(apiError.message);
+        } else {
+          // PIN/verification failures stay in the modal so the user can retry.
+          setPinError(stage === 'submit' ? mapExternalSubmitError(apiError) : mapExternalPrepareError(apiError));
+          setPin('');
+          setPinModal(true);
+        }
       } finally {
         setSending(false);
       }
@@ -209,6 +241,34 @@ function Row({ styles, label, value }: { styles: ReturnType<typeof getStyles>; l
       <Text style={styles.rowValue} numberOfLines={1}>{value}</Text>
     </View>
   );
+}
+
+// Error mapping for the external-send flow. 401 (wrong PIN) and 423 (lockout)
+// pass through verbatim — the server wording is shared with the internal
+// transfer's PIN gate, so the UX matches exactly. Everything else is
+// translated to UX-appropriate copy without exposing backend internals.
+function mapExternalPrepareError(apiError: ApiErrorShape): string {
+  if (apiError.status === 401 || apiError.status === 423) return apiError.message;
+  if (apiError.status === 400) {
+    // A 400 on prepare is either a malformed PIN (its message is readable and
+    // safe to show) or a TriVerify/format rejection of the recipient.
+    if (/pin/i.test(apiError.message)) return apiError.message;
+    return "This address doesn't look valid for the selected network. Double-check it and try again.";
+  }
+  if (apiError.status === 502 || apiError.status === 503) {
+    return 'The network is busy right now. Please try again shortly.';
+  }
+  return apiError.message || 'Something went wrong. Please try again.';
+}
+
+function mapExternalSubmitError(apiError: ApiErrorShape): string {
+  if (apiError.status === 401 || apiError.status === 423) return apiError.message;
+  if (apiError.status === 400) {
+    // The server's signed-transaction verification failed — keep the internals
+    // out of the UI and offer a retry.
+    return "This transaction couldn't be verified, please try again.";
+  }
+  return apiError.message || 'Something went wrong. Please try again.';
 }
 
 function getStyles(colors: ThemeColors) {
