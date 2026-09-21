@@ -28,25 +28,31 @@ export default function SendConfirm() {
   const [error, setError] = useState<string | null>(null);
   const [pinModal, setPinModal] = useState(false);
   const [pin, setPin] = useState('');
+  // Authorization failures (wrong PIN, lockout, send errors) surface inside
+  // the PIN modal so the user can retry without closing it.
+  const [pinError, setPinError] = useState<string | null>(null);
   const upsertTransaction = useTxStore((state) => state.upsertTransaction);
 
   const resolvedAddress = isExternal ? params.externalAddress : params.targetAddress;
 
-  const handleSend = async () => {
+  const handleSend = async (authorizationPin: string) => {
     setError(null);
+    setPinError(null);
     if (isExternal) {
       if (!params.externalAddress || !params.asset || !params.amount || !params.network) {
-        setError('This transfer is missing required details. Go back and try again.');
+        setPinError('This transfer is missing required details. Go back and try again.');
         return;
       }
       const chain = params.network.toLowerCase() as ChainId;
       const adapter = getSigningAdapter(chain);
       if (adapter.availability === 'unavailable') {
-        setError(`External sending is unavailable: ${adapter.unavailableReason}. Your funds were not sent.`);
+        setPinError(`External sending is unavailable: ${adapter.unavailableReason}. Your funds were not sent.`);
         return;
       }
       setSending(true);
       try {
+        // The PIN rides with the transfer request and is verified server-side
+        // (5 wrong attempts -> 15-minute lockout) before anything is created.
         const intent = await prepareExternalTransfer({
           chain,
           asset: params.asset,
@@ -59,7 +65,8 @@ export default function SendConfirm() {
         setDone(true);
         setTimeout(() => router.replace('/(tabs)/home'), 1200);
       } catch (err) {
-        setError(toApiError(err).message);
+        setPinError(toApiError(err).message);
+        setPin('');
       } finally {
         setSending(false);
       }
@@ -67,11 +74,11 @@ export default function SendConfirm() {
     }
 
     if (!params.accountId || !params.asset || !params.amount || !params.network) {
-      setError('This transfer is missing required details. Go back and try again.');
+      setPinError('This transfer is missing required details. Go back and try again.');
       return;
     }
     if (params.network !== 'ETH' || params.asset !== 'ETH') {
-      setError('This wallet currently supports native ETH transfers on Ethereum only.');
+      setPinError('This wallet currently supports native ETH transfers on Ethereum only.');
       return;
     }
 
@@ -82,14 +89,19 @@ export default function SendConfirm() {
         amount: params.amount,
         symbol: params.asset,
         network: params.network,
+        pin: authorizationPin,
       });
       const signedTx = await signEvmNativeTransfer({ network: params.network, asset: params.asset, to: params.targetAddress!, amount: params.amount });
       const broadcast = await broadcastTransaction(created.transaction.id, signedTx);
       upsertTransaction(broadcast);
+      setPinModal(false);
       setDone(true);
       setTimeout(() => router.replace('/(tabs)/home'), 1200);
     } catch (err) {
-      setError(toApiError(err).message);
+      // Keep the modal open so the user can retry; wrong PINs and lockouts
+      // are reported by the server without revealing attempt counts.
+      setPinError(toApiError(err).message);
+      setPin('');
     } finally {
       setSending(false);
     }
@@ -163,10 +175,26 @@ export default function SendConfirm() {
           <View style={[styles.pinCard, { backgroundColor: colors.surface }]}>
             <Text style={styles.pinTitle}>Confirm with PIN</Text>
             <Text style={styles.pinSubtitle}>Enter your 6-digit PIN to authorize this transfer.</Text>
-            <TextInput autoFocus secureTextEntry keyboardType="number-pad" maxLength={6} value={pin}
-              onChangeText={(value) => { setPin(value); if (value.length === 6) { setPinModal(false); handleSend(); } }}
+            <TextInput
+              autoFocus
+              secureTextEntry
+              keyboardType="number-pad"
+              maxLength={6}
+              value={pin}
+              editable={!sending}
+              onChangeText={(value) => {
+                setPinError(null);
+                setPin(value);
+                if (value.length === 6) handleSend(value);
+              }}
               style={[styles.pinInput, { color: colors.textPrimary, borderColor: colors.border }]} />
-            <Pressable onPress={() => setPinModal(false)}><Text style={styles.cancelText}>Cancel</Text></Pressable>
+            {pinError && <Text style={styles.pinError}>{pinError}</Text>}
+            {sending && <ActivityIndicator color={colors.primary} style={styles.pinSpinner} />}
+            {/* Cancelling closes the modal without sending anything: no request
+                is made, so a cancel can never count as a failed attempt. */}
+            <Pressable onPress={() => { setPinModal(false); setPin(''); setPinError(null); }}>
+              <Text style={styles.cancelText}>Cancel</Text>
+            </Pressable>
           </View>
         </View>
       </Modal>
@@ -227,6 +255,8 @@ function getStyles(colors: ThemeColors) {
     pinTitle: { color: colors.textPrimary, fontSize: 20, fontWeight: '800', textAlign: 'center' },
     pinSubtitle: { color: colors.textMuted, textAlign: 'center', marginTop: 8, lineHeight: 20 },
     pinInput: { borderWidth: 1, borderRadius: 12, marginTop: 20, padding: 14, textAlign: 'center', fontSize: 24, letterSpacing: 8 },
+    pinError: { color: colors.error, fontSize: 13, lineHeight: 18, marginTop: 14, textAlign: 'center' },
+    pinSpinner: { marginTop: 14 },
     cancelText: { color: colors.primary, textAlign: 'center', marginTop: 18, fontWeight: '700' },
     successWrap: { flex: 1, alignItems: 'center', justifyContent: 'center' },
     successCircle: {

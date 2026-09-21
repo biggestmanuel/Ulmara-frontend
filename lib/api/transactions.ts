@@ -21,6 +21,8 @@ export interface SendPayload {
   amount: string;
   symbol: string;
   network: string;
+  /** Authorization PIN — verified server-side before the transaction is created. */
+  pin: string;
 }
 
 export interface SendResult {
@@ -71,6 +73,7 @@ export async function sendPayment(payload: SendPayload): Promise<SendResult> {
     asset: payload.symbol,
     amount: payload.amount,
     network: payload.network,
+    pin: payload.pin,
   });
   return { transaction: normalizeTransaction(data.data) };
 }

@@ -31,6 +31,7 @@ const FALLBACK_MESSAGES: Record<number, string> = {
   404: 'Not found. Please check the details and try again.',
   408: 'The request timed out. Please try again.',
   409: 'That conflicts with an existing account. Try logging in instead.',
+  423: 'Too many incorrect PIN attempts. Please wait and try again later.',
   429: 'Too many attempts. Please wait a moment and try again.',
   500: 'Something went wrong on our side. Please try again.',
   502: 'Our servers are temporarily unreachable. Please try again shortly.',
