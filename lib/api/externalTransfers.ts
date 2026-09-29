@@ -23,6 +23,9 @@ interface BackendSubmitResponse extends BackendTransaction {
 }
 
 export async function prepareExternalTransfer(input: {
+  /** UPPERCASE wire identifier exactly as listed by the backend's CHAIN_NAMES
+   *  enum ("ETH", "BSC", "BASE", "POLYGON", "TRON", "SOL", "TON", "BTC") —
+   *  lowercase values are rejected with 400 by the prepare endpoint. */
   chain: string;
   asset: string;
   amount: string;

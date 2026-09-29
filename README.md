@@ -60,12 +60,25 @@ EXPO_PUBLIC_FLUTTERWAVE_PUBLIC_KEY= # fallback ramp
 
 ```bash
 npm run start       # expo start
+npm run start:clean # expo start --clear (rebuilds the Metro cache)
 npm run android
 npm run ios
 npm run web
 npm run lint
 npm run typecheck
 ```
+
+### When to use `start:clean`
+
+Metro caches transformed modules, so edits to files under `patches/`
+(patch-package output — e.g. `@ton/crypto-primitives`, applied on
+`npm install` via the `postinstall` hook) can keep serving the stale,
+unpatched version from cache. Start with `npm run start:clean` whenever:
+
+- a patch under `patches/` was added or changed,
+- `node_modules` was reinstalled / `npm ci` ran,
+- a bundled-library crash (e.g. the "Cannot read property 'derive' of null"
+  PBKDF2 issue) persists even though the patch is present in `node_modules`.
 
 ## Status
 
@@ -79,3 +92,4 @@ npm run typecheck
 
 - WSL2/LAN dev: use `--lan`, not `--tunnel` (tunnel mode doesn't work in this setup)
 - Renamed Avora → Zomavi → Ulmara; `app.json` bundle IDs are `com.biggestmanuel.ulmara`
+- **`react-native-fast-pbkdf2` needs a rebuilt dev client.** The native `Pbkdf2` module must be compiled into the binary (it's not in Expo Go, and dev clients built before it was added don't have it). If it's missing, TON key derivation (`mnemonicToWalletKey` → `@ton/crypto-primitives`, see `patches/@ton+crypto-primitives+2.1.0.patch`) crashes with "Cannot read property 'derive' of null" — the patch detects this and falls back to a pure-JS PBKDF2, but rebuild the dev client (`npx expo prebuild && npm run android`) to get the native path. TON only runs ~390 PBKDF2 iterations, so the JS fallback is fast.

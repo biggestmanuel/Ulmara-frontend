@@ -20,6 +20,8 @@ export interface SendPayload {
   recipientAccountId: string;
   amount: string;
   symbol: string;
+  /** UPPERCASE wire identifier ("ETH", "BSC", ...) exactly as listed by the
+   *  backend's CHAIN_NAMES enum for /api/transaction/send's zod schema. */
   network: string;
   /** Authorization PIN — verified server-side before the transaction is created. */
   pin: string;
@@ -154,14 +156,15 @@ export async function getPaymentLink(id: string): Promise<PaymentLink> {
   return data.data;
 }
 
-export async function fulfillPaymentLink(id: string, input: {
-  amount?: string;
-  symbol?: string;
-  network?: string;
-}): Promise<SendResult> {
+// Fulfilling a payment link proves an existing completed transaction;
+// the backend requires its UUID. NOTE: the current backend contract for
+// POST /api/payment/request/:id/fulfill is { transactionId: UUID } — an
+// in-app flow that creates the payment transaction first must pass its id
+// here (amount/symbol/network are not accepted by this endpoint).
+export async function fulfillPaymentLink(id: string, transactionId: string): Promise<SendResult> {
   const { data } = await apiClient.post<ApiEnvelope<BackendTransaction>>(
     `/api/payment/request/${id}/fulfill`,
-    input,
+    { transactionId },
   );
   return { transaction: normalizeTransaction(data.data) };
 }

@@ -58,7 +58,13 @@ export default function SendConfirm() {
         setPinError('This transfer is missing required details. Go back and try again.');
         return;
       }
-      const chain = params.network.toLowerCase() as ChainId;
+      // params.network arrives UPPERCASE (the API wire format, e.g. 'ETH',
+      // 'BSC') from external-wallet.tsx, and is sent to the backend as-is —
+      // the prepare endpoint's zod enum is uppercase (CHAIN_NAMES on the
+      // backend). Convert to the lowercase internal ChainId only for the
+      // local signing-adapter lookup.
+      const wireChain = params.network;
+      const chain = wireChain.toLowerCase() as ChainId;
       const adapter = getSigningAdapter(chain);
       if (adapter.availability === 'unavailable') {
         setPinError(`External sending is unavailable: ${adapter.unavailableReason}. Your funds were not sent.`);
@@ -74,7 +80,7 @@ export default function SendConfirm() {
         // prepare request (same 5-attempt/15-minute lockout as internal sends)
         // and a rejected prepare leaves no intent behind.
         const intent = await prepareExternalTransfer({
-          chain,
+          chain: wireChain,
           asset: params.asset,
           amount: params.amount,
           to: params.externalAddress,

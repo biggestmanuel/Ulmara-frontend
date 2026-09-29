@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { router, useLocalSearchParams } from 'expo-router';
-import { getPaymentLink, fulfillPaymentLink, type PaymentLink } from '../../lib/api/transactions';
+import { getPaymentLink, fulfillPaymentLink, fetchTransactions, type PaymentLink } from '../../lib/api/transactions';
 import { useThemeStore, ThemeColors } from '../../lib/theme';
 import { useTxStore } from '../../stores/txStore';
 
@@ -28,10 +28,26 @@ export default function PayLink() {
     setFulfilling(true);
     setError(null);
     try {
-      const result = await fulfillPaymentLink(id, {
-        amount: link.amount ?? undefined,
-        symbol: link.symbol ?? undefined,
-      });
+      // The backend fulfills a request with the id of an existing COMPLETED
+      // transfer from the payer (matching requester, asset, amount) — not
+      // with amount/symbol. Find a qualifying sent transaction; if none
+      // exists, tell the payer what to do instead of triggering a 400.
+      const { items } = await fetchTransactions({ limit: 50 });
+      const completedTransfer = items.find(
+        (tx) =>
+          tx.direction === 'sent' &&
+          tx.status === 'complete' &&
+          tx.counterpartyAccountId === link.requesterAccountId &&
+          (!link.symbol || tx.symbol === link.symbol) &&
+          (!link.amount || tx.amount === link.amount),
+      );
+      if (!completedTransfer) {
+        setError(
+          `No completed transfer to ${link.requesterAccountId} found yet. Send${link.amount ? ` ${link.amount}` : ''}${link.symbol ? ` ${link.symbol}` : ''} to them first, then pay this request.`,
+        );
+        return;
+      }
+      const result = await fulfillPaymentLink(id, completedTransfer.id);
       useTxStore.getState().upsertTransaction(result.transaction);
       router.replace(`/transaction/${result.transaction.id}`);
     } catch {

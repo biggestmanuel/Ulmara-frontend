@@ -9,6 +9,7 @@ import { useAuthGateStore } from '../../stores/authGateStore';
 import type { ApiErrorShape } from '../../lib/api/client';
 import { useThemeStore, ThemeColors } from '../../lib/theme';
 import { formatAccountId } from '../../lib/format';
+import { formatWalletSetupError } from '../../lib/walletSetupErrors';
 
 export default function CreateAccountId() {
   const { colors } = useThemeStore();
@@ -69,7 +70,14 @@ export default function CreateAccountId() {
       await checkAuthGate();
       router.replace('/(tabs)/home');
     } catch (err) {
-      setError((err as ApiErrorShape).message ?? 'Something went wrong setting up your wallet.');
+      // Debuggable from the UI alone: WalletGenerationStepError (chain + step)
+      // and setup-stage failures surface as "Wallet setup failed at <chain>
+      // <step>", so a report pinpoints the failing chain without logs.
+      // formatWalletSetupError is dependency-free — this file must not
+      // statically import keyGeneration.ts (see registerWallets.ts).
+      const { headline, detail } = formatWalletSetupError(err);
+      setError(headline);
+      if (detail) console.error('[create-account-id] wallet setup failure:', detail);
     } finally {
       setConfirming(false);
     }

@@ -56,7 +56,11 @@ export default function NetworkSelect() {
       setError('Could not read the recipient wallet details. Go back and try again.');
       return;
     }
-    const targetAddress = wallets.find((wallet) => wallet.chain.toLowerCase() === selected.network)?.address;
+    // Case-insensitive on both sides: backend chain values arrive UPPERCASE
+    // (Prisma Chain enum) and quotes use the same uppercase wire format.
+    const targetAddress = wallets.find(
+      (wallet) => wallet.chain.toLowerCase() === selected.network.toLowerCase(),
+    )?.address;
     if (!targetAddress) {
       setError(`The recipient has no ${selected.label} wallet.`);
       return;

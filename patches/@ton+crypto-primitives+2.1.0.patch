@@ -1,0 +1,28 @@
+diff --git a/node_modules/@ton/crypto-primitives/dist/native/pbkdf2_sha512.js b/node_modules/@ton/crypto-primitives/dist/native/pbkdf2_sha512.js
+index fe73339..b4a9a12 100644
+--- a/node_modules/@ton/crypto-primitives/dist/native/pbkdf2_sha512.js
++++ b/node_modules/@ton/crypto-primitives/dist/native/pbkdf2_sha512.js
+@@ -11,8 +11,20 @@ exports.pbkdf2_sha512 = void 0;
+ async function pbkdf2_sha512(key, salt, iterations, keyLen) {
+     const keyBuffer = typeof key === 'string' ? Buffer.from(key, 'utf-8') : key;
+     const saltBuffer = typeof salt === 'string' ? Buffer.from(salt, 'utf-8') : salt;
+-    let pbkdf2 = require('react-native-fast-pbkdf2').default;
+-    let res = await pbkdf2.derive(keyBuffer.toString('base64'), saltBuffer.toString('base64'), iterations, keyLen, 'sha-512');
+-    return Buffer.from(res, 'base64');
++    // The native module must be compiled into the app binary (it is NOT part
++    // of Expo Go, and is missing from dev clients built before it was added).
++    // Accessing .derive on it without this probe crashed with:
++    // "Cannot read property 'derive' of null".
++    const NativeModules = require('react-native').NativeModules;
++    if (NativeModules && NativeModules.Pbkdf2 && typeof NativeModules.Pbkdf2.derive === 'function') {
++        let pbkdf2 = require('react-native-fast-pbkdf2').default;
++        let res = await pbkdf2.derive(keyBuffer.toString('base64'), saltBuffer.toString('base64'), iterations, keyLen, 'sha-512');
++        return Buffer.from(res, 'base64');
++    }
++    // Pure-JS PBKDF2-HMAC-SHA512 fallback (no WASM, no Node crypto). ethers is
++    // already a dependency of the app and is imported on the same screens, so
++    // this adds nothing to the bundle and produces byte-identical output.
++    const { pbkdf2 } = require('ethers');
++    return Buffer.from(pbkdf2(keyBuffer, saltBuffer, iterations, keyLen, 'sha512').slice(2), 'hex');
+ }
+ exports.pbkdf2_sha512 = pbkdf2_sha512;
