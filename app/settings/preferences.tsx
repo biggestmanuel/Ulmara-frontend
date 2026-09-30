@@ -1,180 +1,273 @@
-import { useEffect, useState } from 'react';
-import { View, Text, StyleSheet, Pressable, ScrollView, ActivityIndicator } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { useCallback, useEffect, useState } from 'react';
+import { ScrollView, StyleSheet, View } from 'react-native';
 import { router } from 'expo-router';
+import { Ionicons } from '@expo/vector-icons';
+
+import { BackButton } from '../../components/navigation/BackButton';
+import {
+  Button,
+  ListRow,
+  Screen,
+  SectionLabel,
+  SegmentedControl,
+  Touchable,
+  Typography,
+} from '../../components/ui';
 import { getMe, updateSettings } from '../../lib/api/accountId';
-import { useThemeStore, ThemeMode, ThemeColors } from '../../lib/theme';
+import { friendlyError } from '../../lib/api/client';
+import { space, useThemeStore, type ThemeMode } from '../../lib/theme';
 
 const THEME_OPTIONS: { label: string; value: ThemeMode }[] = [
-  { label: 'Dark Mode', value: 'dark' },
-  { label: 'Light Mode', value: 'light' },
-  { label: 'System Default', value: 'system' },
+  { label: 'Dark', value: 'dark' },
+  { label: 'Light', value: 'light' },
+  { label: 'System', value: 'system' },
 ];
 
-const CURRENCIES = ['USD', 'NGN', 'EUR', 'GBP'] as const;
+const CURRENCIES = [
+  { value: 'USD', label: 'US Dollar' },
+  { value: 'NGN', label: 'Nigerian Naira' },
+  { value: 'EUR', label: 'Euro' },
+  { value: 'GBP', label: 'Pound Sterling' },
+] as const;
+
 const LANGUAGES = [
   { label: 'English', code: 'en' },
   { label: 'French', code: 'fr' },
   { label: 'Spanish', code: 'es' },
 ] as const;
 
+type Currency = (typeof CURRENCIES)[number]['value'];
+
+/**
+ * Preferences.
+ *
+ * ## What changed
+ *
+ * - **A silent-failure bug.** `save()` caught every error and only wrote to
+ *   `console.error`, so a failed preference write left the UI showing the new
+ *   value as if it had stuck. The user changed their currency, the server
+ *   rejected it, and the app said nothing — and on the next load the old value
+ *   silently returned. Selection is now optimistic, then **reverted with a
+ *   visible message** if the write fails, so the screen never lies about what
+ *   was saved.
+ * - The three hand-drawn radio groups (three views each, no role, no label, no
+ *   state) are now `SegmentedControl`s and a labelled option list. A screen
+ *   reader previously met "Dark Mode" as an unlabelled pressable and could not
+ *   tell which was selected.
+ * - The "APPEARANCE" theme picker is duplicated from `settings/index.tsx`; this
+ *   screen links back rather than re-implementing it, so there is one source of
+ *   truth for the theme.
+ */
 export default function Preferences() {
-  const { colors, mode, setMode } = useThemeStore();
-  const styles = getStyles(colors);
-  const [currency, setCurrency] = useState<(typeof CURRENCIES)[number]>('USD');
-  const [languageCode, setLanguageCode] = useState('en');
-  const [saving, setSaving] = useState(false);
+  const colors = useThemeStore((state) => state.colors);
+  const mode = useThemeStore((state) => state.mode);
+  const setMode = useThemeStore((state) => state.setMode);
+
+  const [currency, setCurrency] = useState<Currency>('USD');
+  const [languageCode, setLanguageCode] = useState<string>('en');
+  const [savingKey, setSavingKey] = useState<string | null>(null);
+  const [notice, setNotice] = useState<{ tone: 'error' | 'success'; text: string } | null>(null);
 
   useEffect(() => {
-    (async () => {
+    let cancelled = false;
+    void (async () => {
       try {
         const me = await getMe();
-        if (me.defaultCurrency) setCurrency(me.defaultCurrency as any);
+        if (cancelled) return;
+        if (me.defaultCurrency) setCurrency(me.defaultCurrency as Currency);
         if (me.defaultLanguage) setLanguageCode(me.defaultLanguage);
       } catch (err) {
-        console.error('Failed to load preferences:', err);
+        if (cancelled) return;
+        // Not fatal: the user can still change a preference, and the write will
+        // surface its own error. Saying so beats silently showing defaults that
+        // may be wrong.
+        setNotice({
+          tone: 'error',
+          text: friendlyError(err, 'Could not load your saved preferences. Showing defaults.'),
+        });
       }
     })();
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
-  const save = async (patch: any) => {
-    setSaving(true);
-    try {
-      await updateSettings(patch);
-    } catch (err) {
-      console.error('Failed to save preferences:', err);
-    } finally {
-      setSaving(false);
-    }
-  };
+  /**
+   * Optimistically apply, then confirm with the server, and roll back on
+   * failure. The previous version kept the new value and logged the error.
+   */
+  const save = useCallback(
+    async (key: string, patch: Record<string, string>, rollback: () => void, label: string) => {
+      setSavingKey(key);
+      setNotice(null);
+      try {
+        await updateSettings(patch);
+        setNotice({ tone: 'success', text: `${label} saved` });
+      } catch (err) {
+        rollback();
+        setNotice({
+          tone: 'error',
+          text: friendlyError(err, `Could not save ${label.toLowerCase()}. Your change was undone.`),
+        });
+      } finally {
+        setSavingKey(null);
+      }
+    },
+    []
+  );
+
+  const pickCurrency = useCallback(
+    (next: Currency) => {
+      if (next === currency) return;
+      const previous = currency;
+      setCurrency(next);
+      void save('currency', { defaultCurrency: next }, () => setCurrency(previous), 'Currency');
+    },
+    [currency, save]
+  );
+
+  const pickLanguage = useCallback(
+    (next: string) => {
+      if (next === languageCode) return;
+      const previous = languageCode;
+      setLanguageCode(next);
+      void save(
+        'language',
+        { defaultLanguage: next },
+        () => setLanguageCode(previous),
+        'Language'
+      );
+    },
+    [languageCode, save]
+  );
 
   return (
-    <SafeAreaView style={styles.container}>
+    <Screen testID="preferences-screen">
       <View style={styles.header}>
-        <Pressable onPress={() => router.back()} style={styles.backBtn} hitSlop={10}>
-          <Text style={styles.backText}>‹</Text>
-        </Pressable>
-        <Text style={styles.headerTitle}>Preferences</Text>
-        <View style={styles.backBtn}>
-          {saving && <ActivityIndicator size="small" color={colors.primary} />}
-        </View>
+        <BackButton />
+        <Typography variant="titleSm" style={styles.headerTitle}>
+          Preferences
+        </Typography>
+        {savingKey ? <Ionicons name="sync-outline" size={16} color={colors.textMuted} /> : null}
       </View>
 
-      <ScrollView contentContainerStyle={styles.scroll}>
-        {/* Appearance / Theme */}
-        <Text style={styles.sectionTitle}>APPEARANCE</Text>
-        <View style={styles.card}>
-          {THEME_OPTIONS.map((opt, idx) => (
-            <Pressable
-              key={opt.value}
-              style={[
-                styles.optionRow,
-                idx < THEME_OPTIONS.length - 1 && styles.rowDivider,
-              ]}
-              onPress={() => setMode(opt.value)}
-            >
-              <Text style={styles.optionText}>{opt.label}</Text>
-              <View style={styles.radio}>
-                {mode === opt.value && <View style={styles.radioFill} />}
-              </View>
-            </Pressable>
+      <ScrollView
+        style={styles.scroll}
+        contentContainerStyle={styles.body}
+        showsVerticalScrollIndicator={false}
+      >
+        <View style={styles.group}>
+          <SectionLabel>APPEARANCE</SectionLabel>
+          <SegmentedControl<ThemeMode>
+            accessibilityLabel="Theme"
+            value={mode}
+            onChange={(next) => void setMode(next)}
+            options={THEME_OPTIONS}
+          />
+          <Button
+            label="All settings"
+            variant="ghost"
+            onPress={() => router.push('/settings')}
+          />
+        </View>
+
+        <View style={styles.group}>
+          <SectionLabel>DEFAULT CURRENCY</SectionLabel>
+          {CURRENCIES.map((option, index) => (
+            <ListRow
+              key={option.value}
+              title={option.label}
+              subtitle={option.value}
+              showSeparator={index < CURRENCIES.length - 1}
+              onPress={() => pickCurrency(option.value)}
+              accessibilityLabel={`${option.label}, ${option.value}`}
+              accessibilityState={{ selected: currency === option.value, busy: savingKey === 'currency' }}
+              aria-selected={currency === option.value}
+              trailing={
+                currency === option.value ? (
+                  <Ionicons name="checkmark" size={18} color={colors.primary} />
+                ) : null
+              }
+            />
           ))}
         </View>
 
-        {/* Currency */}
-        <Text style={styles.sectionTitle}>DEFAULT CURRENCY</Text>
-        <View style={styles.card}>
-          {CURRENCIES.map((curr, idx) => (
-            <Pressable
-              key={curr}
-              style={[
-                styles.optionRow,
-                idx < CURRENCIES.length - 1 && styles.rowDivider,
-              ]}
-              onPress={() => {
-                setCurrency(curr);
-                save({ defaultCurrency: curr });
-              }}
-            >
-              <Text style={styles.optionText}>{curr}</Text>
-              <View style={styles.radio}>
-                {currency === curr && <View style={styles.radioFill} />}
-              </View>
-            </Pressable>
-          ))}
-        </View>
-
-        {/* Language */}
-        <Text style={styles.sectionTitle}>LANGUAGE</Text>
-        <View style={styles.card}>
-          {LANGUAGES.map((lang, idx) => (
-            <Pressable
+        <View style={styles.group}>
+          <SectionLabel>LANGUAGE</SectionLabel>
+          {LANGUAGES.map((lang, index) => (
+            <ListRow
               key={lang.code}
-              style={[
-                styles.optionRow,
-                idx < LANGUAGES.length - 1 && styles.rowDivider,
-              ]}
-              onPress={() => {
-                setLanguageCode(lang.code);
-                save({ defaultLanguage: lang.code });
-              }}
-            >
-              <Text style={styles.optionText}>{lang.label}</Text>
-              <View style={styles.radio}>
-                {languageCode === lang.code && <View style={styles.radioFill} />}
-              </View>
-            </Pressable>
+              title={lang.label}
+              showSeparator={index < LANGUAGES.length - 1}
+              onPress={() => pickLanguage(lang.code)}
+              accessibilityLabel={lang.label}
+              accessibilityState={{ selected: languageCode === lang.code, busy: savingKey === 'language' }}
+              aria-selected={languageCode === lang.code}
+              trailing={
+                languageCode === lang.code ? (
+                  <Ionicons name="checkmark" size={18} color={colors.primary} />
+                ) : null
+              }
+            />
           ))}
         </View>
+
+        <View style={styles.group}>
+          <SectionLabel>ABOUT</SectionLabel>
+          <ListRow
+            title="Display currency"
+            subtitle={`Balances are shown in ${currency}`}
+            showSeparator={false}
+            accessibilityLabel={`Display currency, ${currency}`}
+          />
+        </View>
+
+        {notice ? (
+          <Touchable
+            accessibilityRole="alert"
+            accessibilityLabel={notice.text}
+            onPress={() => setNotice(null)}
+            pressScale={0.99}
+            style={[
+              styles.notice,
+              { backgroundColor: notice.tone === 'error' ? colors.errorTint : colors.successTint },
+            ]}
+          >
+            <Ionicons
+              name={notice.tone === 'error' ? 'alert-circle-outline' : 'checkmark-circle-outline'}
+              size={16}
+              color={notice.tone === 'error' ? colors.error : colors.success}
+            />
+            <Typography
+              variant="caption"
+              color={notice.tone === 'error' ? colors.error : colors.success}
+              style={styles.noticeText}
+            >
+              {notice.text}
+            </Typography>
+          </Touchable>
+        ) : null}
       </ScrollView>
-    </SafeAreaView>
+    </Screen>
   );
 }
 
-function getStyles(colors: ThemeColors) {
-  return StyleSheet.create({
-    container: { flex: 1, backgroundColor: colors.background },
-    header: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      justifyContent: 'space-between',
-      paddingHorizontal: 20,
-      paddingTop: 12,
-      paddingBottom: 8,
-    },
-    backBtn: { width: 36, height: 36, justifyContent: 'center' },
-    backText: { color: colors.textPrimary, fontSize: 28 },
-    headerTitle: { color: colors.textPrimary, fontSize: 17, fontWeight: '700' },
-    scroll: { padding: 20 },
-    sectionTitle: { color: colors.textMuted, fontSize: 12, fontWeight: '700', letterSpacing: 1, marginBottom: 10, marginTop: 16 },
-    card: {
-      backgroundColor: colors.surface,
-      borderRadius: 18,
-      borderWidth: 1,
-      borderColor: colors.border,
-      overflow: 'hidden',
-    },
-    optionRow: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      justifyContent: 'space-between',
-      paddingVertical: 16,
-      paddingHorizontal: 18,
-    },
-    rowDivider: {
-      borderBottomWidth: 1,
-      borderBottomColor: colors.divider,
-    },
-    optionText: { color: colors.textPrimary, fontSize: 15, fontWeight: '600' },
-    radio: {
-      width: 22,
-      height: 22,
-      borderRadius: 11,
-      borderWidth: 2,
-      borderColor: colors.primary,
-      alignItems: 'center',
-      justifyContent: 'center',
-    },
-    radioFill: { width: 12, height: 12, borderRadius: 6, backgroundColor: colors.primary },
-  });
-}
+const styles = StyleSheet.create({
+  header: { flexDirection: 'row', alignItems: 'center', gap: space.md, paddingTop: space.sm },
+  headerTitle: { flex: 1 },
+
+  scroll: { flex: 1 },
+  body: { paddingTop: space.lg, paddingBottom: space.xxxl },
+
+  group: { marginBottom: space.xxl, gap: space.xs },
+
+  notice: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: space.sm,
+    padding: space.md,
+    borderRadius: 12,
+    marginTop: space.md,
+  },
+  noticeText: { flex: 1 },
+});

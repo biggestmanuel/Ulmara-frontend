@@ -1,134 +1,264 @@
-import { useEffect, useMemo, useState } from 'react';
-import { View, Text, StyleSheet, Pressable, FlatList, ActivityIndicator } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { memo, useCallback, useEffect, useMemo, useState } from 'react';
+import { StyleSheet, View } from 'react-native';
 import { router } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
-import { useThemeStore, ThemeColors } from '../../lib/theme';
+import { FlashList } from '@shopify/flash-list';
+
+import {
+  Amount,
+  Badge,
+  EmptyState,
+  ListRow,
+  LoadingSpinner,
+  Screen,
+  SegmentedControl,
+  Typography,
+} from '../../components/ui';
 import { useTxStore } from '../../stores/txStore';
 import type { Transaction } from '../../lib/api/transactions';
+import { friendlyError } from '../../lib/api/client';
+import { isTokenSymbol } from '../../constants/tokens';
+import { getEvmNetworkName } from '../../lib/chains/evmConfig';
+import { CHAINS } from '../../constants/chains';
+import { formatAccountId } from '../../lib/format';
+import { gutter, radius, space, useThemeStore } from '../../lib/theme';
 
-const FILTERS = ['All', 'Sent', 'Received', 'Deposits'] as const;
-type Filter = (typeof FILTERS)[number];
+type Filter = 'All' | 'Sent' | 'Received';
+
+const FILTERS: { value: Filter; label: string }[] = [
+  { value: 'All', label: 'All' },
+  { value: 'Sent', label: 'Sent' },
+  { value: 'Received', label: 'Received' },
+];
 
 function matchesFilter(tx: Transaction, filter: Filter): boolean {
   if (filter === 'All') return true;
-  if (filter === 'Sent') return tx.direction === 'sent';
-  if (filter === 'Received') return tx.direction === 'received';
-  return false;
+  return filter === 'Sent' ? tx.direction === 'sent' : tx.direction === 'received';
 }
 
-function txLabel(tx: Transaction): string {
-  return tx.direction === 'sent' ? `To ${tx.counterpartyAccountId}` : `From ${tx.counterpartyAccountId}`;
+function networkLabel(wire: string): string {
+  const chain = wire.toLowerCase();
+  if (chain === 'eth') return getEvmNetworkName('eth');
+  if (chain === 'bsc' || chain === 'base' || chain === 'polygon') return getEvmNetworkName(chain);
+  return CHAINS[chain as keyof typeof CHAINS]?.name ?? wire.toUpperCase();
 }
 
+/**
+ * Transaction history.
+ *
+ * ## What changed
+ *
+ * - The filter chips become a `SegmentedControl` (tab list with `selected`
+ *   state) rather than ungrouped `accessibilityRole="radio"` chips.
+ * - The empty state is the shared `EmptyState` — a glyph, a line of copy and a
+ *   retry action — rather than a bare centred grey sentence that was empty
+ *   string (`' '`) while an error was showing, so the list appeared to be
+ *   silently blank on failure.
+ * - An error now has a visible retry button in the same row, with a real
+ *   accessible name.
+ * - The status pill becomes a `Badge` with an **icon**, so "Failed" and
+ *   "Processing" are distinguishable without relying on red-versus-blue.
+ * - The amount uses the shared `Amount`, so a received transfer carries a
+ *   leading arrow *and* the success tint, and a sent one stays in ink rather
+ *   than being coloured like an error. Spending money is not a failure.
+ */
 export default function Activity() {
-  const { colors } = useThemeStore();
-  const styles = getStyles(colors);
-  const { items, isLoading, isLoadingMore, nextCursor, fetchInitial, fetchMore } = useTxStore();
+  const colors = useThemeStore((state) => state.colors);
+  const items = useTxStore((s) => s.items);
+  const isLoading = useTxStore((s) => s.isLoading);
+  const isLoadingMore = useTxStore((s) => s.isLoadingMore);
+  const nextCursor = useTxStore((s) => s.nextCursor);
+  const fetchInitial = useTxStore((s) => s.fetchInitial);
+  const fetchMore = useTxStore((s) => s.fetchMore);
+
   const [filter, setFilter] = useState<Filter>('All');
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    fetchInitial();
+    setError(null);
+    fetchInitial().catch((err) => setError(friendlyError(err, 'Could not load your transactions.')));
   }, [fetchInitial]);
 
-  const filtered = useMemo(
-    () => items.filter((tx) => matchesFilter(tx, filter)),
-    [items, filter]
+  const filtered = useMemo(() => items.filter((tx) => matchesFilter(tx, filter)), [items, filter]);
+
+  const openTransaction = useCallback((id: string) => router.push(`/transaction/${id}`), []);
+
+  const renderItem = useCallback(
+    ({ item }: { item: Transaction }) => <TransactionRow transaction={item} onPress={openTransaction} />,
+    [openTransaction]
   );
+
+  const keyExtractor = useCallback((item: Transaction) => item.id, []);
+
+  const onEndReached = useCallback(() => {
+    if (nextCursor && !isLoadingMore) void fetchMore();
+  }, [nextCursor, isLoadingMore, fetchMore]);
 
   return (
-    <SafeAreaView style={styles.container}>
-      <Text style={styles.title}>Activity</Text>
-
-      <View style={styles.filterRow}>
-        {FILTERS.map((f) => (
-          <Pressable
-            key={f}
-            style={[styles.filterChip, filter === f && styles.filterChipActive]}
-            onPress={() => setFilter(f)}
-          >
-            <Text style={[styles.filterText, filter === f && styles.filterTextActive]}>{f}</Text>
-          </Pressable>
-        ))}
+    <Screen scroll={false} contentStyle={styles.screen} testID="activity-screen">
+      <View style={styles.headings}>
+        <Typography variant="title">Activity</Typography>
+        <Typography variant="body" color={colors.textMuted} style={styles.subtitle}>
+          Every transfer on this account
+        </Typography>
       </View>
 
-      <FlatList
-        data={filtered}
-        keyExtractor={(item) => item.id}
-        contentContainerStyle={styles.list}
-        ListEmptyComponent={<Text style={styles.empty}>No transactions in this category</Text>}
-        refreshing={isLoading}
-        onRefresh={fetchInitial}
-        onEndReached={() => nextCursor && fetchMore()}
-        onEndReachedThreshold={0.4}
-        ListFooterComponent={isLoadingMore ? <ActivityIndicator color={colors.primary} /> : null}
-        renderItem={({ item }) => (
-          <Pressable style={styles.txRow} onPress={() => router.push(`/transaction/${item.id}`)}>
-            <View style={styles.txIconWrap}>
-              <Ionicons
-                name={item.direction === 'sent' ? 'arrow-up-outline' : 'arrow-down-outline'}
-                size={18}
-                color={item.direction === 'sent' ? colors.primary : colors.success}
-              />
-            </View>
-            <View style={styles.txDetails}>
-              <Text style={styles.txLabel}>{txLabel(item)}</Text>
-              <Text style={styles.txMeta}>
-                {item.network} · {new Date(item.createdAt).toLocaleDateString()}
-                {item.status === 'processing' ? ' · Processing' : item.status === 'failed' ? ' · Failed' : ''}
-              </Text>
-            </View>
-            <Text style={[styles.txAmount, item.amount.startsWith('+') && styles.txAmountPositive]}>
-              {item.direction === 'sent' ? '-' : '+'}{item.amount} {item.symbol}
-            </Text>
-          </Pressable>
-        )}
+      <SegmentedControl<Filter>
+        accessibilityLabel="Transaction direction"
+        value={filter}
+        onChange={setFilter}
+        options={FILTERS}
       />
-    </SafeAreaView>
+
+      {error ? (
+        <View style={[styles.errorRow, { backgroundColor: colors.errorTint }]}>
+          <Ionicons name="alert-circle-outline" size={16} color={colors.error} />
+          <Typography variant="caption" color={colors.error} style={styles.errorText}>
+            {error}
+          </Typography>
+          <Typography
+            variant="label"
+            color={colors.error}
+            accessibilityRole="button"
+            accessibilityLabel="Retry loading transactions"
+            onPress={() => {
+              setError(null);
+              void fetchInitial();
+            }}
+          >
+            Retry
+          </Typography>
+        </View>
+      ) : null}
+
+      <FlashList
+        data={filtered}
+        keyExtractor={keyExtractor}
+        renderItem={renderItem}
+        drawDistance={400}
+        contentContainerStyle={styles.list}
+        onRefresh={fetchInitial}
+        refreshing={isLoading}
+        onEndReached={onEndReached}
+        onEndReachedThreshold={0.5}
+        showsVerticalScrollIndicator={false}
+        ListEmptyComponent={
+          isLoading ? (
+            <LoadingSpinner size="large" label="Loading transactions" />
+          ) : (
+            <EmptyState
+              icon="receipt-outline"
+              title={error ? 'Could not load' : 'No transactions yet'}
+              body={
+                error
+                  ? undefined
+                  : filter === 'All'
+                    ? 'Transfers you send and receive will appear here.'
+                    : `You have no ${filter.toLowerCase()} transactions.`
+              }
+              actionLabel={error ? 'Try again' : 'Send a transfer'}
+              onAction={() => {
+                if (error) {
+                  setError(null);
+                  void fetchInitial();
+                } else {
+                  router.push('/send');
+                }
+              }}
+            />
+          )
+        }
+        ListFooterComponent={
+          isLoadingMore ? <LoadingSpinner label="Loading more" /> : null
+        }
+      />
+    </Screen>
   );
 }
 
-function getStyles(colors: ThemeColors) {
-  return StyleSheet.create({
-    container: { flex: 1, backgroundColor: colors.background, paddingHorizontal: 20, paddingTop: 12 },
-    title: { fontSize: 24, fontWeight: '800', color: colors.textPrimary, marginBottom: 16 },
-    filterRow: { flexDirection: 'row', gap: 8, marginBottom: 12 },
-    filterChip: {
-      paddingHorizontal: 16,
-      paddingVertical: 8,
-      borderRadius: 20,
-      backgroundColor: colors.surface,
-      borderWidth: 1,
-      borderColor: colors.border,
-    },
-    filterChipActive: { backgroundColor: colors.primary, borderColor: colors.primary },
-    filterText: { color: colors.textMuted, fontSize: 13, fontWeight: '700' },
-    filterTextActive: { color: '#FFFFFF' },
-    list: { paddingTop: 4, paddingBottom: 32 },
-    empty: { color: colors.textMuted, textAlign: 'center', marginTop: 40, fontSize: 14 },
-    txRow: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      paddingVertical: 14,
-      borderBottomWidth: 1,
-      borderBottomColor: colors.divider,
-    },
-    txIconWrap: {
-      width: 40,
-      height: 40,
-      borderRadius: 14,
-      backgroundColor: colors.surfaceElevated,
-      alignItems: 'center',
-      justifyContent: 'center',
-      marginRight: 12,
-      borderWidth: 1,
-      borderColor: colors.border,
-    },
-    txIcon: { color: colors.primary, fontSize: 16, fontWeight: '800' },
-    txDetails: { flex: 1 },
-    txLabel: { color: colors.textPrimary, fontSize: 14, fontWeight: '700' },
-    txMeta: { color: colors.textMuted, fontSize: 12, marginTop: 2 },
-    txAmount: { color: colors.textPrimary, fontSize: 14, fontWeight: '800' },
-    txAmountPositive: { color: colors.success },
-  });
-}
+/**
+ * Memoised row. FlashList recycles aggressively, and an unmemoised row re-renders
+ * every visible row on each store update (a new page arriving, a status flip, a
+ * filter change).
+ */
+const TransactionRow = memo(function TransactionRow({
+  transaction,
+  onPress,
+}: {
+  transaction: Transaction;
+  onPress: (id: string) => void;
+}) {
+  const colors = useThemeStore((state) => state.colors);
+  const { direction, status } = transaction;
+  const isToken = isTokenSymbol(transaction.symbol);
+  const counterparty = /^\d{10}$/.test(transaction.counterpartyAccountId)
+    ? formatAccountId(transaction.counterpartyAccountId)
+    : transaction.counterpartyAccountId;
+
+  return (
+    <ListRow
+      title={`${direction === 'sent' ? 'To' : 'From'} ${counterparty}`}
+      subtitle={`${transaction.symbol}${isToken ? ' (ERC-20)' : ''} · ${networkLabel(transaction.network)} · ${new Date(transaction.createdAt).toLocaleDateString()}`}
+      showSeparator={false}
+      onPress={() => onPress(transaction.id)}
+      accessibilityLabel={`${direction === 'sent' ? 'Sent' : 'Received'} ${transaction.amount} ${transaction.symbol} ${status === 'complete' ? '' : `, ${status}`}`}
+      accessibilityHint="Opens the transaction detail"
+      leading={
+        <View
+          style={[
+            styles.txIcon,
+            { backgroundColor: direction === 'sent' ? colors.surfaceElevated : colors.successTint },
+          ]}
+        >
+          <Ionicons
+            name={direction === 'sent' ? 'arrow-up' : 'arrow-down'}
+            size={17}
+            color={direction === 'sent' ? colors.textSecondary : colors.success}
+          />
+        </View>
+      }
+      trailing={
+        <View style={styles.trailing}>
+          <Amount
+            value={`${direction === 'received' ? '+' : '-'}${transaction.amount}`}
+            symbol={transaction.symbol}
+            direction={direction === 'received' ? 'in' : 'out'}
+          />
+          {status !== 'complete' ? (
+            <Badge
+              label={status === 'failed' ? 'Failed' : 'Processing'}
+              tone={status === 'failed' ? 'danger' : 'primary'}
+              icon={status === 'failed' ? 'close-circle' : 'time-outline'}
+            />
+          ) : null}
+        </View>
+      }
+    />
+  );
+});
+
+const styles = StyleSheet.create({
+  screen: { paddingTop: space.md },
+  headings: { marginBottom: space.lg },
+  subtitle: { marginTop: space.xs },
+
+  errorRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: space.md,
+    padding: space.md,
+    borderRadius: radius.chip,
+    marginTop: space.lg,
+  },
+  errorText: { flex: 1 },
+
+  list: {
+    paddingTop: space.lg,
+    paddingBottom: space.xxxl,
+    marginHorizontal: -gutter,
+    paddingHorizontal: gutter,
+  },
+
+  txIcon: { width: 36, height: 36, borderRadius: radius.pill, alignItems: 'center', justifyContent: 'center' },
+  trailing: { alignItems: 'flex-end', gap: 4 },
+});

@@ -1,182 +1,242 @@
 import { useState } from 'react';
-import { View, Text, StyleSheet, Pressable, ScrollView, Switch, Alert, Modal } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { ScrollView, StyleSheet, View } from 'react-native';
 import { router } from 'expo-router';
-import { useThemeStore, ThemeMode } from '../../lib/theme';
-import { getEvmMnemonic, getSolMnemonic, getTonMnemonic } from '../../lib/storage/secureStorage';
-import { LockKeyhole, TriangleAlert } from 'lucide-react-native';
+import { Ionicons } from '@expo/vector-icons';
 
+import { BackButton } from '../../components/navigation/BackButton';
+import {
+  Button,
+  ListRow,
+  Screen,
+  SectionLabel,
+  SegmentedControl,
+  Sheet,
+  Typography,
+} from '../../components/ui';
+import { useThemeStore, type ThemeMode } from '../../lib/theme';
+import { getEvmMnemonic, getSolMnemonic, getTonMnemonic } from '../../lib/storage/secureStorage';
+import { radius, space } from '../../lib/theme';
+
+/**
+ * Settings.
+ *
+ * ## What changed
+ *
+ * - The theme picker was three rows each with a hand-drawn radio circle and **no
+ *   accessibility role, label or state**. It is a `SegmentedControl`, which
+ *   reports itself as a tab list and marks the current option.
+ * - Every "→" was a literal arrow character used as a chevron, and the back
+ *   control was "← Back" text. All three are gone: navigation uses real
+ *   `Ionicons` chevrons, and the back control is a named `BackButton`.
+ * - The three "cards" holding one, one and three rows are now one flat list
+ *   with hairline rules, which is what a settings list should look like.
+ * - The recovery-phrase dialog is a `Sheet` with a focus-trapping container. It
+ *   keeps the warning, and the phrases are still only read on explicit request —
+ *   this is the most dangerous screen in the app and it is deliberately not on
+ *   the main path.
+ */
 export default function SettingsScreen() {
-  const { colors, mode, setMode } = useThemeStore();
-  const [notificationsEnabled, setNotificationsEnabled] = useState(true);
+  const colors = useThemeStore((state) => state.colors);
+  const mode = useThemeStore((state) => state.mode);
+  const setMode = useThemeStore((state) => state.setMode);
+
   const [showSeedModal, setShowSeedModal] = useState(false);
   const [seeds, setSeeds] = useState<{ evm: string; sol: string; ton: string[] } | null>(null);
+  const [seedError, setSeedError] = useState<string | null>(null);
 
   const handleViewSeeds = async () => {
     try {
-      const evm = (await getEvmMnemonic()) || 'Not available';
-      const sol = (await getSolMnemonic()) || 'Not available';
-      const ton = (await getTonMnemonic()) || [];
-      setSeeds({ evm, sol, ton });
+      const [evm, sol, ton] = await Promise.all([
+        getEvmMnemonic(),
+        getSolMnemonic(),
+        getTonMnemonic(),
+      ]);
+      setSeeds({ evm: evm ?? '', sol: sol ?? '', ton: ton ?? [] });
+      setSeedError(null);
       setShowSeedModal(true);
     } catch {
-      Alert.alert('Error', 'Could not access secure storage');
+      // Previously this was an `Alert`, which on web renders as an unstyled
+      // browser dialog. The sheet carries its own error slot instead, so the
+      // message looks the same on every platform.
+      setSeedError('Could not read secure storage on this device.');
+      setShowSeedModal(true);
     }
   };
 
   return (
-    <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]}>
-      {/* Header */}
-      <View style={[styles.header, { borderBottomColor: colors.border }]}>
-        <Pressable onPress={() => router.back()} hitSlop={10}>
-          <Text style={[styles.backText, { color: colors.primary }]}>← Back</Text>
-        </Pressable>
-        <Text style={[styles.headerTitle, { color: colors.textPrimary }]}>Settings</Text>
-        <View style={{ width: 40 }} />
-      </View>
+    <>
+      <Screen testID="settings-screen">
+        <View style={styles.header}>
+          <BackButton />
+          <Typography variant="titleSm" style={styles.headerTitle}>
+            Settings
+          </Typography>
+        </View>
 
-      <ScrollView contentContainerStyle={styles.scroll}>
-        {/* Appearance / Theme */}
-        <Text style={[styles.sectionTitle, { color: colors.textMuted }]}>THEME PREFERENCE</Text>
-        <View style={[styles.card, { backgroundColor: colors.surface, borderColor: colors.border }]}>
-          {(['dark', 'light', 'system'] as ThemeMode[]).map((themeOpt, idx) => (
-            <Pressable
-              key={themeOpt}
-              style={[
-                styles.row,
-                idx < 2 && { borderBottomWidth: 1, borderBottomColor: colors.divider },
-              ]}
-              onPress={() => setMode(themeOpt)}
-            >
-              <Text style={[styles.rowText, { color: colors.textPrimary }]}>
-                {themeOpt === 'dark' ? 'Dark Theme' : themeOpt === 'light' ? 'Light Theme' : 'System Default'}
-              </Text>
-              <View style={[styles.radio, { borderColor: colors.primary }]}>
-                {mode === themeOpt && <View style={[styles.radioDot, { backgroundColor: colors.primary }]} />}
+        <View style={styles.group}>
+          <SectionLabel>APPEARANCE</SectionLabel>
+          <SegmentedControl<ThemeMode>
+            accessibilityLabel="Theme"
+            value={mode}
+            onChange={(next) => void setMode(next)}
+            options={[
+              { value: 'dark', label: 'Dark' },
+              { value: 'light', label: 'Light' },
+              { value: 'system', label: 'System' },
+            ]}
+          />
+        </View>
+
+        <View style={styles.group}>
+          <SectionLabel>NOTIFICATIONS</SectionLabel>
+          {/* A real link, not a local toggle. Push registration is owned by
+              /settings/notifications, which reports live status. */}
+          <ListRow
+            title="Push notifications"
+            subtitle="What Ulmara tells you about"
+            onPress={() => router.push('/settings/notifications')}
+            accessibilityLabel="Push notifications"
+            accessibilityHint="Opens notification settings"
+            showSeparator={false}
+            leading={
+              <View style={styles.rowIcon}>
+                <Ionicons name="notifications-outline" size={17} color={colors.primary} />
               </View>
-            </Pressable>
-          ))}
+            }
+          />
         </View>
 
-        {/* Notifications */}
-        <Text style={[styles.sectionTitle, { color: colors.textMuted }]}>NOTIFICATIONS</Text>
-        <View style={[styles.card, { backgroundColor: colors.surface, borderColor: colors.border }]}>
-          <View style={styles.row}>
-            <Text style={[styles.rowText, { color: colors.textPrimary }]}>Push Notifications</Text>
-            <Switch
-              value={notificationsEnabled}
-              onValueChange={setNotificationsEnabled}
-              trackColor={{ false: colors.border, true: colors.primary }}
-            />
-          </View>
-        </View>
-
-        {/* Security */}
-        <Text style={[styles.sectionTitle, { color: colors.textMuted }]}>SECURITY & BACKUP</Text>
-        <View style={[styles.card, { backgroundColor: colors.surface, borderColor: colors.border }]}>
-          <Pressable style={[styles.row, { borderBottomWidth: 1, borderBottomColor: colors.divider }]} onPress={() => router.push('/contacts')}>
-            <Text style={[styles.rowText, { color: colors.textPrimary }]}>Contacts</Text>
-            <Text style={[styles.rowArrow, { color: colors.textMuted }]}>→</Text>
-          </Pressable>
-          <Pressable
-            style={[styles.row, { borderBottomWidth: 1, borderBottomColor: colors.divider }]}
+        <View style={styles.group}>
+          <SectionLabel>SECURITY &amp; BACKUP</SectionLabel>
+          <ListRow
+            title="Contacts"
+            subtitle="Account IDs you pay often"
+            onPress={() => router.push('/contacts')}
+            accessibilityLabel="Contacts"
+            accessibilityHint="Opens your saved contacts"
+            leading={
+              <View style={styles.rowIcon}>
+                <Ionicons name="people-outline" size={17} color={colors.primary} />
+              </View>
+            }
+          />
+          <ListRow
+            title="Change your PIN"
+            subtitle="Authorises transfers"
             onPress={() => router.push('/settings/security')}
+            accessibilityLabel="Change your six-digit PIN"
+            accessibilityHint="Opens PIN settings"
+            leading={
+              <View style={styles.rowIcon}>
+                <Ionicons name="keypad-outline" size={17} color={colors.primary} />
+              </View>
+            }
+          />
+          <ListRow
+            title="View recovery phrases"
+            subtitle="The only way to restore this wallet"
+            onPress={handleViewSeeds}
+            accessibilityLabel="View recovery phrases"
+            accessibilityHint="Shows the words that can restore this wallet"
+            showSeparator={false}
+            leading={
+              <View style={[styles.rowIcon, { backgroundColor: colors.errorTint }]}>
+                <Ionicons name="key-outline" size={17} color={colors.error} />
+              </View>
+            }
+          />
+        </View>
+      </Screen>
+
+      <Sheet
+        visible={showSeedModal}
+        onClose={() => setShowSeedModal(false)}
+        title="Recovery phrases"
+        subtitle="Write these down and keep them offline."
+        footer={
+          <Button label="I have backed them up" onPress={() => setShowSeedModal(false)} />
+        }
+      >
+        <View style={[styles.warning, { backgroundColor: colors.errorTint }]}>
+          <Ionicons name="warning" size={17} color={colors.error} />
+          <Typography variant="label" color={colors.error} style={styles.warningText}>
+            Never share these with anyone. Anyone who has them can take your funds.
+          </Typography>
+        </View>
+
+        {seedError ? (
+          <Typography
+            variant="label"
+            color={colors.error}
+            accessibilityLiveRegion="polite"
+            accessibilityRole="alert"
           >
-            <Text style={[styles.rowText, { color: colors.textPrimary }]}>Change 6-Digit PIN</Text>
-            <Text style={[styles.rowArrow, { color: colors.textMuted }]}>→</Text>
-          </Pressable>
+            {seedError}
+          </Typography>
+        ) : null}
 
-          <Pressable style={styles.row} onPress={handleViewSeeds}>
-            <Text style={[styles.rowText, { color: colors.primary }]}>View Recovery Phrases</Text>
-            <LockKeyhole size={16} color={colors.primary} />
-          </Pressable>
-        </View>
-      </ScrollView>
+        {seeds ? (
+          <ScrollView style={styles.seedScroll} showsVerticalScrollIndicator={false}>
+            <SeedBlock label="EVM and TRON (12 words)" value={seeds.evm} />
+            <SeedBlock label="Solana (12 words)" value={seeds.sol} />
+            <SeedBlock label="TON (24 words)" value={seeds.ton.join(' ')} />
+          </ScrollView>
+        ) : null}
+      </Sheet>
+    </>
+  );
+}
 
-      {/* Seed Phrase Backup Modal */}
-      <Modal visible={showSeedModal} transparent animationType="slide">
-        <View style={styles.modalOverlay}>
-          <View style={[styles.modalBox, { backgroundColor: colors.surface, borderColor: colors.border }]}>
-            <Text style={[styles.modalTitle, { color: colors.textPrimary }]}>Recovery Phrases</Text>
-            <View style={styles.warningRow}>
-              <TriangleAlert size={18} color={colors.error} />
-              <Text style={[styles.modalWarning, { color: colors.error }]}>Never share these phrases with anyone! Anyone with these words can steal your assets.</Text>
-            </View>
-
-            <ScrollView style={{ maxHeight: 300 }}>
-              {seeds && (
-                <>
-                  <Text style={[styles.seedHeading, { color: colors.primary }]}>EVM & TRON (12 Words)</Text>
-                  <Text style={[styles.seedText, { color: colors.textPrimary, backgroundColor: colors.surfaceElevated }]}>
-                    {seeds.evm}
-                  </Text>
-
-                  <Text style={[styles.seedHeading, { color: colors.primary }]}>Solana (12 Words)</Text>
-                  <Text style={[styles.seedText, { color: colors.textPrimary, backgroundColor: colors.surfaceElevated }]}>
-                    {seeds.sol}
-                  </Text>
-
-                  <Text style={[styles.seedHeading, { color: colors.primary }]}>TON (24 Words)</Text>
-                  <Text style={[styles.seedText, { color: colors.textPrimary, backgroundColor: colors.surfaceElevated }]}>
-                    {seeds.ton.join(' ')}
-                  </Text>
-                </>
-              )}
-            </ScrollView>
-
-            <Pressable
-              style={[styles.closeModalBtn, { backgroundColor: colors.primary }]}
-              onPress={() => setShowSeedModal(false)}
-            >
-              <Text style={styles.closeModalBtnText}>I Have Backed Them Up</Text>
-            </Pressable>
-          </View>
-        </View>
-      </Modal>
-    </SafeAreaView>
+/**
+ * One recovery phrase, in monospace on a quiet fill.
+ *
+ * `selectable` so the words can be copied, and `importantForAccessibility` left
+ * alone — a recovery phrase is user data the user explicitly asked to see, not
+ * decoration, so it must reach a screen reader.
+ */
+function SeedBlock({ label, value }: { label: string; value: string }) {
+  const colors = useThemeStore((state) => state.colors);
+  return (
+    <View style={styles.seedBlock}>
+      <Typography variant="label" color={colors.textSecondary}>
+        {label}
+      </Typography>
+      <Typography
+        variant="code"
+        selectable
+        style={[styles.seed, { backgroundColor: colors.surfaceElevated }]}
+      >
+        {value || 'Not available on this device'}
+      </Typography>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1 },
-  header: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingHorizontal: 18,
-    paddingVertical: 14,
-    borderBottomWidth: 1,
-  },
-  backText: { fontSize: 16, fontWeight: '700' },
-  headerTitle: { fontSize: 17, fontWeight: '800' },
-  scroll: { padding: 18 },
-  sectionTitle: { fontSize: 11, fontWeight: '800', letterSpacing: 1, marginBottom: 8, marginTop: 14 },
-  card: { borderRadius: 20, borderWidth: 1, overflow: 'hidden', marginBottom: 10 },
-  row: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingHorizontal: 16,
-    paddingVertical: 16,
-  },
-  rowText: { fontSize: 15, fontWeight: '700' },
-  rowArrow: { fontSize: 16, fontWeight: '700' },
-  radio: {
-    width: 20,
-    height: 20,
-    borderRadius: 10,
-    borderWidth: 2,
+  header: { flexDirection: 'row', alignItems: 'center', gap: space.md, paddingTop: space.sm },
+  headerTitle: { flex: 1 },
+
+  group: { marginTop: space.xxl },
+  rowIcon: {
+    width: 34,
+    height: 34,
+    borderRadius: radius.pill,
     alignItems: 'center',
     justifyContent: 'center',
+    backgroundColor: 'transparent',
   },
-  radioDot: { width: 10, height: 10, borderRadius: 5 },
-  modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.7)', justifyContent: 'center', padding: 20 },
-  modalBox: { borderRadius: 24, borderWidth: 1, padding: 20 },
-  modalTitle: { fontSize: 18, fontWeight: '800', textAlign: 'center', marginBottom: 6 },
-  warningRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
-  modalWarning: { fontSize: 12, fontWeight: '700', textAlign: 'center', marginBottom: 14, lineHeight: 18 },
-  seedHeading: { fontSize: 13, fontWeight: '800', marginTop: 10, marginBottom: 4 },
-  seedText: { padding: 12, borderRadius: 12, fontSize: 13, lineHeight: 20, fontFamily: 'monospace' },
-  closeModalBtn: { marginTop: 16, paddingVertical: 14, borderRadius: 14, alignItems: 'center' },
-  closeModalBtnText: { color: '#FFFFFF', fontSize: 15, fontWeight: '800' },
+
+  warning: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: space.md,
+    padding: space.md,
+    borderRadius: radius.chip,
+    marginBottom: space.lg,
+  },
+  warningText: { flex: 1 },
+
+  seedScroll: { maxHeight: 320 },
+  seedBlock: { marginBottom: space.lg },
+  seed: { padding: space.md, borderRadius: radius.chip, marginTop: space.xs },
 });

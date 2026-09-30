@@ -1,73 +1,131 @@
-import { Pressable, ActivityIndicator, StyleSheet, PressableProps } from 'react-native';
+import { ActivityIndicator, StyleSheet, View } from 'react-native';
+import type { StyleProp, ViewStyle } from 'react-native';
+
 import { Typography } from './Typography';
-import { useThemeStore } from '../../lib/theme';
+import { Touchable, type TouchableProps } from '../../lib/hooks/usePressScale';
+import { controlHeight, gutter, radius, space, useThemeStore } from '../../lib/theme';
 
-type Variant = 'primary' | 'secondary' | 'ghost' | 'destructive';
+export type ButtonVariant = 'primary' | 'secondary' | 'ghost' | 'destructive';
+export type ButtonSize = 'md' | 'sm';
 
-interface ButtonProps extends PressableProps {
+export interface ButtonProps extends Omit<TouchableProps, 'children' | 'style'> {
   label: string;
-  variant?: Variant;
+  variant?: ButtonVariant;
+  size?: ButtonSize;
   loading?: boolean;
   disabled?: boolean;
+  /** Stretches to the container width. The default for every primary action. */
+  fullWidth?: boolean;
+  style?: StyleProp<ViewStyle>;
+  /**
+   * Visual text to hand to a screen reader when `label` is not descriptive on
+   * its own — e.g. label "Confirm" on a screen about deleting a contact.
+   */
+  accessibilityLabel?: string;
 }
 
-export function Button({ label, variant = 'primary', loading, disabled, style, ...rest }: ButtonProps) {
-  const { colors } = useThemeStore();
-  const isDisabled = disabled || loading;
+/**
+ * The app's one button.
+ *
+ * ## What changed, and why
+ *
+ * The previous `Button` was already the right *size* (56) but the wrong
+ * *object*: `primary` painted a coloured shadow underneath itself
+ * (`shadowOpacity: 0.25`, `shadowRadius: 8`, `elevation: 4`) and the radius was
+ * 18. A glowing button is the visual signature of a marketing landing page, and
+ * in a product used dozens of times a day it reads as decoration competing with
+ * the numbers.
+ *
+ * The redesign makes the button a **flat, matte fill**. Depth comes from
+ * contrast against the page, not from a shadow. Press feedback is a 3% scale on
+ * the UI thread (`Touchable`), which is felt rather than seen.
+ *
+ * It also fixes two real defects:
+ *
+ * - `loading` used to render an `ActivityIndicator` **instead of** the label,
+ *  so the button changed width mid-action and the user lost their place. The
+ *   label stays and the spinner sits beside it.
+ * - `disabled` was only `opacity: 0.45`, which does not reliably read as
+ *   disabled. It now also reports `accessibilityState={{ disabled }}` and drops
+ *   the fill contrast, so state is never conveyed by opacity alone.
+ */
+export function Button({
+  label,
+  variant = 'primary',
+  size = 'md',
+  loading = false,
+  disabled = false,
+  fullWidth = true,
+  style,
+  accessibilityLabel,
+  ...rest
+}: ButtonProps) {
+  const colors = useThemeStore((state) => state.colors);
+  const isInactive = disabled || loading;
+
+  const surface: Record<ButtonVariant, ViewStyle> = {
+    primary: { backgroundColor: colors.primary },
+    secondary: { backgroundColor: colors.surfaceElevated, borderWidth: 1, borderColor: colors.border },
+    ghost: { backgroundColor: 'transparent' },
+    destructive: { backgroundColor: colors.error },
+  };
+
+  const labelColor: Record<ButtonVariant, string> = {
+    primary: colors.onPrimary,
+    secondary: colors.textPrimary,
+    ghost: colors.primary,
+    destructive: colors.onPrimary,
+  };
+
+  // A ghost button has no fill, so a disabled one must not look like an active
+  // accent label. Fold that into the same treatment as the filled variants.
+  const effectiveLabelColor = isInactive && variant === 'ghost' ? colors.textMuted : labelColor[variant];
+
   return (
-    <Pressable
-      style={({ pressed }) => [
+    <Touchable
+      accessibilityRole="button"
+      accessibilityLabel={accessibilityLabel ?? label}
+      accessibilityState={{ disabled: !!isInactive, busy: !!loading }}
+      disabled={isInactive}
+      // No press animation while an action is in flight — the button should
+      // look settled, not springy, while it is working.
+      animatePress={!isInactive}
+      style={[
         styles.base,
-        getVariantStyle(variant, colors),
-        isDisabled && styles.disabled,
-        pressed && !isDisabled && styles.pressed,
-        style as any,
+        size === 'sm' ? styles.sm : styles.md,
+        fullWidth && styles.fullWidth,
+        surface[variant],
+        isInactive && styles.inactive,
+        style,
       ]}
-      disabled={isDisabled}
       {...rest}
     >
-      {loading ? (
-          <ActivityIndicator color={variant === 'primary' || variant === 'destructive' ? '#FFFFFF' : colors.textPrimary} />
-      ) : (
-        <Typography variant="label" color={variant === 'primary' || variant === 'destructive' ? '#FFFFFF' : colors.textPrimary}>
+      <View style={styles.content} pointerEvents="none">
+        {loading ? (
+          <ActivityIndicator size="small" color={effectiveLabelColor} style={styles.spinner} />
+        ) : null}
+        <Typography
+          variant={size === 'sm' ? 'label' : 'titleSm'}
+          color={effectiveLabelColor}
+          numberOfLines={1}
+        >
           {label}
         </Typography>
-      )}
-    </Pressable>
+      </View>
+    </Touchable>
   );
 }
 
 const styles = StyleSheet.create({
   base: {
-    height: 56,
-    borderRadius: 18,
+    borderRadius: radius.control,
     alignItems: 'center',
     justifyContent: 'center',
-    paddingHorizontal: 22,
   },
-  ghost: { backgroundColor: 'transparent' },
-  disabled: { opacity: 0.45 },
-  pressed: { opacity: 0.85, transform: [{ scale: 0.99 }] },
+  md: { height: controlHeight, paddingHorizontal: gutter },
+  sm: { height: 44, paddingHorizontal: space.lg },
+  fullWidth: { alignSelf: 'stretch' },
+  inactive: { opacity: 0.4 },
+  content: { flexDirection: 'row', alignItems: 'center' },
+  spinner: { marginRight: space.sm },
 });
-
-function getVariantStyle(variant: Variant, colors: ReturnType<typeof useThemeStore.getState>['colors']) {
-  if (variant === 'primary') {
-    return {
-      backgroundColor: colors.primary,
-      shadowColor: colors.primary,
-      shadowOffset: { width: 0, height: 4 },
-      shadowOpacity: 0.25,
-      shadowRadius: 8,
-      elevation: 4,
-    };
-  }
-  if (variant === 'secondary') {
-    return {
-      backgroundColor: colors.surfaceElevated,
-      borderWidth: 1,
-      borderColor: colors.border,
-    };
-  }
-  if (variant === 'destructive') return { backgroundColor: colors.error };
-  return styles.ghost;
-}

@@ -1,19 +1,44 @@
-import { useState } from 'react';
-import { View, Text, TextInput, StyleSheet, Pressable, KeyboardAvoidingView, Platform } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
-import { router } from 'expo-router';
-import { useThemeStore, ThemeColors } from '../../lib/theme';
-import { NATIVE_ASSET_SYMBOLS, type NativeAssetSymbol } from '../../constants/chains';
+import { useCallback, useMemo, useState } from 'react';
+import { View, StyleSheet, KeyboardAvoidingView, Platform, ScrollView } from 'react-native';
+import { router, useLocalSearchParams } from 'expo-router';
+import { Ionicons } from '@expo/vector-icons';
 import { ethers } from 'ethers';
 import { PublicKey } from '@solana/web3.js';
+
+import { BackButton } from '../../components/navigation/BackButton';
+import {
+  Button,
+  Input,
+  Screen,
+  SectionLabel,
+  Touchable,
+  Typography,
+} from '../../components/ui';
+import { useThemeStore } from '../../lib/theme';
+import { NATIVE_ASSET_SYMBOLS } from '../../constants/chains';
+import { getConfiguredTokens } from '../../constants/tokens';
+import { getSigningAdapterByWire } from '../../lib/signing/chainAdapters';
+import { getEvmNetworkName } from '../../lib/chains/evmConfig';
 import { validateExternalAddress, type SupportedTriVerifyChain } from '../../lib/validation/triverify';
 
 const NETWORKS = ['ETH', 'BSC', 'TRON', 'SOL', 'TON', 'BASE', 'POLYGON', 'BTC'] as const;
 type Network = (typeof NETWORKS)[number];
 
+const CHAIN_ID_BY_WIRE: Record<string, Parameters<typeof getConfiguredTokens>[0]> = {
+  ETH: 'eth',
+  BSC: 'bsc',
+  BASE: 'base',
+  POLYGON: 'polygon',
+};
+
 function looksValid(address: string, network: Network): boolean {
   if (network === 'SOL') {
-    try { new PublicKey(address); return true; } catch { return false; }
+    try {
+      new PublicKey(address);
+      return true;
+    } catch {
+      return false;
+    }
   }
   if (network === 'TON') return address.length >= 40 && address.length <= 70;
   if (network === 'TRON') return /^T[1-9A-HJ-NP-Za-km-z]{33}$/.test(address);
@@ -25,147 +50,307 @@ function looksValid(address: string, network: Network): boolean {
 
 export default function ExternalWallet() {
   const { colors } = useThemeStore();
-  const styles = getStyles(colors);
+  const params = useLocalSearchParams<{ asset?: string }>();
 
   const [address, setAddress] = useState('');
   const [network, setNetwork] = useState<Network>('ETH');
-  const [asset, setAsset] = useState<NativeAssetSymbol>('ETH');
+  const [asset, setAsset] = useState<string>(params.asset ?? 'ETH');
   const [error, setError] = useState<string | null>(null);
+  const [validating, setValidating] = useState(false);
 
-  const handleContinue = async () => {
+  /**
+   * Assets offered for the selected network: the chain's native coin (only if
+   * this build can sign for it) plus any ERC-20 configured there. Selecting a
+   * network that cannot carry the current asset falls back to that network's
+   * native coin rather than leaving an impossible selection in place.
+   */
+  const availableAssets = useMemo(() => {
+    const chainId = CHAIN_ID_BY_WIRE[network];
+    const adapter = getSigningAdapterByWire(network);
+    const list: { symbol: string; isToken: boolean }[] = [];
+
+    const nativeSymbol =
+      network === 'ETH' || network === 'BASE' ? 'ETH' : network === 'BSC' ? 'BNB' : network === 'POLYGON' ? 'POL' : network;
+    if (adapter?.availability === 'available' && NATIVE_ASSET_SYMBOLS.includes(nativeSymbol as never)) {
+      list.push({ symbol: nativeSymbol, isToken: false });
+    }
+    if (chainId) {
+      for (const token of getConfiguredTokens(chainId)) {
+        list.push({ symbol: token.symbol, isToken: true });
+      }
+    }
+    return list;
+  }, [network]);
+
+  const currentIsToken = useMemo(
+    () => availableAssets.some((entry) => entry.symbol === asset && entry.isToken),
+    [availableAssets, asset]
+  );
+
+  const handleSelectNetwork = useCallback((next: Network) => {
+    setNetwork(next);
+    // Re-validate the selection: the asset must exist on the new network.
+    setAsset((current) => {
+      const chainId = CHAIN_ID_BY_WIRE[next];
+      const stillValid =
+        (current === 'ETH' && (next === 'ETH' || next === 'BASE')) ||
+        (current === 'BNB' && next === 'BSC') ||
+        (current === 'POL' && next === 'POLYGON') ||
+        (chainId ? getConfiguredTokens(chainId).some((t) => t.symbol === current) : false);
+      if (stillValid) return current;
+      if (next === 'ETH' || next === 'BASE') return 'ETH';
+      if (next === 'BSC') return 'BNB';
+      if (next === 'POLYGON') return 'POL';
+      return current;
+    });
+  }, []);
+
+  const handleContinue = useCallback(async () => {
     setError(null);
     if (!address.trim()) return setError('Enter a wallet address');
     const normalizedAddress = address.trim();
-    if (!looksValid(normalizedAddress, network)) return setError(`This doesn't look like a valid ${network} address`);
-    if (network === 'ETH' || network === 'BSC' || network === 'BASE' || network === 'POLYGON' ||
-      network === 'SOL' || network === 'TRON' || network === 'TON' || network === 'BTC') {
-      try {
-        const result = await validateExternalAddress(
-          normalizedAddress,
-          network as SupportedTriVerifyChain,
-        );
-        if (!result.formatValid || result.exists === false) {
-          return setError(`The ${network} address could not be validated.`);
-        }
-      } catch {
-        return setError('Address validation is temporarily unavailable. Try again later.');
-      }
+
+    if (!looksValid(normalizedAddress, network)) {
+      return setError(`This doesn't look like a valid ${network} address`);
     }
+
+    setValidating(true);
+    try {
+      // TriVerify (via the authenticated backend proxy) proves the address is
+      // real on the target chain and blocks a cross-network paste — this runs
+      // *before* any signing, so a wrong-network address never reaches a key.
+      const result = await validateExternalAddress(
+        normalizedAddress,
+        network as SupportedTriVerifyChain
+      );
+      if (!result.formatValid || result.exists === false) {
+        return setError(
+          `The ${network} address could not be validated on ${network}. Check for a wrong-network paste.`
+        );
+      }
+    } catch {
+      return setError('Address validation is temporarily unavailable. Try again later.');
+    } finally {
+      setValidating(false);
+    }
+
+    if (currentIsToken) {
+      // Server-side, not a client preference: `external/prepare` rejects any
+      // non-native asset and `submit` rejects any signed payload with a
+      // `data` field, which is every ERC-20 transfer. Refusing here saves the
+      // user a PIN entry for a transfer that cannot succeed.
+      setError(
+        `${asset} transfers to external wallets are not supported yet. The network has to accept ` +
+          `token transfers first — sending ${asset} to another Ulmara user works today.`
+      );
+      return;
+    }
+
     router.push({
       pathname: '/send/external-amount',
       params: {
         externalAddress: normalizedAddress,
         asset,
         network,
-        networkName: network === 'POLYGON' ? 'Polygon' : network,
-        fee: 'Fee calculated by network',
+        networkName: getEvmNetworkName(CHAIN_ID_BY_WIRE[network] ?? 'eth') || network,
       },
     });
-  };
+  }, [address, network, asset, currentIsToken]);
 
   return (
-    <SafeAreaView style={styles.container}>
-      <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={{ flex: 1 }}>
-        <View style={styles.header}>
-          <Pressable onPress={() => router.back()}>
-            <Text style={styles.back}>‹</Text>
-          </Pressable>
-          <Text style={styles.headerTitle}>External Wallet</Text>
-          <View style={{ width: 24 }} />
+    <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={{ flex: 1 }}>
+      <Screen testID="external-wallet-screen">
+        <View style={s.header}>
+          <BackButton />
+          <Typography variant="titleSm" style={s.headerTitle}>
+            External wallet
+          </Typography>
         </View>
 
-        <View style={styles.body}>
-          <View style={styles.warningBox}>
-            <Text style={styles.warningText}>
-              Sending to the wrong network or a mistyped address can result in permanent loss of funds.
-            </Text>
+        <ScrollView
+          style={s.scroll}
+          contentContainerStyle={s.body}
+          keyboardShouldPersistTaps="handled"
+          showsVerticalScrollIndicator={false}
+        >
+          {/* The most consequential warning in the app, so it is stated before
+              anything is typed rather than discovered at the end. */}
+          <View style={[s.warning, { backgroundColor: colors.errorTint }]}>
+            <Ionicons name="warning" size={17} color={colors.error} />
+            <Typography variant="caption" color={colors.error} style={s.warningText}>
+              Sending to the wrong network, or to a mistyped address, can mean losing the funds
+              permanently. Nobody can reverse it.
+            </Typography>
           </View>
 
-          <Text style={styles.label}>Network</Text>
-          <View style={styles.chipRow}>
-            {NETWORKS.map((n) => (
-              <Pressable
-                key={n}
-                style={[styles.chip, network === n && styles.chipActive]}
-                onPress={() => setNetwork(n)}
-              >
-                <Text style={[styles.chipText, network === n && styles.chipTextActive]}>{n}</Text>
-              </Pressable>
-            ))}
+          <View style={s.group}>
+            <SectionLabel>NETWORK</SectionLabel>
+            <View style={s.chipRow}>
+              {NETWORKS.map((option) => {
+                const active = network === option;
+                return (
+                  <Touchable
+                    key={option}
+                    accessibilityRole="radio"
+                    accessibilityLabel={`${option} network`}
+                    accessibilityState={{ selected: active, checked: active }}
+                    aria-selected={active}
+                    onPress={() => handleSelectNetwork(option)}
+                    pressScale={0.97}
+                    style={[
+                      s.chip,
+                      {
+                        backgroundColor: active ? colors.primaryLight : colors.surface,
+                        borderColor: active ? colors.primary : colors.border,
+                      },
+                    ]}
+                  >
+                    <Typography variant="label" color={active ? colors.primary : colors.textMuted}>
+                      {option}
+                    </Typography>
+                  </Touchable>
+                );
+              })}
+            </View>
           </View>
 
-          <Text style={[styles.label, { marginTop: 20 }]}>Wallet Address</Text>
-          <TextInput
-            style={[styles.input, styles.inputMultiline]}
-            placeholder={`Paste ${network} address`}
-            placeholderTextColor={colors.textMuted}
-            autoCapitalize="none"
-            multiline
-            value={address}
-            onChangeText={setAddress}
+          <View style={s.group}>
+            <Input
+              label="Wallet address"
+              placeholder={`Paste the ${network} address`}
+              value={address}
+              onChangeText={(value) => {
+                setAddress(value);
+                setError(null);
+              }}
+              autoCapitalize="none"
+              autoCorrect={false}
+              multiline
+              // Named after the network, because an address field with no name
+              // is the single most error-prone input in a cross-chain transfer.
+              accessibilityLabel={`${network} wallet address`}
+              accessibilityHint="Paste the destination address exactly as it appears"
+            />
+          </View>
+
+          <View style={s.group}>
+            <SectionLabel>ASSET</SectionLabel>
+            {availableAssets.length === 0 ? (
+              <Typography variant="body" color={colors.textMuted} style={s.unavailable}>
+                Sending on {network} is not available in this build yet.
+              </Typography>
+            ) : (
+              <View style={s.chipRow}>
+                {availableAssets.map((entry) => {
+                  const active = asset === entry.symbol;
+                  return (
+                    <Touchable
+                      key={entry.symbol}
+                      accessibilityRole="radio"
+                      accessibilityLabel={
+                        entry.isToken ? `${entry.symbol}, ERC-20 token` : `${entry.symbol}, native coin`
+                      }
+                      accessibilityState={{ selected: active, checked: active }}
+                      aria-selected={active}
+                      onPress={() => setAsset(entry.symbol)}
+                      pressScale={0.97}
+                      style={[
+                        s.chip,
+                        {
+                          backgroundColor: active ? colors.primaryLight : colors.surface,
+                          borderColor: active ? colors.primary : colors.border,
+                        },
+                      ]}
+                    >
+                      <Typography variant="label" color={active ? colors.primary : colors.textMuted}>
+                        {entry.symbol}
+                      </Typography>
+                      {entry.isToken ? (
+                        <Typography
+                          variant="micro"
+                          color={active ? colors.primary : colors.textMuted}
+                        >
+                          ERC-20
+                        </Typography>
+                      ) : null}
+                    </Touchable>
+                  );
+                })}
+              </View>
+            )}
+          </View>
+
+          {currentIsToken ? (
+            <View style={[s.notice, { backgroundColor: colors.primaryLight }]}>
+              <Ionicons name="information-circle-outline" size={16} color={colors.primary} />
+              <Typography variant="caption" color={colors.primary} style={s.noticeText}>
+                {asset} is an ERC-20 token. Token transfers to external wallets are not supported
+                yet, and the network fee would be paid in {network}&apos;s native coin — not in{' '}
+                {asset}.
+              </Typography>
+            </View>
+          ) : null}
+
+          {error ? (
+            <Typography
+              variant="label"
+              color={colors.error}
+              style={s.error}
+              accessibilityLiveRegion="polite"
+              accessibilityRole="alert"
+            >
+              {error}
+            </Typography>
+          ) : null}
+        </ScrollView>
+
+        <View style={s.footer}>
+          <Button
+            label={validating ? 'Validating address…' : 'Continue'}
+            onPress={() => void handleContinue()}
+            loading={validating}
+            disabled={validating || availableAssets.length === 0}
+            accessibilityHint="Checks the address against the selected network before you pay a fee"
           />
-
-          <Text style={[styles.label, { marginTop: 20 }]}>Asset</Text>
-          <View style={styles.chipRow}>
-            {NATIVE_ASSET_SYMBOLS.map((a) => (
-              <Pressable
-                key={a}
-                style={[styles.chip, asset === a && styles.chipActive]}
-                onPress={() => setAsset(a)}
-              >
-                <Text style={[styles.chipText, asset === a && styles.chipTextActive]}>{a}</Text>
-              </Pressable>
-            ))}
-          </View>
-
-          {error && <Text style={styles.error}>{error}</Text>}
         </View>
-
-        <View style={styles.footer}>
-          <Pressable style={styles.primaryBtn} onPress={handleContinue}>
-            <Text style={styles.primaryBtnText}>Continue</Text>
-          </Pressable>
-        </View>
-      </KeyboardAvoidingView>
-    </SafeAreaView>
+      </Screen>
+    </KeyboardAvoidingView>
   );
 }
 
-function getStyles(colors: ThemeColors) {
-  return StyleSheet.create({
-    container: { flex: 1, backgroundColor: colors.background, justifyContent: 'space-between' },
-    header: {
-      flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
-      paddingHorizontal: 20, paddingTop: 12, paddingBottom: 8,
-    },
-    back: { color: colors.textPrimary, fontSize: 28 },
-    headerTitle: { color: colors.textPrimary, fontSize: 17, fontWeight: '700' },
-    body: { flex: 1, paddingHorizontal: 20, paddingTop: 12 },
-    warningBox: {
-      backgroundColor: `${colors.warning}1A`, borderRadius: 12, borderWidth: 1,
-      borderColor: `${colors.warning}40`, padding: 14, marginBottom: 20,
-    },
-    warningText: { color: colors.warning, fontSize: 12, lineHeight: 17 },
-    label: { fontSize: 13, color: colors.textMuted, marginBottom: 8, fontWeight: '500' },
-    input: {
-      backgroundColor: colors.surface, borderRadius: 12, paddingHorizontal: 16, paddingVertical: 14,
-      color: colors.textPrimary, fontSize: 16, borderWidth: 1, borderColor: colors.border,
-    },
-    inputMultiline: { minHeight: 70, textAlignVertical: 'top' },
-    chipRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
-    chip: {
-      paddingHorizontal: 14, paddingVertical: 9, borderRadius: 20,
-      backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border,
-    },
-    chipActive: { backgroundColor: colors.primary, borderColor: colors.primary },
-    chipText: { color: colors.textMuted, fontSize: 13, fontWeight: '600' },
-    chipTextActive: { color: '#FFFFFF' },
-    error: { color: colors.error, fontSize: 13, marginTop: 14 },
-    footer: { paddingHorizontal: 20, paddingBottom: 32 },
-    primaryBtn: {
-      backgroundColor: colors.primary, borderRadius: 14, paddingVertical: 16,
-      alignItems: 'center', justifyContent: 'center', height: 54,
-    },
-    primaryBtnText: { color: '#FFFFFF', fontSize: 16, fontWeight: '600' },
-  });
-}
+const s = StyleSheet.create({
+  header: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingTop: 4 },
+  headerTitle: { flex: 1 },
+  scroll: { flex: 1 },
+  body: { paddingTop: 16, paddingBottom: 24, gap: 16 },
+  group: { gap: 8 },
+  warning: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 8,
+    padding: 12,
+    borderRadius: 8,
+  },
+  warningText: { flex: 1 },
+  chipRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+  chip: {
+    flexDirection: 'row',
+    alignItems: 'baseline',
+    gap: 6,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    borderRadius: 999,
+    borderWidth: 1,
+  },
+  unavailable: { paddingVertical: 8 },
+  notice: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 8,
+    padding: 12,
+    borderRadius: 8,
+  },
+  noticeText: { flex: 1 },
+  error: { marginTop: 4 },
+  footer: { paddingTop: 16 },
+});

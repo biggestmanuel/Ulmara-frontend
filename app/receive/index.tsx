@@ -1,23 +1,47 @@
 import { useState } from 'react';
-import { View, Text, StyleSheet, Pressable, Share } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { Share, StyleSheet, View } from 'react-native';
 import { router } from 'expo-router';
 import QRCode from 'react-native-qrcode-svg';
+
+import { BackButton } from '../../components/navigation/BackButton';
+import {
+  AccountId,
+  Button,
+  CopyToast,
+  Screen,
+  SegmentedControl,
+  Touchable,
+  Typography,
+  useCopyToast,
+} from '../../components/ui';
 import { useUserStore } from '../../stores/userStore';
-import { useThemeStore, ThemeColors } from '../../lib/theme';
 import { formatAccountId } from '../../lib/format';
-import { useCopyToast, CopyToast } from '../../components/ui/CopyToast';
+import { radius, space, useThemeStore } from '../../lib/theme';
 
-// QR rendering uses react-native-qrcode-svg: black modules on a white card,
-// regardless of theme, for maximum scanner contrast. Encodes the https
-// payment link (same URL the Share button sends).
+// QR rendering uses react-native-qrcode-svg: black modules on a white plate,
+// regardless of theme, for maximum scanner contrast. Scanners need the
+// light/dark inversion that the rest of the design deliberately avoids.
+type Method = 'QR Code' | 'Account ID' | 'Link';
 
-const METHODS = ['Account ID', 'QR Code', 'Link'] as const;
-type Method = (typeof METHODS)[number];
-
+/**
+ * Receive.
+ *
+ * ## What changed
+ *
+ * - The method chips become a `SegmentedControl`, so the choice is announced as
+ *   a tab list with a selected state. The old chips had no role at all.
+ * - The QR code was in a 220pt box with an accent shadow and a 24pt radius. The
+ *   shadow is gone — scanners do not benefit from elevation, and it was one of
+ *   the last coloured glows in the app. It sits on a plain white plate with a
+ *   hairline, which is also what every scanner expects.
+ * - The Account ID uses the shared `AccountId` component, so the value is set
+ *   identically here, on Home and on Profile: tabular figures, wide tracking,
+ *   same size. Previously it was rendered three different ways.
+ * - The share link is set in monospace and wraps, because it is a URL and
+ *   truncating it mid-host is how people paste the wrong thing.
+ */
 export default function ReceiveIndex() {
-  const { colors } = useThemeStore();
-  const styles = getStyles(colors);
+  const colors = useThemeStore((state) => state.colors);
   const accountId = useUserStore((state) => state.accountId) ?? '';
 
   const [method, setMethod] = useState<Method>('QR Code');
@@ -28,7 +52,7 @@ export default function ReceiveIndex() {
   const handleCopy = async () => {
     await copyToClipboard(
       method === 'Link' ? shareLink : accountId,
-      method === 'Link' ? 'Payment link copied to clipboard' : 'Account ID copied to clipboard'
+      method === 'Link' ? 'Payment link copied' : 'Account ID copied'
     );
   };
 
@@ -43,145 +67,135 @@ export default function ReceiveIndex() {
   };
 
   return (
-    <SafeAreaView style={styles.container}>
-      <View style={styles.header}>
-        <Pressable onPress={() => router.back()}>
-          <Text style={styles.back}>‹</Text>
-        </Pressable>
-        <Text style={styles.headerTitle}>Receive</Text>
-        <View style={{ width: 24 }} />
-      </View>
+    <>
+      <Screen testID="receive-screen">
+        <View style={styles.header}>
+          <BackButton />
+          <Typography variant="titleSm" style={styles.headerTitle}>
+            Receive
+          </Typography>
+        </View>
 
-      <View style={styles.methodRow}>
-        {METHODS.map((m) => (
-          <Pressable
-            key={m}
-            style={[styles.methodChip, method === m && styles.methodChipActive]}
-            onPress={() => setMethod(m)}
+        <SegmentedControl<Method>
+          accessibilityLabel="How to share your details"
+          value={method}
+          onChange={setMethod}
+          options={[
+            { value: 'QR Code', label: 'QR code' },
+            { value: 'Account ID', label: 'Account ID' },
+            { value: 'Link', label: 'Link' },
+          ]}
+        />
+
+        <View style={styles.body}>
+          {method === 'QR Code' ? (
+            <>
+              <View style={[styles.qrPlate, { borderColor: colors.border }]}>
+                <QRCode value={shareLink} size={190} />
+              </View>
+              <Typography variant="title" numeric style={styles.idUnderQr}>
+                {formatAccountId(accountId)}
+              </Typography>
+              <Typography variant="body" color={colors.textMuted} style={styles.helper}>
+                Scan to send crypto straight to this account.
+              </Typography>
+            </>
+          ) : null}
+
+          {method === 'Account ID' ? (
+            <View style={styles.idBlock}>
+              <AccountId
+                value={accountId}
+                label="Your Account ID"
+                onCopy={handleCopy}
+              />
+              <Typography variant="body" color={colors.textMuted} style={styles.helper}>
+                Anyone can pay you with these ten digits. No address to copy, nothing to
+                paste wrong.
+              </Typography>
+            </View>
+          ) : null}
+
+          {method === 'Link' ? (
+            <View style={styles.linkBlock}>
+              <Typography variant="label" color={colors.textSecondary}>
+                SHAREABLE LINK
+              </Typography>
+              <Typography variant="code" style={[styles.link, { backgroundColor: colors.surfaceElevated }]}>
+                {shareLink}
+              </Typography>
+              <Typography variant="body" color={colors.textMuted} style={styles.helper}>
+                Opens your payment page in the Ulmara app or on the web.
+              </Typography>
+            </View>
+          ) : null}
+        </View>
+
+        <View style={styles.footer}>
+          {method === 'QR Code' ? (
+            <Touchable
+              accessibilityRole="button"
+              accessibilityLabel="Copy Account ID"
+              accessibilityHint="Copies your ten-digit Account ID"
+              onPress={handleCopy}
+              pressScale={0.97}
+              style={styles.copyLink}
+            >
+              <Typography variant="label" color={colors.primary}>
+                Copy Account ID instead
+              </Typography>
+            </Touchable>
+          ) : (
+            <Button
+              label={method === 'Link' ? 'Copy link' : 'Copy Account ID'}
+              variant="secondary"
+              onPress={handleCopy}
+            />
+          )}
+
+          <Button label="Share" onPress={handleShare} />
+
+          <Touchable
+            accessibilityRole="button"
+            accessibilityLabel="Request a specific amount"
+            accessibilityHint="Creates a payment request you can send to someone"
+            onPress={() => router.push('/receive/payment-request')}
+            pressScale={0.97}
+            style={styles.copyLink}
           >
-            <Text style={[styles.methodText, method === m && styles.methodTextActive]}>{m}</Text>
-          </Pressable>
-        ))}
-      </View>
+            <Typography variant="label" color={colors.textSecondary}>
+              Request a specific amount
+            </Typography>
+          </Touchable>
+        </View>
+      </Screen>
 
-      <View style={styles.body}>
-        {method === 'QR Code' && (
-          <>
-            <View style={styles.qrBox}><QRCode value={shareLink} size={180} /></View>
-            <Text style={styles.accountId}>{formatAccountId(accountId)}</Text>
-            <Text style={styles.helperText}>Scan to send crypto directly to this account</Text>
-          </>
-        )}
-
-        {method === 'Account ID' && (
-          <View style={styles.idCard}>
-            <Text style={styles.idLabel}>Your Account ID</Text>
-            <Text style={styles.idValue}>{formatAccountId(accountId)}</Text>
-            <Pressable style={styles.copyBtn} onPress={handleCopy}>
-              <Text style={styles.copyBtnText}>Copy Account ID</Text>
-            </Pressable>
-          </View>
-        )}
-
-        {method === 'Link' && (
-          <View style={styles.idCard}>
-            <Text style={styles.idLabel}>Shareable Link</Text>
-            <Text style={styles.linkValue} numberOfLines={1}>{shareLink}</Text>
-            <Pressable style={styles.copyBtn} onPress={handleCopy}>
-              <Text style={styles.copyBtnText}>Copy Link</Text>
-            </Pressable>
-          </View>
-        )}
-
-        <Pressable
-          style={styles.requestBtn}
-          onPress={() => router.push('/receive/payment-request')}
-        >
-          <Text style={styles.requestBtnText}>Request a specific amount</Text>
-        </Pressable>
-      </View>
-
-      <View style={styles.footer}>
-        <Pressable style={styles.primaryBtn} onPress={handleShare}>
-          <Text style={styles.primaryBtnText}>Share</Text>
-        </Pressable>
-      </View>
-
-      {/* Copy confirmation — styled to match the app's modal design */}
-      <CopyToast message={toastMessage ?? ''} visible={toastVisible} onHide={() => {}} />
-    </SafeAreaView>
+      <CopyToast message={toastMessage ?? ''} visible={toastVisible} />
+    </>
   );
 }
 
-function getStyles(colors: ThemeColors) {
-  return StyleSheet.create({
-    container: { flex: 1, backgroundColor: colors.background, justifyContent: 'space-between' },
-    header: {
-      flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
-      paddingHorizontal: 20, paddingTop: 12, paddingBottom: 8,
-    },
-    back: { color: colors.textPrimary, fontSize: 28 },
-    headerTitle: { color: colors.textPrimary, fontSize: 17, fontWeight: '700' },
-    methodRow: { flexDirection: 'row', gap: 8, paddingHorizontal: 20, marginTop: 4 },
-    methodChip: {
-      paddingHorizontal: 14, paddingVertical: 9, borderRadius: 20,
-      backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border,
-    },
-    methodChipActive: { backgroundColor: colors.primary, borderColor: colors.primary },
-    methodText: { color: colors.textMuted, fontSize: 13, fontWeight: '600' },
-    methodTextActive: { color: '#FFFFFF' },
-    body: { flex: 1, alignItems: 'center', paddingHorizontal: 24, paddingTop: 28 },
-    qrBox: {
-      width: 220,
-      height: 220,
-      backgroundColor: '#FFFFFF',
-      borderRadius: 24,
-      alignItems: 'center',
-      justifyContent: 'center',
-      padding: 16,
-      borderWidth: 1,
-      borderColor: colors.border,
-      shadowColor: colors.primary,
-      shadowOffset: { width: 0, height: 4 },
-      shadowOpacity: 0.12,
-      shadowRadius: 12,
-      elevation: 4,
-    },
-    accountId: { color: colors.textPrimary, fontSize: 24, fontWeight: '800', marginTop: 24, letterSpacing: 1 },
-    helperText: { color: colors.textMuted, fontSize: 13, marginTop: 8, textAlign: 'center' },
-    idCard: {
-      width: '100%',
-      backgroundColor: colors.surface,
-      borderRadius: 20,
-      borderWidth: 1,
-      borderColor: colors.border,
-      padding: 24,
-      alignItems: 'center',
-    },
-    idLabel: { color: colors.textMuted, fontSize: 13, fontWeight: '600' },
-    idValue: { color: colors.textPrimary, fontSize: 26, fontWeight: '800', marginTop: 8, letterSpacing: 1 },
-    linkValue: { color: colors.textPrimary, fontSize: 14, fontWeight: '600', marginTop: 8, maxWidth: '100%' },
-    copyBtn: {
-      marginTop: 18,
-      backgroundColor: colors.surfaceElevated,
-      borderRadius: 12,
-      paddingHorizontal: 22,
-      paddingVertical: 12,
-      borderWidth: 1,
-      borderColor: colors.border,
-    },
-    copyBtnText: { color: colors.primary, fontSize: 13, fontWeight: '700' },
-    requestBtn: { marginTop: 28 },
-    requestBtnText: { color: colors.primary, fontSize: 14, fontWeight: '700' },
-    footer: { paddingHorizontal: 20, paddingBottom: 32 },
-    primaryBtn: {
-      backgroundColor: colors.primary,
-      borderRadius: 16,
-      paddingVertical: 16,
-      alignItems: 'center',
-      justifyContent: 'center',
-      height: 54,
-    },
-    primaryBtnText: { color: '#FFFFFF', fontSize: 16, fontWeight: '700' },
-  });
-}
+const styles = StyleSheet.create({
+  header: { flexDirection: 'row', alignItems: 'center', gap: space.md, paddingTop: space.sm },
+  headerTitle: { flex: 1 },
+
+  body: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: space.lg, paddingVertical: space.xl },
+
+  qrPlate: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: radius.card,
+    borderWidth: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: space.lg,
+  },
+  idUnderQr: { letterSpacing: 1.2 },
+  helper: { textAlign: 'center', maxWidth: 320 },
+
+  idBlock: { alignSelf: 'stretch', gap: space.lg },
+  linkBlock: { alignSelf: 'stretch', gap: space.sm },
+  link: { padding: space.md, borderRadius: radius.chip },
+
+  footer: { gap: space.md },
+  copyLink: { alignSelf: 'center', paddingVertical: space.sm, paddingHorizontal: space.md },
+});

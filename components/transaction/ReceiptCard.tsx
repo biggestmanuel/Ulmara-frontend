@@ -3,7 +3,9 @@ import { View, Text, StyleSheet, ViewStyle } from 'react-native';
 import QRCode from 'react-native-qrcode-svg';
 import { Ionicons } from '@expo/vector-icons';
 import type { TransactionDirection, TransactionStatus } from '../../lib/api/transactions';
-import { useThemeStore, ThemeColors } from '../../lib/theme';
+import { radius, useThemeStore, ThemeColors } from '../../lib/theme';
+import { defineStyles } from '../../lib/theme/styles';
+import { memo } from 'react';
 
 export interface ReceiptData {
   id: string;
@@ -12,11 +14,18 @@ export interface ReceiptData {
   amount: string;
   symbol: string;
   network: string;
+  /** Human-readable network name, e.g. "Ethereum Sepolia". */
+  networkLabel?: string;
+  /** 'native' for the chain's own coin, 'erc20' for a token contract. */
+  assetType?: 'native' | 'erc20';
+  /** The coin that actually pays gas, e.g. "ETH". Never the token. */
+  nativeSymbol?: string;
   senderName: string;
   senderTag?: string;
   beneficiaryName: string;
   beneficiaryTag?: string;
   timestamp: string;
+  /** Gas cost, denominated in `nativeSymbol`. */
   fee?: string;
   txHash?: string | null;
 }
@@ -26,8 +35,13 @@ interface Props {
   style?: ViewStyle;
 }
 
-export const ReceiptCard: React.FC<Props> = ({ data, style }) => {
-  const { colors } = useThemeStore();
+/**
+ * Memoized: the receipt is also a `react-native-view-shot` capture target, and
+ * a re-render mid-capture can produce a torn image. With `data` memoized by the
+ * parent this component only re-renders when the receipt actually changes.
+ */
+export const ReceiptCard = memo(function ReceiptCard({ data, style }: Props) {
+  const colors = useThemeStore((s) => s.colors);
   const styles = getStyles(colors);
   const isComplete = data.status === 'complete';
   const isProcessing = data.status === 'processing';
@@ -70,7 +84,12 @@ export const ReceiptCard: React.FC<Props> = ({ data, style }) => {
         </Text>
         
         <View style={styles.networkPill}>
-          <Text style={styles.networkTag}>{data.network.toUpperCase()}</Text>
+          <Text style={styles.networkTag}>{data.networkLabel ?? data.network.toUpperCase()}</Text>
+          {data.assetType === 'erc20' ? (
+            <View style={styles.tokenBadge}>
+              <Text style={styles.tokenBadgeText}>ERC-20</Text>
+            </View>
+          ) : null}
         </View>
       </View>
 
@@ -135,11 +154,26 @@ export const ReceiptCard: React.FC<Props> = ({ data, style }) => {
 
         {data.fee ? (
           <View style={styles.metaRow}>
-            <Text style={styles.metaLabel}>Network Fee</Text>
+            {/* The fee is ALWAYS in the chain's native coin. Rendering it in
+                `data.symbol` — as this card used to — states that a token pays
+                its own gas, which is false for every ERC-20 transfer. */}
+            <Text style={styles.metaLabel}>
+              Network fee{data.assetType === 'erc20' && data.nativeSymbol
+                ? ` (in ${data.nativeSymbol})`
+                : ''}
+            </Text>
             <Text style={styles.metaValue}>
-              {data.fee} {data.symbol}
+              {data.fee}
+              {data.nativeSymbol ? ` ${data.nativeSymbol}` : data.assetType === 'erc20' ? '' : ` ${data.symbol}`}
             </Text>
           </View>
+        ) : null}
+
+        {data.assetType === 'erc20' && data.nativeSymbol ? (
+          <Text style={styles.gasNote}>
+            {data.symbol} does not pay for itself. The fee above is charged in {data.nativeSymbol}, the
+            native coin of {data.networkLabel ?? data.network.toUpperCase()}.
+          </Text>
         ) : null}
 
         {data.txHash ? (
@@ -173,22 +207,25 @@ export const ReceiptCard: React.FC<Props> = ({ data, style }) => {
       </View>
     </View>
   );
-};
+});
 
-function getStyles(colors: ThemeColors) {
-  return StyleSheet.create({
+const getStyles = defineStyles((colors: ThemeColors) =>
+  StyleSheet.create({
+  /**
+   * The receipt's edge is a hairline, not a shadow.
+   *
+   * This card is the one thing the app exports as an image, so it gets a real
+   * border: the 1pt accent-tinted outline survives being pasted into a chat
+   * window on a white background, where a shadow would either be cropped off or
+   * read as a smudge. It also keeps the "no elevation anywhere" rule intact.
+   */
   card: {
     backgroundColor: colors.surface,
-    borderRadius: 20,
+    borderRadius: 16,
     borderWidth: 1,
     borderColor: `${colors.primary}59`,
     padding: 22,
     width: '100%',
-    shadowColor: colors.primary,
-    shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 0.18,
-    shadowRadius: 18,
-    elevation: 8,
     position: 'relative',
     overflow: 'hidden',
   },
@@ -220,7 +257,7 @@ function getStyles(colors: ThemeColors) {
     justifyContent: 'center',
   },
   logoLetter: {
-    color: '#FFFFFF',
+    color: colors.onPrimary,
     fontSize: 18,
     fontWeight: '900',
   },
@@ -242,7 +279,7 @@ function getStyles(colors: ThemeColors) {
     gap: 5,
     paddingHorizontal: 10,
     paddingVertical: 5,
-    borderRadius: 20,
+    borderRadius: radius.card,
     backgroundColor: colors.surfaceElevated,
     borderWidth: 1,
   },
@@ -283,6 +320,23 @@ function getStyles(colors: ThemeColors) {
     fontSize: 11,
     fontWeight: '700',
     letterSpacing: 0.5,
+  },
+  tokenBadge: {
+    marginLeft: 8,
+    paddingHorizontal: 6,
+    paddingVertical: 1,
+    borderRadius: 5,
+    backgroundColor: `${colors.primary}26`,
+  },
+  tokenBadgeText: {
+    color: colors.primary,
+    fontSize: 9,
+    fontWeight: '800',
+  },
+  gasNote: {
+    fontSize: 10,
+    lineHeight: 15,
+    color: colors.textMuted,
   },
   circuitDivider: {
     flexDirection: 'row',
@@ -402,5 +456,5 @@ function getStyles(colors: ThemeColors) {
     color: colors.textMuted,
     lineHeight: 14,
   },
-  });
-}
+  })
+);

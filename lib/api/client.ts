@@ -9,8 +9,43 @@ export const apiClient: AxiosInstance = axios.create({
   headers: { 'Content-Type': 'application/json' },
 });
 
+// --- Session token cache -----------------------------------------------------
+//
+// The request interceptor used to await a SecureStore read on *every* request.
+// expo-secure-store is a native bridge call that also does keychain/keystore
+// I/O, so a screen issuing four parallel requests paid four serialised bridge
+// round-trips before any of them could leave the device. That is pure JS-thread
+// latency in front of every fetch.
+//
+// The token is cached in memory for the lifetime of the JS context and
+// invalidated explicitly, which is safe: a cold start has an empty cache and
+// reads from SecureStore once, and the two places that change the token (login,
+// logout) both clear it.
+//
+// A 401 response also clears the cache, so a session revoked server-side cannot
+// keep sending a stale token for the rest of the process.
+let cachedToken: string | null = null;
+let tokenLoaded = false;
+
+export function setCachedSessionToken(token: string | null): void {
+  cachedToken = token;
+  tokenLoaded = token !== null;
+}
+
+export function clearCachedSessionToken(): void {
+  cachedToken = null;
+  tokenLoaded = false;
+}
+
+async function resolveSessionToken(): Promise<string | null> {
+  if (tokenLoaded) return cachedToken;
+  cachedToken = await getSecureItem(SecureStorageKeys.SESSION_TOKEN);
+  tokenLoaded = true;
+  return cachedToken;
+}
+
 apiClient.interceptors.request.use(async (config) => {
-  const token = await getSecureItem(SecureStorageKeys.SESSION_TOKEN);
+  const token = await resolveSessionToken();
   if (token) config.headers.Authorization = `Bearer ${token}`;
   return config;
 });
@@ -80,7 +115,61 @@ export function toApiError(err: unknown): ApiErrorShape {
   return { status: null, code: 'unknown_error', message: 'Something went wrong. Please try again.' };
 }
 
+// A server message is only user-facing when it is actually prose. Fastify
+// `handleError` and `errorResponse` always send readable text, but an
+// unhandled shape (a bare status line, a JSON string, a stack-shaped message)
+// can still reach the UI. Anything that looks like raw transport noise falls
+// back to the per-status copy above so no screen ever renders "409" or
+// "Request failed with status code 500".
+const NON_PROSE = /^[\s\d\W]*$/; // digits/punctuation only, e.g. "500", "500 Internal Server Error"
+const HTTP_ECHO = /^(HTTP\s*)?\d{3}\b/i; // "HTTP 500", "500 Internal Server Error"
+const AXIOS_ECHO = /^Request failed with status code \d+/i;
+const HTML_BODY = /^\s*<(!doctype|html)/i;
+
+function isUserFacingMessage(message: string): boolean {
+  const trimmed = message.trim();
+  if (trimmed.length === 0 || trimmed.length > 300) return false;
+  if (NON_PROSE.test(trimmed)) return false;
+  if (HTTP_ECHO.test(trimmed) || AXIOS_ECHO.test(trimmed) || HTML_BODY.test(trimmed)) return false;
+  return true;
+}
+
+/**
+ * Single entry point for turning any thrown value into copy a user can act on.
+ *
+ * Screens used to read `(err as ApiErrorShape).message` directly, which silently
+ * produced `undefined` (rendering nothing at all) for any rejection that had
+ * not already been normalised by the response interceptor. Routing every screen
+ * through this guarantees a message always exists and is never a bare status code.
+ *
+ * Precedence:
+ *  1. A readable message that came from the server (any HTTP status) or from a
+ *     real transport failure.
+ *  2. Per-status fallback copy.
+ *  3. The caller's own `fallback`.
+ *
+ * Step 3 is only reached when the rejection carried no information at all — a
+ * bare `Error`, a thrown string, `undefined`. Without the `carriesInformation`
+ * guard the generic "Something went wrong. Please try again." produced by
+ * `toApiError` would always pass the prose check above, which would make every
+ * screen's tailored fallback unreachable dead code.
+ */
+export function friendlyError(err: unknown, fallback = 'Something went wrong. Please try again.'): string {
+  const apiError = toApiError(err);
+  const carriesInformation = apiError.status !== null || apiError.code === 'network_error';
+  if (carriesInformation && isUserFacingMessage(apiError.message)) return apiError.message;
+  if (apiError.status !== null) return FALLBACK_MESSAGES[apiError.status] ?? fallback;
+  return fallback;
+}
+
 apiClient.interceptors.response.use(
   (response) => response,
-  (error) => Promise.reject(toApiError(error))
+  (error) => {
+    // A rejected session must not keep being replayed from the cache for the
+    // rest of the process.
+    if (axios.isAxiosError(error) && error.response?.status === 401) {
+      clearCachedSessionToken();
+    }
+    return Promise.reject(toApiError(error));
+  }
 );

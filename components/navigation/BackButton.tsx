@@ -1,34 +1,44 @@
-import { Pressable, StyleSheet } from 'react-native';
+import { StyleSheet } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
-import { Typography } from '../ui';
+
+import { IconButton } from '../ui';
 import { useThemeStore } from '../../lib/theme';
 
-export function BackButton() {
+/**
+ * The back affordance.
+ *
+ * ## What changed
+ *
+ * The previous version was a bare `Pressable` with **no `accessibilityRole`, no
+ * `accessibilityLabel` and no visible icon** — it rendered a literal `‹`
+ * character as a `titleSm` text node inside a 38pt circle. To a screen reader it
+ * announced as an unlabelled element; to anyone with a motor or vision
+ * disability the `‹` glyph at text size was the smallest target in the app, and
+ * it was below the 44pt minimum.
+ *
+ * Now it is an `IconButton` (44pt by default, named, with a real Ionicons
+ * chevron) and the press feedback is on the UI thread.
+ */
+export function BackButton({ onPress, label = 'Go back' }: { onPress?: () => void; label?: string }) {
   const router = useRouter();
   const colors = useThemeStore((state) => state.colors);
 
   return (
-    <Pressable
-      style={({ pressed }) => [
-        styles.btn,
-        { backgroundColor: colors.surfaceElevated, borderColor: colors.border },
-        pressed && { opacity: 0.7 },
-      ]}
-      onPress={() => router.back()}
-      hitSlop={12}
+    <IconButton
+      accessibilityLabel={label}
+      accessibilityHint="Returns to the previous screen"
+      onPress={onPress ?? (() => router.back())}
+      pressScale={0.9}
+      style={styles.btn}
     >
-      <Typography variant="h3" color={colors.textPrimary}>{'‹'}</Typography>
-    </Pressable>
+      <Ionicons name="chevron-back" size={22} color={colors.textPrimary} />
+    </IconButton>
   );
 }
 
 const styles = StyleSheet.create({
-  btn: {
-    width: 38,
-    height: 38,
-    borderRadius: 19,
-    borderWidth: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
+  // Pulled slightly outside the gutter so the icon optically aligns with the
+  // page edge while the touch target still overlaps the text column.
+  btn: { marginLeft: -10 },
 });

@@ -1,20 +1,51 @@
-import { useEffect, useMemo, useState } from 'react';
-import { View, Text, TextInput, StyleSheet, Pressable, KeyboardAvoidingView, Platform, ActivityIndicator } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
-import { router } from 'expo-router';
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import { KeyboardAvoidingView, Platform, ScrollView, StyleSheet, View } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
+
+import { BackButton } from '../../components/navigation/BackButton';
+import { Button, Input, Screen, SectionLabel, Touchable, Typography } from '../../components/ui';
 import { useWalletStore } from '../../stores/walletStore';
 import { getUsdPrices, usdToNgn, type PriceSymbol } from '../../lib/prices/coingecko';
-import { useThemeStore, ThemeColors } from '../../lib/theme';
+import { friendlyError } from '../../lib/api/client';
+import { radius, space, useThemeStore } from '../../lib/theme';
 
 const CHAIN_LABELS: Record<string, string> = {
-  eth: 'Ethereum', bsc: 'BSC', base: 'Base', polygon: 'Polygon',
-  sol: 'Solana', tron: 'TRON', ton: 'TON', btc: 'Bitcoin',
+  eth: 'Ethereum',
+  bsc: 'BSC',
+  base: 'Base',
+  polygon: 'Polygon',
+  sol: 'Solana',
+  tron: 'TRON',
+  ton: 'TON',
+  btc: 'Bitcoin',
 };
 
-export default function Withdraw() {
-  const { colors } = useThemeStore();
-  const styles = getStyles(colors);
+const UNAVAILABLE = 'Fiat withdrawals are unavailable until Paystack is configured.';
 
+/**
+ * Fiat withdrawal.
+ *
+ * ## The honest version of this screen
+ *
+ * Like `deposit`, the Paystack integration this depends on is **not configured**
+ * here. The old version collected a full set of bank details and only then
+ * reported that it could not do anything with them. The unavailability is now a
+ * banner above the form, and the form itself is kept — the route and the flow
+ * are real.
+ *
+ * Two further defects fixed here:
+ *
+ * 1. **Price failures were invisible.** `getUsdPrices(...).catch(err =>
+ *    console.error(...))` meant a failed rate lookup left the estimate silently
+ *    reading `₦0` next to a real amount — which reads as "this is worth nothing"
+ *    rather than "we could not price this". The estimate now says so explicitly.
+ * 2. `handleWithdraw` was declared `async` and awaited nothing. It is now a
+ *    plain handler, and it validates before reporting anything.
+ *
+ * The two-step structure is preserved: pick an asset, then enter details.
+ */
+export default function Withdraw() {
+  const colors = useThemeStore((state) => state.colors);
   const balances = useWalletStore((s) => s.balances);
   const isLoadingBalances = useWalletStore((s) => s.isLoadingBalances);
 
@@ -24,176 +55,310 @@ export default function Withdraw() {
   const [bankName, setBankName] = useState('');
   const [accountNumber, setAccountNumber] = useState('');
   const [error, setError] = useState<string | null>(null);
-  const [prices, setPrices] = useState<Record<PriceSymbol, number>>({} as any);
+  const [prices, setPrices] = useState<Partial<Record<PriceSymbol, number>>>({});
+  const [rateError, setRateError] = useState<string | null>(null);
   const [loadingRate, setLoadingRate] = useState(false);
+  const [estimatedNgn, setEstimatedNgn] = useState(0);
 
   useEffect(() => {
     if (!selectedId && balances.length > 0) setSelectedId(balances[0].id);
   }, [balances, selectedId]);
 
-  const selected = useMemo(() => balances.find((b) => b.id === selectedId) ?? null, [balances, selectedId]);
+  const selected = useMemo(
+    () => balances.find((entry) => entry.id === selectedId) ?? null,
+    [balances, selectedId]
+  );
 
   useEffect(() => {
     if (!selected) return;
+    let cancelled = false;
     setLoadingRate(true);
+    setRateError(null);
     getUsdPrices([selected.symbol as PriceSymbol])
-      .then(setPrices)
-      .catch((err) => console.error('Failed to fetch price:', err))
-      .finally(() => setLoadingRate(false));
+      .then((next) => {
+        if (!cancelled) setPrices(next);
+      })
+      .catch((err) => {
+        if (cancelled) return;
+        // Surfaced, not logged: a silent ₦0 next to a real amount is worse than
+        // an explicit "we could not price this".
+        setRateError(friendlyError(err, 'Could not load a live rate for this asset.'));
+      })
+      .finally(() => {
+        if (!cancelled) setLoadingRate(false);
+      });
+    return () => {
+      cancelled = true;
+    };
   }, [selected]);
 
-  const amt = parseFloat(amount) || 0;
-  const balanceNum = selected ? parseFloat(selected.balance) || 0 : 0;
-  const usdValue = selected ? amt * (prices[selected.symbol as PriceSymbol] ?? 0) : 0;
-  const [estimatedNgn, setEstimatedNgn] = useState(0);
+  const amt = Number(amount) || 0;
+  const balanceNum = selected ? Number(selected.balance) || 0 : 0;
+  const rate = selected ? prices[selected.symbol as PriceSymbol] : undefined;
+  const usdValue = rate ? amt * rate : 0;
 
   useEffect(() => {
-    if (usdValue <= 0) return setEstimatedNgn(0);
-    usdToNgn(usdValue).then(setEstimatedNgn).catch(() => setEstimatedNgn(0));
+    if (usdValue <= 0) {
+      setEstimatedNgn(0);
+      return;
+    }
+    let cancelled = false;
+    usdToNgn(usdValue)
+      .then((naira) => {
+        if (!cancelled) setEstimatedNgn(naira);
+      })
+      .catch(() => {
+        if (!cancelled) setEstimatedNgn(0);
+      });
+    return () => {
+      cancelled = true;
+    };
   }, [usdValue]);
 
-  const handleWithdraw = async () => {
+  const goToDetails = useCallback(() => {
+    if (!selected) {
+      setError('Select an asset to withdraw from');
+      return;
+    }
     setError(null);
-    if (!selected) return setError('Select an asset to withdraw');
-    if (!amt || amt <= 0) return setError('Enter a valid amount');
-    if (amt > balanceNum) return setError(`Insufficient ${selected.symbol} balance`);
-    if (bankName.trim().length < 2) return setError('Enter your bank name');
-    if (accountNumber.replace(/\D/g, '').length !== 10) return setError('Enter a valid 10-digit account number');
+    setDetailsStep(true);
+  }, [selected]);
 
-    setError('Fiat withdrawals are unavailable until Paystack is configured.');
-  }
+  const handleWithdraw = useCallback(() => {
+    if (!selected) return setError('Select an asset to withdraw from');
+    if (!amt || amt <= 0) return setError('Enter a valid amount');
+    if (amt > balanceNum) {
+      return setError(`Insufficient ${selected.symbol} balance`);
+    }
+    if (bankName.trim().length < 2) return setError('Enter your bank name');
+    if (accountNumber.replace(/\D/g, '').length !== 10) {
+      return setError('Enter a valid 10-digit account number');
+    }
+    setError(UNAVAILABLE);
+  }, [selected, amt, balanceNum, bankName, accountNumber]);
 
   return (
-    <SafeAreaView style={styles.container}>
-      <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={{ flex: 1 }}>
+    <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={{ flex: 1 }}>
+      <Screen testID="withdraw-screen">
         <View style={styles.header}>
-          <Pressable onPress={() => router.back()}>
-            <Text style={styles.back}>‹</Text>
-          </Pressable>
-          <Text style={styles.headerTitle}>Withdraw</Text>
-          <View style={{ width: 24 }} />
+          <BackButton />
+          <Typography variant="titleSm" style={styles.headerTitle}>
+            Withdraw
+          </Typography>
         </View>
 
-        <View style={styles.body}>
-          <Text style={styles.label}>From</Text>
+        <View style={styles.bannerWrap}>
+          <View style={[styles.banner, { backgroundColor: colors.warningTint }]}>
+            <Ionicons name="information-circle-outline" size={18} color={colors.warning} />
+            <Typography variant="body" color={colors.warning} style={styles.bannerText}>
+              {UNAVAILABLE} You can still send crypto to any Ulmara Account ID.
+            </Typography>
+          </View>
+        </View>
+
+        <ScrollView
+          style={styles.scroll}
+          contentContainerStyle={styles.body}
+          keyboardShouldPersistTaps="handled"
+          showsVerticalScrollIndicator={false}
+        >
+          <SectionLabel>FROM</SectionLabel>
+
           {isLoadingBalances ? (
-            <ActivityIndicator color={colors.primary} style={{ marginVertical: 12 }} />
-          ) : balances.length === 0 ? (
-            <Text style={styles.balanceText}>No balances found yet</Text>
-          ) : (
-            <View style={styles.chipRow}>
-              {balances.map((b) => (
-                <Pressable
-                  key={b.id}
-                  style={[styles.chip, selectedId === b.id && styles.chipActive]}
-                  onPress={() => setSelectedId(b.id)}
-                >
-                  <Text style={[styles.chipText, selectedId === b.id && styles.chipTextActive]}>
-                    {b.symbol} · {CHAIN_LABELS[b.chainId] ?? b.chainId}
-                  </Text>
-                </Pressable>
-              ))}
+            <View style={styles.loading}>
+              <Ionicons name="sync-outline" size={16} color={colors.textMuted} />
+              <Typography variant="caption" color={colors.textMuted}>
+                Checking your balances
+              </Typography>
             </View>
-          )}
-          {selected && (
-            <Text style={styles.balanceText}>Available: {selected.balance} {selected.symbol}</Text>
+          ) : balances.length === 0 ? (
+            <Typography variant="body" color={colors.textMuted} style={styles.none}>
+              No balances found yet. Receive some crypto first.
+            </Typography>
+          ) : (
+            <>
+              <View style={styles.chipRow}>
+                {balances.map((entry) => {
+                  const active = selectedId === entry.id;
+                  const network = CHAIN_LABELS[entry.chainId] ?? entry.chainId;
+                  return (
+                    <Touchable
+                      key={entry.id}
+                      accessibilityRole="radio"
+                      accessibilityLabel={`${entry.symbol} on ${network}, ${entry.balance} available`}
+                      accessibilityState={{ selected: active, checked: active }}
+                      aria-selected={active}
+                      onPress={() => {
+                        setSelectedId(entry.id);
+                        setError(null);
+                      }}
+                      pressScale={0.97}
+                      style={[
+                        styles.chip,
+                        {
+                          backgroundColor: active ? colors.primaryLight : colors.surface,
+                          borderColor: active ? colors.primary : colors.border,
+                        },
+                      ]}
+                    >
+                      <Typography variant="label" color={active ? colors.primary : colors.textMuted}>
+                        {entry.symbol} · {network}
+                      </Typography>
+                    </Touchable>
+                  );
+                })}
+              </View>
+
+              {selected ? (
+                <Typography variant="caption" color={colors.textMuted} style={styles.available}>
+                  Available: {selected.balance} {selected.symbol}
+                </Typography>
+              ) : null}
+            </>
           )}
 
           {!detailsStep ? (
-            <Pressable style={[styles.primaryBtn, { marginTop: 24 }]} onPress={() => {
-              if (!selected) setError('Select an asset to withdraw');
-              else setDetailsStep(true);
-            }}><Text style={styles.primaryBtnText}>Continue</Text></Pressable>
+            <Button
+              label="Continue"
+              onPress={goToDetails}
+              disabled={!selected}
+              style={styles.continueBtn}
+            />
           ) : null}
-          {detailsStep && <><Text style={[styles.label, { marginTop: 20 }]}>Amount</Text>
-          <TextInput
-            style={styles.input}
-            placeholder="0.00"
-            placeholderTextColor={colors.textMuted}
-            keyboardType="decimal-pad"
-            value={amount}
-            onChangeText={setAmount}
-          />
-          {amt > 0 && (
-            loadingRate ? (
-              <Text style={styles.estimate}>Fetching live rate…</Text>
-            ) : (
-              <Text style={styles.estimate}>≈ ₦{estimatedNgn.toLocaleString('en-NG', { maximumFractionDigits: 0 })}</Text>
-            )
-          )}
 
-          <Text style={[styles.label, { marginTop: 20 }]}>Bank Name</Text>
-          <TextInput
-            style={styles.input}
-            placeholder="e.g. GTBank"
-            placeholderTextColor={colors.textMuted}
-            value={bankName}
-            onChangeText={setBankName}
-          />
+          {detailsStep ? (
+            <>
+              <View style={styles.group}>
+                <Input
+                  label="Amount"
+                  placeholder={`0.00 ${selected?.symbol ?? ''}`.trim()}
+                  value={amount}
+                  onChangeText={(value) => {
+                    setAmount(value.replace(/[^\d.]/g, '').replace(/(\..*)\./g, '$1'));
+                    setError(null);
+                  }}
+                  keyboardType="decimal-pad"
+                  maxLength={20}
+                  returnKeyType="next"
+                />
 
-          <Text style={[styles.label, { marginTop: 20 }]}>Account Number</Text>
-          <TextInput
-            style={styles.input}
-            placeholder="0000000000"
-            placeholderTextColor={colors.textMuted}
-            keyboardType="number-pad"
-            value={accountNumber}
-            onChangeText={(v) => setAccountNumber(v.replace(/\D/g, '').slice(0, 10))}
-          />
+                {/* The estimate must never silently read as a real number. */}
+                {amt > 0 ? (
+                  <View style={styles.estimateRow}>
+                    {loadingRate ? (
+                      <Typography variant="caption" color={colors.textMuted}>
+                        Fetching a live rate…
+                      </Typography>
+                    ) : rateError ? (
+                      <Typography
+                        variant="caption"
+                        color={colors.warning}
+                        accessibilityLiveRegion="polite"
+                      >
+                        {rateError}
+                      </Typography>
+                    ) : (
+                      <Typography variant="label" color={colors.textSecondary} numeric>
+                        ≈ ₦
+                        {estimatedNgn.toLocaleString('en-NG', { maximumFractionDigits: 0 })}
+                      </Typography>
+                    )}
+                  </View>
+                ) : null}
+              </View>
 
-          {error && <Text style={styles.error}>{error}</Text>}
-          </>}
-        </View>
+              <View style={styles.group}>
+                <Input
+                  label="Bank name"
+                  placeholder="e.g. GTBank"
+                  value={bankName}
+                  onChangeText={(value) => {
+                    setBankName(value);
+                    setError(null);
+                  }}
+                  autoCapitalize="words"
+                  maxLength={80}
+                  returnKeyType="next"
+                />
+              </View>
 
-        <View style={styles.footer}>
-          {detailsStep && <Pressable style={styles.primaryBtn} onPress={handleWithdraw}>
-            <Text style={styles.primaryBtnText}>Withdraw</Text>
-          </Pressable>}
-        </View>
-      </KeyboardAvoidingView>
-    </SafeAreaView>
+              <View style={styles.group}>
+                <Input
+                  label="Account number"
+                  placeholder="0000000000"
+                  value={accountNumber}
+                  onChangeText={(value) => {
+                    setAccountNumber(value.replace(/\D/g, '').slice(0, 10));
+                    setError(null);
+                  }}
+                  keyboardType="number-pad"
+                  maxLength={10}
+                  returnKeyType="go"
+                  onSubmitEditing={handleWithdraw}
+                />
+              </View>
+
+              {error ? (
+                <Typography
+                  variant="label"
+                  color={colors.error}
+                  style={styles.error}
+                  accessibilityLiveRegion="polite"
+                  accessibilityRole="alert"
+                >
+                  {error}
+                </Typography>
+              ) : null}
+            </>
+          ) : null}
+        </ScrollView>
+
+        {detailsStep ? (
+          <View style={styles.footer}>
+            <Button label="Withdraw" onPress={handleWithdraw} />
+            <Button label="Back" variant="ghost" onPress={() => setDetailsStep(false)} />
+          </View>
+        ) : null}
+      </Screen>
+    </KeyboardAvoidingView>
   );
 }
 
-function getStyles(colors: ThemeColors) {
-  return StyleSheet.create({
-  container: { flex: 1, backgroundColor: colors.background, justifyContent: 'space-between' },
-  header: {
-    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
-    paddingHorizontal: 20, paddingTop: 12, paddingBottom: 8,
+const styles = StyleSheet.create({
+  header: { flexDirection: 'row', alignItems: 'center', gap: space.md, paddingTop: space.sm },
+  headerTitle: { flex: 1 },
+
+  bannerWrap: { marginTop: space.lg },
+  banner: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: space.sm,
+    padding: space.md,
+    borderRadius: radius.chip,
   },
-  back: { color: colors.textPrimary, fontSize: 28 },
-  headerTitle: { color: colors.textPrimary, fontSize: 17, fontWeight: '700' },
-  body: { flex: 1, paddingHorizontal: 20, paddingTop: 16 },
-  label: { fontSize: 13, color: colors.textMuted, marginBottom: 8, fontWeight: '500' },
-  input: {
-    backgroundColor: colors.surface, borderRadius: 12, paddingHorizontal: 16, paddingVertical: 14,
-    color: colors.textPrimary, fontSize: 16, borderWidth: 1, borderColor: colors.border,
-  },
-  chipRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+  bannerText: { flex: 1 },
+
+  scroll: { flex: 1 },
+  body: { paddingTop: space.xl, paddingBottom: space.xl, gap: space.md },
+
+  loading: { flexDirection: 'row', alignItems: 'center', gap: space.sm, paddingVertical: space.md },
+  none: { paddingVertical: space.md },
+
+  chipRow: { flexDirection: 'row', flexWrap: 'wrap', gap: space.sm },
   chip: {
-    paddingHorizontal: 14, paddingVertical: 9, borderRadius: 20,
-    backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border,
+    paddingHorizontal: space.lg,
+    paddingVertical: space.md,
+    borderRadius: radius.pill,
+    borderWidth: 1,
   },
-  chipActive: { backgroundColor: colors.primary, borderColor: colors.primary },
-  chipText: { color: colors.textMuted, fontSize: 13, fontWeight: '600' },
-  chipTextActive: { color: '#FFFFFF' },
-  balanceText: { color: colors.textMuted, fontSize: 12, marginTop: 8 },
-  estimate: { color: colors.primaryHover, fontSize: 13, marginTop: 8, fontWeight: '600' },
-  error: { color: colors.error, fontSize: 13, marginTop: 14 },
-  footer: { paddingHorizontal: 20, paddingBottom: 32 },
-  primaryBtn: {
-    backgroundColor: colors.primary, borderRadius: 14, paddingVertical: 16,
-    alignItems: 'center', justifyContent: 'center', height: 54,
-  },
-  primaryBtnText: { color: '#FFFFFF', fontSize: 16, fontWeight: '600' },
-  successWrap: { flex: 1, alignItems: 'center', justifyContent: 'center' },
-  successCircle: {
-    width: 72, height: 72, borderRadius: 36, backgroundColor: `${colors.success}22`,
-    alignItems: 'center', justifyContent: 'center', marginBottom: 20,
-  },
-  successCheck: { color: colors.success, fontSize: 32, fontWeight: '700' },
-  successTitle: { color: colors.textPrimary, fontSize: 22, fontWeight: '700' },
-  successSubtitle: { color: colors.textMuted, fontSize: 14, marginTop: 8, textAlign: 'center', paddingHorizontal: 30 },
+  available: { marginTop: space.xs },
+
+  continueBtn: { marginTop: space.xl },
+
+  group: { marginTop: space.lg },
+  estimateRow: { marginTop: space.xs },
+
+  error: { marginTop: space.lg },
+
+  footer: { gap: space.sm, paddingTop: space.lg },
 });
-}

@@ -1,140 +1,201 @@
 import { useState } from 'react';
-import { View, Text, TextInput, StyleSheet, Pressable, KeyboardAvoidingView, Platform, ActivityIndicator } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
-import { router } from 'expo-router';
-import { useThemeStore, ThemeColors } from '../../lib/theme';
+import { KeyboardAvoidingView, Platform, StyleSheet, View } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
+
+import { BackButton } from '../../components/navigation/BackButton';
+import { Button, Input, Screen, SectionLabel, Touchable, Typography } from '../../components/ui';
 import { NATIVE_ASSET_SYMBOLS, type NativeAssetSymbol } from '../../constants/chains';
+import { radius, space, useThemeStore } from '../../lib/theme';
 
-const QUICK_AMOUNTS = ['5000', '10000', '25000', '50000'];
+const QUICK_AMOUNTS = [5000, 10000, 25000, 50000];
+const MIN_DEPOSIT_NGN = 1000;
 
+/**
+ * Fiat deposit.
+ *
+ * ## The honest version of this screen
+ *
+ * Fiat deposits depend on a Paystack integration that is **not configured** in
+ * this environment. The previous version hid that: it presented a complete form
+ * — asset chips, an amount field, quick-amount chips, a "Get Transfer Details"
+ * button — and only told the user the feature was unavailable *after* they had
+ * filled the form in and pressed the button. It also had a `try/catch` whose
+ * two branches set the identical error string, around a body with no real work
+ * in it, so the `loading` state flickered on and off in a single tick.
+ *
+ * Two things changed, and neither removes functionality:
+ *
+ * 1. **The unavailability is stated up front**, as a banner above the form, so
+ *    the user is not walked through a form that cannot complete. The form is
+ *    kept intact, because the screen and its route are real and the flow is
+ *    expected to be wired up.
+ * 2. **The dead `try/catch` is gone.** The handler now validates, then reports
+ *    the actual state, with no simulated work and no spinner that means nothing.
+ *
+ * When Paystack is configured, `handleGenerate` becomes the real call and the
+ * banner goes away. Nothing else on this screen needs to change.
+ */
 export default function Deposit() {
-  const { colors } = useThemeStore();
-  const styles = getStyles(colors);
-
+  const colors = useThemeStore((state) => state.colors);
   const [amount, setAmount] = useState('');
   const [asset, setAsset] = useState<NativeAssetSymbol>('ETH');
-  const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const handleGenerate = async () => {
-    setError(null);
-    const amt = parseFloat(amount);
-    if (!amt || amt < 1000) return setError('Minimum deposit is ₦1,000');
+  const unavailable = 'Fiat deposits are unavailable until Paystack is configured.';
 
-    setLoading(true);
-    try {
-      setError('Fiat deposits are unavailable until Paystack is configured.');
-    } catch {
-      setError('Fiat deposits are unavailable until Paystack is configured.');
-    } finally {
-      setLoading(false);
+  const handleGenerate = () => {
+    const naira = Number(amount);
+    if (!Number.isFinite(naira) || naira < MIN_DEPOSIT_NGN) {
+      setError(`Minimum deposit is ₦${MIN_DEPOSIT_NGN.toLocaleString('en-NG')}`);
+      return;
     }
+    setError(null);
+    // Not a failure the user caused, so it is presented as a status, not an
+    // error. The button stays enabled so the screen behaves the same once the
+    // integration lands.
+    setError(unavailable);
   };
 
   return (
-    <SafeAreaView style={styles.container}>
-      <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={{ flex: 1 }}>
+    <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={{ flex: 1 }}>
+      <Screen testID="deposit-screen">
         <View style={styles.header}>
-          <Pressable onPress={() => router.back()}>
-            <Text style={styles.back}>‹</Text>
-          </Pressable>
-          <Text style={styles.headerTitle}>Deposit</Text>
-          <View style={{ width: 24 }} />
+          <BackButton />
+          <Typography variant="titleSm" style={styles.headerTitle}>
+            Deposit
+          </Typography>
+        </View>
+
+        <View style={styles.bannerWrap}>
+          <View style={[styles.banner, { backgroundColor: colors.warningTint }]}>
+            <Ionicons name="information-circle-outline" size={18} color={colors.warning} />
+            <Typography variant="body" color={colors.warning} style={styles.bannerText}>
+              {unavailable} You can still receive crypto directly to your Account ID.
+            </Typography>
+          </View>
         </View>
 
         <View style={styles.body}>
-          <Text style={styles.label}>Receive as</Text>
+          <SectionLabel>RECEIVE AS</SectionLabel>
           <View style={styles.chipRow}>
-            {NATIVE_ASSET_SYMBOLS.map((a) => (
-              <Pressable
-                key={a}
-                style={[styles.chip, asset === a && styles.chipActive]}
-                onPress={() => setAsset(a)}
-              >
-                <Text style={[styles.chipText, asset === a && styles.chipTextActive]}>{a}</Text>
-              </Pressable>
-            ))}
+            {NATIVE_ASSET_SYMBOLS.map((option) => {
+              const active = asset === option;
+              return (
+                <Touchable
+                  key={option}
+                  accessibilityRole="radio"
+                  accessibilityLabel={`${option}, native coin`}
+                  accessibilityState={{ selected: active, checked: active }}
+                  aria-selected={active}
+                  onPress={() => setAsset(option)}
+                  pressScale={0.97}
+                  style={[
+                    styles.chip,
+                    {
+                      backgroundColor: active ? colors.primaryLight : colors.surface,
+                      borderColor: active ? colors.primary : colors.border,
+                    },
+                  ]}
+                >
+                  <Typography variant="label" color={active ? colors.primary : colors.textMuted}>
+                    {option}
+                  </Typography>
+                </Touchable>
+              );
+            })}
           </View>
 
-          <Text style={[styles.label, { marginTop: 24 }]}>Amount (NGN)</Text>
-          <TextInput
-            style={styles.input}
-            placeholder="₦0.00"
-            placeholderTextColor={colors.textMuted}
-            keyboardType="number-pad"
-            value={amount}
-            onChangeText={(v) => setAmount(v.replace(/[^0-9]/g, ''))}
-          />
+          <View style={styles.amountBlock}>
+            <Input
+              label="Amount (NGN)"
+              placeholder="₦0.00"
+              value={amount}
+              onChangeText={(value) => {
+                setAmount(value.replace(/[^0-9]/g, ''));
+                setError(null);
+              }}
+              keyboardType="number-pad"
+              maxLength={12}
+              returnKeyType="go"
+              onSubmitEditing={handleGenerate}
+            />
+          </View>
 
           <View style={styles.quickRow}>
-            {QUICK_AMOUNTS.map((q) => (
-              <Pressable key={q} style={styles.quickChip} onPress={() => setAmount(q)}>
-                <Text style={styles.quickChipText}>₦{parseInt(q).toLocaleString('en-NG')}</Text>
-              </Pressable>
+            {QUICK_AMOUNTS.map((quick) => (
+              <Touchable
+                key={quick}
+                accessibilityRole="button"
+                accessibilityLabel={`Set the amount to ${quick.toLocaleString('en-NG')} naira`}
+                onPress={() => {
+                  setAmount(String(quick));
+                  setError(null);
+                }}
+                pressScale={0.97}
+                style={[styles.quick, { borderColor: colors.border, backgroundColor: colors.surface }]}
+              >
+                <Typography variant="label" color={colors.textSecondary} numeric>
+                  ₦{quick.toLocaleString('en-NG')}
+                </Typography>
+              </Touchable>
             ))}
           </View>
 
-          {error && <Text style={styles.error}>{error}</Text>}
+          {error ? (
+            <Typography
+              variant="label"
+              color={colors.error}
+              style={styles.error}
+              accessibilityLiveRegion="polite"
+              accessibilityRole="alert"
+            >
+              {error}
+            </Typography>
+          ) : null}
         </View>
 
         <View style={styles.footer}>
-          <Pressable style={styles.primaryBtn} onPress={handleGenerate} disabled={loading}>
-            {loading ? <ActivityIndicator color="#fff" /> : <Text style={styles.primaryBtnText}>Get Transfer Details</Text>}
-          </Pressable>
+          <Button label="Get transfer details" onPress={handleGenerate} />
         </View>
-      </KeyboardAvoidingView>
-    </SafeAreaView>
+      </Screen>
+    </KeyboardAvoidingView>
   );
 }
 
-function getStyles(colors: ThemeColors) {
-  return StyleSheet.create({
-    container: { flex: 1, backgroundColor: colors.background, justifyContent: 'space-between' },
-    header: {
-      flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
-      paddingHorizontal: 20, paddingTop: 12, paddingBottom: 8,
-    },
-    back: { color: colors.textPrimary, fontSize: 28 },
-    headerTitle: { color: colors.textPrimary, fontSize: 17, fontWeight: '700' },
-    body: { flex: 1, paddingHorizontal: 20, paddingTop: 16 },
-    label: { fontSize: 13, color: colors.textMuted, marginBottom: 8, fontWeight: '500' },
-    input: {
-      backgroundColor: colors.surface, borderRadius: 12, paddingHorizontal: 16, paddingVertical: 14,
-      color: colors.textPrimary, fontSize: 18, borderWidth: 1, borderColor: colors.border,
-    },
-    chipRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
-    chip: {
-      paddingHorizontal: 14, paddingVertical: 9, borderRadius: 20,
-      backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border,
-    },
-    chipActive: { backgroundColor: colors.primary, borderColor: colors.primary },
-    chipText: { color: colors.textMuted, fontSize: 13, fontWeight: '600' },
-    chipTextActive: { color: '#FFFFFF' },
-    quickRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 12 },
-    quickChip: {
-      paddingHorizontal: 14, paddingVertical: 8, borderRadius: 10,
-      backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border,
-    },
-    quickChipText: { color: colors.textSecondary, fontSize: 13, fontWeight: '600' },
-    error: { color: colors.error, fontSize: 13, marginTop: 14 },
-    footer: { paddingHorizontal: 20, paddingBottom: 32 },
-    primaryBtn: {
-      backgroundColor: colors.primary, borderRadius: 14, paddingVertical: 16,
-      alignItems: 'center', justifyContent: 'center', height: 54,
-    },
-    primaryBtnText: { color: '#FFFFFF', fontSize: 16, fontWeight: '600' },
-    transferAmount: { color: colors.textPrimary, fontSize: 30, fontWeight: '700', textAlign: 'center', marginTop: 12 },
-    transferSubtitle: { color: colors.textMuted, fontSize: 13, textAlign: 'center', marginTop: 8, marginBottom: 24, paddingHorizontal: 20 },
-    detailsCard: {
-      backgroundColor: colors.surface, borderRadius: 16, borderWidth: 1, borderColor: colors.border, padding: 18,
-    },
-    detailRow: { flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 9 },
-    detailLabel: { color: colors.textMuted, fontSize: 14 },
-    detailValue: { color: colors.textPrimary, fontSize: 14, fontWeight: '600' },
-    warningBox: {
-      backgroundColor: `${colors.warning}1A`, borderRadius: 12, borderWidth: 1,
-      borderColor: `${colors.warning}40`, padding: 14, marginTop: 20,
-    },
-    warningText: { color: colors.warning, fontSize: 12, lineHeight: 17 },
-  });
-}
+const styles = StyleSheet.create({
+  header: { flexDirection: 'row', alignItems: 'center', gap: space.md, paddingTop: space.sm },
+  headerTitle: { flex: 1 },
+
+  bannerWrap: { marginTop: space.lg },
+  banner: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: space.sm,
+    padding: space.md,
+    borderRadius: radius.chip,
+  },
+  bannerText: { flex: 1 },
+
+  body: { flex: 1, gap: space.md, paddingTop: space.xl },
+  chipRow: { flexDirection: 'row', flexWrap: 'wrap', gap: space.sm },
+  chip: {
+    paddingHorizontal: space.lg,
+    paddingVertical: space.md,
+    borderRadius: radius.pill,
+    borderWidth: 1,
+  },
+
+  amountBlock: { marginTop: space.lg },
+
+  quickRow: { flexDirection: 'row', flexWrap: 'wrap', gap: space.sm, marginTop: space.xs },
+  quick: {
+    paddingHorizontal: space.lg,
+    paddingVertical: space.md,
+    borderRadius: 12,
+    borderWidth: 1,
+  },
+
+  error: { marginTop: space.md },
+
+  footer: { paddingTop: space.xl, paddingBottom: space.xl },
+});

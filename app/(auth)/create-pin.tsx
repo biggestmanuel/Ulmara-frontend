@@ -1,19 +1,25 @@
-import { useState } from 'react';
-import { View, Text, StyleSheet, Pressable } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { useCallback, useState } from 'react';
+import { StyleSheet, View } from 'react-native';
 import { router } from 'expo-router';
 
+import { Keypad, PIN_LENGTH, PinDots, Typography } from '../../components/ui';
 import { setPin as setPinApi } from '../../lib/api/auth';
-import type { ApiErrorShape } from '../../lib/api/client';
+import { friendlyError } from '../../lib/api/client';
+import { getSecureItem, SecureStorageKeys } from '../../lib/storage/secureStorage';
 import { useAuthGateStore } from '../../stores/authGateStore';
-import { useThemeStore, ThemeColors } from '../../lib/theme';
+import { space, useThemeStore } from '../../lib/theme';
 
-const PIN_LENGTH = 6;
-const KEYS = ['1', '2', '3', '4', '5', '6', '7', '8', '9', '', '0', 'del'];
-
+/**
+ * PIN creation and confirmation.
+ *
+ * Shares the `Keypad` with `verify-pin`, which is what fixed a real
+ * accessibility gap: this screen's keys previously had **no
+ * `accessibilityRole` and no `accessibilityLabel` at all**, so the screen used to
+ * *create* the PIN that authorises every transfer was unusable with a screen
+ * reader. One component now guarantees both screens name every key.
+ */
 export default function CreatePin() {
-  const { colors } = useThemeStore();
-  const styles = getStyles(colors);
+  const colors = useThemeStore((state) => state.colors);
   const [stage, setStage] = useState<'create' | 'confirm'>('create');
   const [pin, setPin] = useState('');
   const [confirmPin, setConfirmPin] = useState('');
@@ -21,116 +27,125 @@ export default function CreatePin() {
   const [saving, setSaving] = useState(false);
 
   const activePin = stage === 'create' ? pin : confirmPin;
-  const setActivePin = stage === 'create' ? setPin : setConfirmPin;
 
-  const persistPin = async (rawPin: string) => {
-    setSaving(true);
-    try {
-      // Hashed and stored on the server (User.pinHash) — this is the PIN
-      // you'll be asked for on every future login, on any device.
-      await setPinApi(rawPin);
-      // They just typed and confirmed it — that's proof enough for this
-      // session, so mark it verified now rather than forcing an immediate
-      // re-prompt at the end of onboarding (pinVerified otherwise only
-      // flips via the verify-pin screen, which this flow never visits).
-      useAuthGateStore.setState({ pinVerified: true });
-      router.push('/(auth)/create-account-id');
-    } catch (err) {
-      console.error('Failed to persist PIN:', err);
-      setError((err as ApiErrorShape).message ?? 'Something went wrong saving your PIN. Try again.');
-      setConfirmPin('');
-      setStage('create');
-      setPin('');
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  const handleKeyPress = (key: string) => {
-    if (key === '' || saving) return;
-    setError(null);
-
-    if (key === 'del') {
-      setActivePin(activePin.slice(0, -1));
-      return;
-    }
-
-    if (activePin.length >= PIN_LENGTH) return;
-    const next = activePin + key;
-    setActivePin(next);
-
-    if (next.length === PIN_LENGTH) {
-      if (stage === 'create') {
-        setTimeout(() => setStage('confirm'), 150);
-      } else {
-        if (next === pin) {
-          persistPin(next);
-        } else {
-          setError('PINs do not match');
-          setTimeout(() => {
-            setConfirmPin('');
-          }, 400);
-        }
+  const persistPin = useCallback(
+    async (rawPin: string) => {
+      setSaving(true);
+      try {
+        // Hashed and stored on the server (User.pinHash) — this is the PIN
+        // you'll be asked for on every future login, on any device.
+        await setPinApi(rawPin);
+        // They just typed and confirmed it — that's proof enough for this
+        // session, so mark it verified now rather than forcing an immediate
+        // re-prompt at the end of onboarding. markPinVerified (rather than
+        // setState) also clears the gate's `pinMissing` flag, which is what let
+        // this screen be reached at all, and re-runs the gate check so the root
+        // layout resolves to 'authed'.
+        await useAuthGateStore.getState().markPinVerified();
+        // Normal onboarding reaches this screen from verify-phone and still owes
+        // the user an Account ID, so it goes on to create-account-id. But this
+        // screen is also the recovery path for an account that has an ID and no
+        // PIN (verify-pin routes 409 -> here); sending that user back through
+        // create-account-id would make them re-confirm an ID they already have.
+        // The stored ID is the local, reliable signal for which case this is.
+        const existingAccountId = await getSecureItem(SecureStorageKeys.ACCOUNT_ID);
+        router.replace(existingAccountId ? '/(tabs)/home' : '/(auth)/create-account-id');
+      } catch (err) {
+        console.error('Failed to persist PIN:', err);
+        setError(friendlyError(err, 'Something went wrong saving your PIN. Try again.'));
+        setConfirmPin('');
+        setStage('create');
+        setPin('');
+      } finally {
+        setSaving(false);
       }
-    }
-  };
+    },
+    []
+  );
+
+  const handleDigit = useCallback(
+    (digit: string) => {
+      if (saving) return;
+      setError(null);
+
+      const current = stage === 'create' ? pin : confirmPin;
+      if (current.length >= PIN_LENGTH) return;
+      const next = current + digit;
+
+      if (stage === 'create') {
+        setPin(next);
+        if (next.length === PIN_LENGTH) {
+          setTimeout(() => setStage('confirm'), 150);
+        }
+        return;
+      }
+
+      setConfirmPin(next);
+      if (next.length !== PIN_LENGTH) return;
+
+      if (next === pin) {
+        void persistPin(next);
+      } else {
+        setError('Those PINs did not match. Start again.');
+        setTimeout(() => setConfirmPin(''), 600);
+      }
+    },
+    // `confirmPin` is a real dependency, not a lint formality. Without it this
+    // callback is not recreated while the user types the *confirmation* digits
+    // (nothing else in the list changes), so `current` would keep reading the
+    // value from when the stage last flipped — and every digit after the first
+    // would replace the buffer instead of appending to it.
+    [saving, stage, pin, confirmPin, persistPin]
+  );
+
+  const handleDelete = useCallback(() => {
+    if (saving) return;
+    setError(null);
+    if (stage === 'create') setPin((p) => p.slice(0, -1));
+    else setConfirmPin((p) => p.slice(0, -1));
+  }, [saving, stage]);
 
   return (
-    <SafeAreaView style={styles.container}>
+    <View style={[styles.container, { backgroundColor: colors.background }]}>
       <View style={styles.body}>
-        <Text style={styles.title}>
-          {stage === 'create' ? 'Create your PIN' : 'Confirm your PIN'}
-        </Text>
-        <Text style={styles.subtitle}>
-          {stage === 'create'
-            ? 'Used to authorize transactions'
-            : 'Enter your PIN again to confirm'}
-        </Text>
-
-        <View style={styles.dotsRow}>
-          {Array.from({ length: PIN_LENGTH }).map((_, i) => (
-            <View
-              key={i}
-              style={[styles.dot, i < activePin.length && styles.dotFilled]}
-            />
-          ))}
+        <View style={styles.headings}>
+          <Typography variant="title">
+            {stage === 'create' ? 'Create your PIN' : 'Confirm your PIN'}
+          </Typography>
+          <Typography variant="body" color={colors.textMuted} style={styles.subtitle}>
+            {stage === 'create'
+              ? 'Used to authorise transfers on this account'
+              : 'Enter the same PIN again'}
+          </Typography>
         </View>
 
-        {error && <Text style={styles.error}>{error}</Text>}
+        <PinDots length={activePin.length} />
+
+        {error ? (
+          <Typography
+            variant="label"
+            color={colors.error}
+            style={styles.error}
+            accessibilityLiveRegion="polite"
+            accessibilityRole="alert"
+          >
+            {error}
+          </Typography>
+        ) : null}
       </View>
 
-      <View style={styles.keypad}>
-        {KEYS.map((key, idx) => (
-          <Pressable
-            key={idx}
-            style={styles.key}
-            onPress={() => handleKeyPress(key)}
-            disabled={key === '' || saving}
-          >
-            <Text style={styles.keyText}>{key === 'del' ? '⌫' : key}</Text>
-          </Pressable>
-        ))}
+      <View style={styles.footer}>
+        <Keypad onDigit={handleDigit} onDelete={handleDelete} disabled={saving} />
       </View>
-    </SafeAreaView>
+    </View>
   );
 }
 
-function getStyles(colors: ThemeColors) {
-  return StyleSheet.create({
-  container: { flex: 1, backgroundColor: colors.background, justifyContent: 'space-between' },
-  body: { flex: 1, paddingHorizontal: 24, paddingTop: 56, alignItems: 'center' },
-  title: { fontSize: 24, fontWeight: '700', color: colors.textPrimary },
-  subtitle: { fontSize: 14, color: colors.textMuted, marginTop: 8, marginBottom: 40, textAlign: 'center' },
-  dotsRow: { flexDirection: 'row', gap: 16 },
-  dot: { width: 16, height: 16, borderRadius: 8, borderWidth: 1.5, borderColor: colors.divider },
-  dotFilled: { backgroundColor: colors.primary, borderColor: colors.primary },
-  error: { color: colors.error, fontSize: 13, marginTop: 24 },
-  keypad: {
-    flexDirection: 'row', flexWrap: 'wrap', paddingHorizontal: 24, paddingBottom: 40,
-  },
-  key: {
-    width: '33.33%', height: 76, alignItems: 'center', justifyContent: 'center',
-  },
-  keyText: { fontSize: 26, color: colors.textPrimary, fontWeight: '500' },
+const styles = StyleSheet.create({
+  container: { flex: 1 },
+  body: { flex: 1, paddingHorizontal: 24, paddingTop: space.xxxl, alignItems: 'center' },
+  headings: { alignItems: 'center', marginBottom: space.xxl },
+  subtitle: { marginTop: space.sm, textAlign: 'center' },
+  error: { marginTop: space.xl, textAlign: 'center' },
+  footer: { paddingBottom: space.xxl },
 });
-}

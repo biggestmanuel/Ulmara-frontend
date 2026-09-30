@@ -12,7 +12,14 @@ export type DefaultNetwork =
   | 'Auto (Recommended)' | 'TON' | 'BSC' | 'ETH' | 'SOL' | 'Base' | 'Polygon' | 'TRON';
 
 export interface NotificationPrefs {
+  /** Master switch for transaction pushes. */
   pushTransactions: boolean;
+  /** Incoming transfer received. */
+  pushReceived: boolean;
+  /** Outgoing transfer confirmed on the network. */
+  pushSentConfirmed: boolean;
+  /** Outgoing transfer failed. */
+  pushSentFailed: boolean;
   pushSecurity: boolean;
   pushPriceAlerts: boolean;
   emailReceipts: boolean;
@@ -31,15 +38,42 @@ interface PreferencesState {
   setLanguage: (l: Language) => void;
   setDefaultNetwork: (n: DefaultNetwork) => void;
   setNotification: (key: keyof NotificationPrefs, value: boolean) => void;
+  /** Whether a given backend push event should surface on this device. */
+  isTransactionEventEnabled: (
+    type: 'transfer.received' | 'transfer.sent.confirmed' | 'transfer.sent.failed'
+  ) => boolean;
 }
 
 const DEFAULT_NOTIFICATIONS: NotificationPrefs = {
   pushTransactions: true,
+  // All three transaction events default on — a user who turns on transaction
+  // notifications should not have to enable each one separately.
+  pushReceived: true,
+  pushSentConfirmed: true,
+  pushSentFailed: true,
   pushSecurity: true,
   pushPriceAlerts: false,
   emailReceipts: true,
   emailProduct: false,
 };
+
+/** Maps a backend push event to the device-local toggle that governs it. */
+const EVENT_PREFERENCE: Record<
+  'transfer.received' | 'transfer.sent.confirmed' | 'transfer.sent.failed',
+  'pushReceived' | 'pushSentConfirmed' | 'pushSentFailed'
+> = {
+  'transfer.received': 'pushReceived',
+  'transfer.sent.confirmed': 'pushSentConfirmed',
+  'transfer.sent.failed': 'pushSentFailed',
+};
+
+function isTransactionEventEnabled(
+  notifications: NotificationPrefs,
+  type: 'transfer.received' | 'transfer.sent.confirmed' | 'transfer.sent.failed'
+): boolean {
+  if (!notifications.pushTransactions) return false;
+  return notifications[EVENT_PREFERENCE[type]];
+}
 
 async function persist(state: Pick<PreferencesState, 'currency' | 'language' | 'defaultNetwork' | 'notifications'>) {
   try {
@@ -89,7 +123,17 @@ export const usePreferencesStore = create<PreferencesState>((set, get) => ({
   },
   setNotification: (key, value) => {
     const notifications = { ...get().notifications, [key]: value };
+    // The master switch is the union of the three transaction events, so
+    // turning it off clears the individual toggles rather than leaving the UI
+    // showing "on" switches that would never fire.
+    if (key === 'pushTransactions' && !value) {
+      notifications.pushReceived = false;
+      notifications.pushSentConfirmed = false;
+      notifications.pushSentFailed = false;
+    }
     set({ notifications });
     persist({ ...get(), notifications });
   },
+
+  isTransactionEventEnabled: (type) => isTransactionEventEnabled(get().notifications, type),
 }));

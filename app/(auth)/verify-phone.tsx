@@ -1,34 +1,35 @@
-import { useRef, useState, useEffect } from 'react';
-import { View, Text, TextInput, StyleSheet, Pressable, ActivityIndicator } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { useCallback, useEffect, useState } from 'react';
+import { StyleSheet, View } from 'react-native';
 import { router, useLocalSearchParams } from 'expo-router';
 
+import { Button, CodeBoxes, Screen, Touchable, Typography, toDigits } from '../../components/ui';
 import { verifyPhone as verifyPhoneApi, resendCode as resendCodeApi } from '../../lib/api/auth';
-import type { ApiErrorShape } from '../../lib/api/client';
-import { useThemeStore, ThemeColors } from '../../lib/theme';
+import { friendlyError } from '../../lib/api/client';
+import { space, useThemeStore } from '../../lib/theme';
 
 const CODE_LENGTH = 6;
 const RESEND_SECONDS = 30;
 
-// Splits a 6-digit code into per-input-box digits, or blanks when absent.
-// Module scope — it was previously left inside handleVerify by an
-// interrupted edit (same bug as verify-email.tsx).
-function toDigits(value?: string): string[] {
-  return value && /^\d{6}$/.test(value) ? value.split('') : Array(CODE_LENGTH).fill('');
-}
-
+/**
+ * Phone verification.
+ *
+ * Shares `CodeBoxes` with `verify-email`. This screen's copy of the code field
+ * previously had no accessible labels at all and could not accept a pasted
+ * code; both are fixed by the shared component.
+ */
 export default function VerifyPhone() {
-  const { colors } = useThemeStore();
-  const styles = getStyles(colors);
+  const colors = useThemeStore((state) => state.colors);
   const { phone, userId, devPhoneCode } = useLocalSearchParams<{
-    phone?: string; userId?: string; devPhoneCode?: string;
+    phone?: string;
+    userId?: string;
+    devPhoneCode?: string;
   }>();
+
   const [code, setCode] = useState<string[]>(() => toDigits(devPhoneCode));
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [resending, setResending] = useState(false);
   const [seconds, setSeconds] = useState(RESEND_SECONDS);
-  const inputs = useRef<(TextInput | null)[]>([]);
 
   useEffect(() => {
     if (seconds === 0) return;
@@ -36,23 +37,35 @@ export default function VerifyPhone() {
     return () => clearTimeout(t);
   }, [seconds]);
 
-  const onChangeDigit = (val: string, idx: number) => {
-    const digit = val.replace(/\D/g, '').slice(-1);
-    const next = [...code];
-    next[idx] = digit;
-    setCode(next);
-    if (digit && idx < CODE_LENGTH - 1) inputs.current[idx + 1]?.focus();
-  };
+  const onChangeDigit = useCallback((value: string, index: number) => {
+    const incoming = value.replace(/\D/g, '');
+    setError(null);
+    if (incoming.length > 1) {
+      setCode(toDigits(incoming.slice(-CODE_LENGTH)));
+      return;
+    }
+    setCode((current) => {
+      const next = [...current];
+      next[index] = incoming.slice(-1);
+      return next;
+    });
+  }, []);
 
-  const onKeyPress = (key: string, idx: number) => {
-    if (key === 'Backspace' && !code[idx] && idx > 0) inputs.current[idx - 1]?.focus();
-  };
+  const onDeleteAt = useCallback((index: number) => {
+    setCode((current) => {
+      const next = [...current];
+      next[index] = '';
+      return next;
+    });
+  }, []);
 
   const handleVerify = async () => {
     setError(null);
     const otp = code.join('');
-    if (otp.length !== CODE_LENGTH) return setError('Enter the 6-digit code');
-
+    if (otp.length !== CODE_LENGTH) {
+      setError('Enter all six digits');
+      return;
+    }
     if (!userId) {
       setError('Missing signup session. Please sign up again.');
       return;
@@ -61,9 +74,10 @@ export default function VerifyPhone() {
     setLoading(true);
     try {
       await verifyPhoneApi({ userId, code: otp });
-      router.push('/(auth)/create-pin');
+      router.replace('/(auth)/create-pin');
     } catch (err) {
-      setError((err as ApiErrorShape).message ?? 'Invalid code. Please try again.');
+      setError(friendlyError(err, 'That code did not work. Try again.'));
+      setCode(Array(CODE_LENGTH).fill(''));
     } finally {
       setLoading(false);
     }
@@ -75,81 +89,74 @@ export default function VerifyPhone() {
     setError(null);
     try {
       const result = await resendCodeApi({ userId, channel: 'phone' });
-      // Dev mode returns the fresh code; drop it straight into the boxes.
       if (result.devCode) setCode(toDigits(result.devCode));
       setSeconds(RESEND_SECONDS);
     } catch (err) {
-      setError((err as ApiErrorShape).message ?? 'Could not resend the code. Try again.');
+      setError(friendlyError(err, 'We could not send another code. Try again shortly.'));
     } finally {
       setResending(false);
     }
   };
 
+  const resendDisabled = seconds > 0 || resending;
+
   return (
-    <SafeAreaView style={styles.container}>
-      <View style={styles.body}>
-        <Text style={styles.title}>Verify your phone</Text>
-        <Text style={styles.subtitle}>
-          We sent a 6-digit code via SMS to{'\n'}
-          <Text style={styles.phoneText}>{phone ?? 'your number'}</Text>
-        </Text>
-
-        <View style={styles.codeRow}>
-          {code.map((digit, idx) => (
-            <TextInput
-              key={idx}
-              ref={(r) => {
-                inputs.current[idx] = r;
-              }}
-              style={styles.codeBox}
-              value={digit}
-              onChangeText={(v) => onChangeDigit(v, idx)}
-              onKeyPress={({ nativeEvent }) => onKeyPress(nativeEvent.key, idx)}
-              keyboardType="number-pad"
-              maxLength={1}
-              textAlign="center"
-            />
-          ))}
-        </View>
-
-        {error && <Text style={styles.error}>{error}</Text>}
-
-        <Pressable onPress={handleResend} disabled={seconds > 0 || resending || !userId}>
-          <Text style={[styles.resend, (seconds > 0 || resending) && styles.resendDisabled]}>
-            {resending ? 'Resending…' : seconds > 0 ? `Resend code in ${seconds}s` : 'Resend code'}
-          </Text>
-        </Pressable>
+    <Screen>
+      <View style={styles.headings}>
+        <Typography variant="title">Verify your phone</Typography>
+        <Typography variant="body" color={colors.textMuted} style={styles.subtitle}>
+          {'We sent a 6-digit code by SMS to\n'}
+          <Typography variant="label" color={colors.textPrimary}>
+            {phone ?? 'your number'}
+          </Typography>
+        </Typography>
       </View>
+
+      <CodeBoxes
+        digits={code}
+        onChangeDigit={onChangeDigit}
+        onDeleteAt={onDeleteAt}
+        label={`SMS verification code, ${CODE_LENGTH} digits`}
+        invalid={Boolean(error)}
+      />
+
+      {error ? (
+        <Typography
+          variant="label"
+          color={colors.error}
+          style={styles.error}
+          accessibilityLiveRegion="polite"
+          accessibilityRole="alert"
+        >
+          {error}
+        </Typography>
+      ) : null}
 
       <View style={styles.footer}>
-        <Pressable style={styles.primaryBtn} onPress={handleVerify} disabled={loading}>
-          {loading ? <ActivityIndicator color="#fff" /> : <Text style={styles.primaryBtnText}>Verify</Text>}
-        </Pressable>
+        <Button label="Verify" onPress={handleVerify} loading={loading} />
+
+        <Touchable
+          accessibilityRole="button"
+          accessibilityLabel={seconds > 0 ? `Resend code in ${seconds} seconds` : 'Resend code'}
+          accessibilityState={{ disabled: resendDisabled, busy: resending }}
+          onPress={handleResend}
+          disabled={resendDisabled}
+          pressScale={0.97}
+          style={styles.resend}
+        >
+          <Typography variant="label" color={resendDisabled ? colors.textMuted : colors.primary}>
+            {resending ? 'Sending…' : seconds > 0 ? `Resend code in ${seconds}s` : 'Resend code'}
+          </Typography>
+        </Touchable>
       </View>
-    </SafeAreaView>
+    </Screen>
   );
 }
 
-function getStyles(colors: ThemeColors) {
-  return StyleSheet.create({
-  container: { flex: 1, backgroundColor: colors.background, justifyContent: 'space-between' },
-  body: { flex: 1, paddingHorizontal: 24, paddingTop: 48 },
-  title: { fontSize: 26, fontWeight: '700', color: colors.textPrimary },
-  subtitle: { fontSize: 15, color: colors.textMuted, marginTop: 8, marginBottom: 32, lineHeight: 21 },
-  phoneText: { color: colors.textPrimary, fontWeight: '600' },
-  codeRow: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 16 },
-  codeBox: {
-    width: 48, height: 56, borderRadius: 12, backgroundColor: colors.surface,
-    borderWidth: 1, borderColor: colors.border, color: colors.textPrimary, fontSize: 22, fontWeight: '600',
-  },
-  error: { color: colors.error, fontSize: 13, marginTop: 4 },
-  resend: { color: colors.primaryHover, fontSize: 14, fontWeight: '600', marginTop: 24 },
-  resendDisabled: { color: colors.textMuted },
-  footer: { paddingHorizontal: 24, paddingBottom: 32 },
-  primaryBtn: {
-    backgroundColor: colors.primary, borderRadius: 14, paddingVertical: 16,
-    alignItems: 'center', justifyContent: 'center', height: 54,
-  },
-  primaryBtnText: { color: '#FFFFFF', fontSize: 16, fontWeight: '600' },
+const styles = StyleSheet.create({
+  headings: { marginBottom: space.xxl },
+  subtitle: { marginTop: space.md },
+  error: { marginTop: space.lg },
+  footer: { marginTop: 'auto', paddingTop: space.xxl, alignItems: 'center' },
+  resend: { paddingVertical: space.md, paddingHorizontal: space.lg, marginTop: space.md },
 });
-}

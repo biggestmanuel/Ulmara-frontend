@@ -1,341 +1,374 @@
-import { useEffect, useState, useMemo } from 'react';
-import {
-  View,
-  Text,
-  StyleSheet,
-  Pressable,
-  ScrollView,
-  RefreshControl,
-} from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { useCallback, useEffect, useMemo } from 'react';
+import { RefreshControl, ScrollView, StyleSheet, View } from 'react-native';
 import { router } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
-import { Eye, EyeOff, Send, ArrowDownToLine } from 'lucide-react-native';
 
+import {
+  AccountId,
+  Amount,
+  Badge,
+  CopyToast,
+  EmptyState,
+  IconButton,
+  InitialsAvatar,
+  ListRow,
+  Rule,
+  SectionLabel,
+  Touchable,
+  Typography,
+  useCopyToast,
+} from '../../components/ui';
 import { useUserStore } from '../../stores/userStore';
 import { useWalletStore } from '../../stores/walletStore';
-import { useThemeStore } from '../../lib/theme';
 import { useTxStore } from '../../stores/txStore';
-import { formatAccountId } from '../../lib/format';
-import { useCopyToast, CopyToast } from '../../components/ui/CopyToast';
+import { usePortfolioValue } from '../../hooks/usePortfolioValue';
+import { getEvmNetworkName } from '../../lib/chains/evmConfig';
+import { CHAINS } from '../../constants/chains';
+import { gutter, space, useThemeStore } from '../../lib/theme';
 
-// 4 Quick Actions with squared curved-edge buttons (squircles)
-const QUICK_ACTIONS = [
-  { label: 'Send', icon: Send, route: '/send' },
-  { label: 'Receive', icon: ArrowDownToLine, route: '/receive' },
-] as const;
-
+/**
+ * Home.
+ *
+ * ## The structural change
+ *
+ * The previous Home opened with a **saturated hero card** carrying
+ * `shadowOpacity: 0.25` / `elevation: 8`, on which the Account ID, the balance
+ * and the quick actions were all set in white over a translucent
+ * `rgba(255,255,255,0.2)` fill. That treatment is why the screen read as a
+ * crypto app: a glowing coloured slab is the visual shorthand for exactly the
+ * category this product is trying to move away from, and the white-on-accent
+ * overlays meant the component could only ever exist in one colourway.
+ *
+ * The redesign treats Home as a **page of a ledger** instead:
+ *
+ * - a quiet identity line (avatar, name, tier);
+ * - the **Account ID set as the app's signature object** — tabular figures, wide
+ *   tracking, plain ink on the page, with its own copy control;
+ * - the **balance as the largest type in the product**, in the serif display
+ *   step, with tabular figures so it does not jitter as prices tick;
+ * - Send and Receive as a **pair of full-width primary/secondary actions**
+ *   directly under the balance, thumb-reachable — previously a row of four small
+ *   1-up "squircle" buttons, two of which were empty;
+ * - recent activity as a plain list with hairline rules, not a boxed card.
+ *
+ * No shadows, no gradients, no tinted slab. The balance reads as the most
+ * important thing on the screen because it is the biggest and has the most
+ * space around it.
+ */
 export default function Home() {
-  const { colors, isDark } = useThemeStore();
-  const [balanceHidden, setBalanceHidden] = useState(false);
+  const colors = useThemeStore((state) => state.colors);
 
   const accountId = useUserStore((s) => s.accountId);
   const profile = useUserStore((s) => s.profile);
   const balances = useWalletStore((s) => s.balances);
   const isLoadingBalances = useWalletStore((s) => s.isLoadingBalances);
+  const balanceWarning = useWalletStore((s) => s.warning);
   const refreshBalances = useWalletStore((s) => s.refreshBalances);
   const transactions = useTxStore((s) => s.items);
   const fetchTransactions = useTxStore((s) => s.fetchInitial);
+
+  const { usd, ngn, isLoading: isPricing } = usePortfolioValue();
 
   useEffect(() => {
     fetchTransactions();
   }, [fetchTransactions]);
 
-  const displayName = profile?.name?.trim() || 'Biggest Manuel';
-  const initial = displayName.charAt(0).toUpperCase();
+  // Signup does not collect a name (the backend returns `name: null` unless the
+  // user sets one later), so this is the common case, not an edge case. The
+  // Account ID is the user's actual public identity in this product.
+  const displayName = profile?.name?.trim() || 'Welcome back';
 
-  const USD_TO_NGN = 1500;
-
-  const totalBalanceUsd = useMemo(() => {
-    return balances.reduce((acc, curr) => acc + (parseFloat(curr.balance) || 0), 0);
-  }, [balances]);
-
-  const totalBalanceNgn = totalBalanceUsd * USD_TO_NGN;
+  const topAssets = useMemo(
+    () =>
+      balances
+        .filter((entry) => Number(entry.balance) > 0)
+        .sort((a, b) => Number(b.balance) - Number(a.balance))
+        .slice(0, 3),
+    [balances]
+  );
 
   const { copyToClipboard, message: toastMessage, visible: toastVisible } = useCopyToast();
 
-  const handleCopyId = async () => {
-    if (accountId) {
-      await copyToClipboard(accountId, 'Account ID copied to clipboard');
-    }
-  };
+  const handleCopyId = useCallback(async () => {
+    if (accountId) await copyToClipboard(accountId, 'Account ID copied');
+  }, [accountId, copyToClipboard]);
+
+  const primaryAmount =
+    ngn !== null
+      ? `₦${ngn.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+      : usd !== null
+        ? `$${usd.toFixed(2)}`
+        : isPricing
+          ? 'Loading…'
+          : 'Unavailable';
+
+  const secondaryAmount =
+    usd !== null
+      ? `≈ $${usd.toFixed(2)} USD`
+      : isPricing
+        ? 'Fetching live prices…'
+        : 'Live prices unavailable';
+
+  const recent = transactions.slice(0, 4);
 
   return (
-    <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]}>
-      <ScrollView
-        contentContainerStyle={styles.scroll}
-        refreshControl={
-          <RefreshControl refreshing={isLoadingBalances} onRefresh={refreshBalances} tintColor={colors.primary} />
-        }
-      >
-        {/* Top Header */}
-        <View style={styles.topHeader}>
-          <View style={styles.userInfo}>
-            <Pressable style={[styles.avatar, { backgroundColor: colors.primary }]} onPress={() => router.push('/(tabs)/profile')}>
-              <Text style={styles.avatarText}>{initial}</Text>
-            </Pressable>
-            <View style={{ marginLeft: 12 }}>
-              <Text style={[styles.userName, { color: colors.textPrimary }]}>{displayName}</Text>
-              <View style={[styles.badge, { backgroundColor: isDark ? colors.surfaceElevated : colors.primaryLight }]}>
-                <Text style={[styles.badgeText, { color: colors.primary }]}>Level 1 Verified ★</Text>
-              </View>
+    <ScrollView
+      style={{ backgroundColor: colors.background }}
+      contentContainerStyle={styles.scroll}
+      showsVerticalScrollIndicator={false}
+      refreshControl={
+        <RefreshControl
+          refreshing={isLoadingBalances}
+          onRefresh={refreshBalances}
+          tintColor={colors.primary}
+        />
+      }
+    >
+      <View style={styles.column}>
+        {/* --- identity ---------------------------------------------------- */}
+        <View style={styles.identity}>
+          <Touchable
+            accessibilityRole="button"
+            accessibilityLabel={displayName}
+            accessibilityHint="Opens your profile"
+            onPress={() => router.push('/(tabs)/profile')}
+            pressScale={0.94}
+            style={styles.identityLeft}
+          >
+            <InitialsAvatar initials={displayName} size={38} />
+            <View style={styles.identityText}>
+              <Typography variant="titleSm" numberOfLines={1}>
+                {displayName}
+              </Typography>
+              <Badge label="Verified" tone="success" icon="checkmark-circle" />
             </View>
-          </View>
+          </Touchable>
 
-          <View style={styles.headerIcons}>
-            <Pressable
-              style={[styles.iconButton, { backgroundColor: colors.surface, borderColor: colors.border }]}
-              onPress={() => router.push('/notifications')}
-              hitSlop={10}
-            >
-              <Ionicons name="notifications-outline" size={20} color={colors.textPrimary} />
-            </Pressable>
-          </View>
+          <IconButton
+            accessibilityLabel="Notifications"
+            accessibilityHint="Shows your transaction notifications"
+            onPress={() => router.push('/notifications')}
+            variant="filled"
+          >
+            <Ionicons name="notifications-outline" size={19} color={colors.textPrimary} />
+          </IconButton>
         </View>
 
-        {/* Soft Purple Hero Card */}
-        <View style={[styles.heroCard, { backgroundColor: colors.primary, shadowColor: colors.primary }]}>
-          {/* Top of card: Account ID + Copy */}
-          <View style={styles.heroCardTop}>
-            <View style={styles.idGroup}>
-              <Text style={styles.idLabel}>Account ID: </Text>
-              <Text style={styles.idValue}>{formatAccountId(accountId)}</Text>
-            </View>
-            <Pressable style={styles.copyPill} onPress={handleCopyId} hitSlop={10}>
-              <View style={styles.copyPillContent}>
-                <Ionicons name="copy-outline" size={14} color="#FFFFFF" />
-                <Text style={styles.copyPillText}>Copy</Text>
-              </View>
-            </Pressable>
-          </View>
+        {/* --- the Account ID, the app's signature object --------------------- */}
+        <AccountId value={accountId ?? ''} onCopy={handleCopyId} />
 
-          {/* Balance */}
-          <View style={styles.balanceContainer}>
-            <View style={styles.balanceHeader}>
-              <Text style={styles.balanceTitle}>Total Balance</Text>
-              <Pressable onPress={() => setBalanceHidden(!balanceHidden)} hitSlop={10}>
-                {balanceHidden ? <Eye size={17} color="#FFFFFF" /> : <EyeOff size={17} color="#FFFFFF" />}
-              </Pressable>
-            </View>
+        <Rule />
 
-            <Text style={styles.ngnAmount}>
-              {balanceHidden
-                ? '••••••••'
-                : `₦${totalBalanceNgn.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}
-            </Text>
-
-            <Text style={styles.usdSub}>
-              {balanceHidden ? '••••' : `≈ $${totalBalanceUsd.toFixed(2)} USD`}
-            </Text>
-          </View>
-
+        {/* --- balance: the largest type in the product ----------------------- */}
+        <View style={styles.balanceBlock}>
+          <SectionLabel>TOTAL BALANCE</SectionLabel>
+          <Amount value={primaryAmount} secondary={secondaryAmount} size="hero" muted={ngn === null && usd === null && !isPricing} />
         </View>
 
-        {/* 4 Quick Actions: Squared with Curved Edges (Squircles) */}
-        <View style={styles.quickActionsGrid}>
-          {QUICK_ACTIONS.map((action) => (
-            <View key={action.label} style={styles.quickActionCol}>
-              <Pressable
-                style={[
-                  styles.squircleBtn,
-                  { backgroundColor: colors.surface, borderColor: colors.border },
-                ]}
-                onPress={() => router.push(action.route as any)}
+        {balanceWarning ? (
+          <Typography variant="caption" color={colors.warning} style={styles.warning}>
+            {balanceWarning}
+          </Typography>
+        ) : null}
+
+        {/* --- holdings ------------------------------------------------------ */}
+        {topAssets.length > 0 ? (
+          <View style={styles.holdings}>
+            <SectionLabel>HOLDINGS</SectionLabel>
+            {topAssets.map((asset) => (
+              <View key={asset.id} style={styles.holdingRow}>
+                <Typography variant="titleSm" color={colors.textSecondary}>
+                  {asset.symbol}
+                  {asset.isToken ? ' · ERC-20' : ''}
+                </Typography>
+                <Typography variant="amountSm" numeric>
+                  {formatAmount(asset.balance)} {asset.symbol}
+                </Typography>
+              </View>
+            ))}
+          </View>
+        ) : null}
+
+        {/* --- the two actions that matter ------------------------------------ */}
+        <View style={styles.actions}>
+          <ActionTile
+            icon="arrow-up"
+            label="Send"
+            hint="Send to an Account ID"
+            primary
+            onPress={() => router.push('/send')}
+          />
+          <ActionTile
+            icon="arrow-down"
+            label="Receive"
+            hint="Get paid with your Account ID"
+            onPress={() => router.push('/receive')}
+          />
+        </View>
+
+        {/* --- recent activity ------------------------------------------------ */}
+        <View style={styles.section}>
+          <View style={styles.sectionHead}>
+            <Typography variant="heading">Recent activity</Typography>
+            {transactions.length > 0 ? (
+              <Touchable
+                accessibilityRole="button"
+                accessibilityLabel="See all transactions"
+                onPress={() => router.push('/(tabs)/activity')}
+                pressScale={0.96}
               >
-                <action.icon size={22} color={colors.primary} />
-              </Pressable>
-              <Text style={[styles.squircleLabel, { color: colors.textPrimary }]}>{action.label}</Text>
+                <Typography variant="label" color={colors.primary}>
+                  See all
+                </Typography>
+              </Touchable>
+            ) : null}
+          </View>
+
+          {recent.length === 0 ? (
+            <EmptyState
+              icon="receipt-outline"
+              title="Nothing yet"
+              body="Your transfers will appear here as soon as you make one."
+              actionLabel="Send your first transfer"
+              onAction={() => router.push('/send')}
+            />
+          ) : (
+            <View style={styles.list}>
+              {recent.map((tx, index) => (
+                <ListRow
+                  key={tx.id}
+                  title={`${tx.direction === 'received' ? 'Received from' : 'Sent to'} ${tx.counterpartyAccountId}`}
+                  subtitle={`${networkLabel(tx.network)} · ${new Date(tx.createdAt).toLocaleDateString()}`}
+                  showSeparator={index < recent.length - 1}
+                  onPress={() => router.push(`/transaction/${tx.id}`)}
+                  accessibilityLabel={`${tx.direction === 'received' ? 'Received' : 'Sent'} ${tx.amount} ${tx.symbol}`}
+                  leading={
+                    <InitialsAvatar
+                      initials={tx.direction === 'received' ? 'IN' : 'OUT'}
+                      size={36}
+                      tone="neutral"
+                    />
+                  }
+                  trailing={
+                    <Amount
+                      value={`${tx.direction === 'received' ? '+' : '-'}${tx.amount}`}
+                      symbol={tx.symbol}
+                      direction={tx.direction === 'received' ? 'in' : 'out'}
+                    />
+                  }
+                />
+              ))}
             </View>
-          ))}
+          )}
         </View>
+      </View>
 
-        {/* Recent Transactions Section */}
-        <View style={styles.sectionHeader}>
-          <Text style={[styles.sectionTitle, { color: colors.textPrimary }]}>Recent Transactions</Text>
-        </View>
-
-        <View style={[styles.transactionsCard, { backgroundColor: colors.surface, borderColor: colors.border }]}>
-          {transactions.slice(0, 3).map((tx, idx, recentTransactions) => (
-            <View
-              key={tx.id}
-              style={[
-                styles.txRow,
-                idx < recentTransactions.length - 1 && { borderBottomWidth: 1, borderBottomColor: colors.divider },
-              ]}
-              
-            >
-              <View style={styles.txLeft}>
-                <View
-                  style={[
-                    styles.txIconBox,
-                    { backgroundColor: tx.direction === 'received' ? (isDark ? '#1C2E24' : '#EAF7EE') : (isDark ? '#2E1C1C' : '#FEECEC') },
-                  ]}
-                >
-                  <Text style={{ fontSize: 16, color: tx.direction === 'received' ? colors.success : colors.error }}>
-                    {tx.direction === 'received' ? '↓' : '↑'}
-                  </Text>
-                </View>
-                <View>
-                  <Text style={[styles.txTitle, { color: colors.textPrimary }]}>{tx.direction === 'received' ? 'Received' : 'Sent'} {tx.counterpartyAccountId}</Text>
-                  <Text style={[styles.txSub, { color: colors.textMuted }]}>{tx.network} · {new Date(tx.createdAt).toLocaleDateString()}</Text>
-                </View>
-              </View>
-
-              <Text
-                style={[
-                  styles.txAmount,
-                  { color: tx.direction === 'received' ? colors.success : colors.textPrimary },
-                ]}
-              >
-                {tx.direction === 'received' ? '+' : '-'}{tx.amount} {tx.symbol}
-              </Text>
-            </View>
-          ))}
-        </View>
-
-        {/* Copy confirmation — styled to match the app's modal design */}
-        <CopyToast message={toastMessage ?? ''} visible={toastVisible} onHide={() => {}} />
-      </ScrollView>
-    </SafeAreaView>
+      <CopyToast message={toastMessage ?? ''} visible={toastVisible} />
+    </ScrollView>
   );
 }
 
+/**
+ * A single large action.
+ *
+ * Replaces the previous four-across grid of 1-up icon buttons. Two destinations
+ * laid out as two full-width targets is easier to hit one-handed, and lets the
+ * label sit next to the icon rather than beneath it, which removed the
+ * two-line 10pt labels that were the smallest text in the app.
+ */
+function ActionTile({
+  icon,
+  label,
+  hint,
+  onPress,
+  primary = false,
+}: {
+  icon: React.ComponentProps<typeof Ionicons>['name'];
+  label: string;
+  hint: string;
+  onPress: () => void;
+  primary?: boolean;
+}) {
+  const colors = useThemeStore((state) => state.colors);
+
+  return (
+    <Touchable
+      accessibilityRole="button"
+      accessibilityLabel={label}
+      accessibilityHint={hint}
+      onPress={onPress}
+      style={[
+        styles.tile,
+        primary
+          ? { backgroundColor: colors.primary }
+          : { backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border },
+      ]}
+    >
+      <Ionicons
+        name={icon}
+        size={19}
+        color={primary ? colors.onPrimary : colors.textPrimary}
+      />
+      <Typography variant="titleSm" color={primary ? colors.onPrimary : colors.textPrimary}>
+        {label}
+      </Typography>
+    </Touchable>
+  );
+}
+
+function networkLabel(network: string): string {
+  if (network === 'eth') return getEvmNetworkName('eth');
+  if (network === 'bsc' || network === 'base' || network === 'polygon') {
+    return getEvmNetworkName(network);
+  }
+  return CHAINS[network as keyof typeof CHAINS]?.name ?? network.toUpperCase();
+}
+
+function formatAmount(value: string): string {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) return value;
+  if (parsed === 0) return '0';
+  if (Math.abs(parsed) < 0.000001) return parsed.toExponential(4);
+  return parsed.toFixed(6).replace(/0+$/, '').replace(/\.$/, '');
+}
+
 const styles = StyleSheet.create({
-  container: { flex: 1 },
-  scroll: { paddingHorizontal: 18, paddingBottom: 36 },
-  topHeader: {
+  scroll: { paddingBottom: space.xxxl },
+  column: { paddingHorizontal: gutter, paddingTop: space.md },
+
+  identity: {
     flexDirection: 'row',
+    alignItems: 'center',
     justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingVertical: 14,
+    marginBottom: space.xl,
   },
-  userInfo: { flexDirection: 'row', alignItems: 'center' },
-  avatar: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  avatarText: { color: '#FFFFFF', fontSize: 18, fontWeight: '800' },
-  userName: { fontSize: 16, fontWeight: '700' },
-  badge: {
-    paddingHorizontal: 8,
-    paddingVertical: 2,
-    borderRadius: 8,
-    marginTop: 3,
-    alignSelf: 'flex-start',
-  },
-  badgeText: { fontSize: 11, fontWeight: '700' },
-  headerIcons: { flexDirection: 'row', gap: 10 },
-  iconButton: {
-    width: 42,
-    height: 42,
-    borderRadius: 14,
-    borderWidth: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  heroCard: {
-    borderRadius: 24,
-    padding: 22,
-    marginTop: 8,
-    shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 0.25,
-    shadowRadius: 16,
-    elevation: 8,
-  },
-  heroCardTop: {
+  identityLeft: { flexDirection: 'row', alignItems: 'center', gap: space.md, flex: 1 },
+  identityText: { flex: 1, gap: 4 },
+
+  balanceBlock: { paddingTop: space.xl, paddingBottom: space.xl },
+
+  warning: { marginTop: -space.sm },
+
+  holdings: { paddingTop: space.lg, gap: space.md, paddingBottom: space.xl },
+
+  holdingRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'baseline', gap: space.md },
+
+  actions: { gap: space.md, paddingTop: space.lg, paddingBottom: space.xxl },
+  tile: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
     alignItems: 'center',
-    paddingBottom: 12,
-    borderBottomWidth: 1,
-    borderBottomColor: 'rgba(255, 255, 255, 0.2)',
-  },
-  idGroup: { flexDirection: 'row', alignItems: 'center' },
-  idLabel: { color: 'rgba(255, 255, 255, 0.85)', fontSize: 13, fontWeight: '500' },
-  idValue: { color: '#FFFFFF', fontSize: 14, fontWeight: '800', letterSpacing: 0.5 },
-  copyPill: {
-    backgroundColor: 'rgba(255, 255, 255, 0.2)',
-    paddingHorizontal: 12,
-    paddingVertical: 5,
+    gap: space.md,
+    height: 56,
     borderRadius: 12,
+    paddingHorizontal: space.xl,
   },
-  copyPillContent: { flexDirection: 'row', alignItems: 'center', gap: 5 },
-  copyPillText: { color: '#FFFFFF', fontSize: 12, fontWeight: '700' },
-  balanceContainer: { marginVertical: 16 },
-  balanceHeader: { flexDirection: 'row', alignItems: 'center', gap: 10 },
-  balanceTitle: { color: 'rgba(255, 255, 255, 0.9)', fontSize: 13, fontWeight: '600' },
-  eyeBtn: { color: 'rgba(255, 255, 255, 0.95)', fontSize: 12, fontWeight: '700' },
-  ngnAmount: { color: '#FFFFFF', fontSize: 34, fontWeight: '900', marginTop: 4, letterSpacing: -0.5 },
-  usdSub: { color: 'rgba(255, 255, 255, 0.8)', fontSize: 14, marginTop: 3, fontWeight: '600' },
-  cardActionsRow: { flexDirection: 'row', gap: 12, marginTop: 8 },
-  cardActionBtn: {
-    flex: 1,
-    paddingVertical: 13,
-    borderRadius: 14,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  cardActionBtnPrimary: { backgroundColor: '#FFFFFF' },
-  cardActionBtnTextPrimary: { fontSize: 14, fontWeight: '800' },
-  cardActionBtnSecondary: {
-    backgroundColor: 'rgba(255, 255, 255, 0.15)',
-    borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.3)',
-  },
-  cardActionBtnTextSecondary: { color: '#FFFFFF', fontSize: 14, fontWeight: '800' },
-  transferContent: { flexDirection: 'row', alignItems: 'center', gap: 6 },
-  quickActionsGrid: {
+
+  section: { paddingTop: space.lg },
+  sectionHead: {
     flexDirection: 'row',
+    alignItems: 'center',
     justifyContent: 'space-between',
-    marginTop: 22,
-    paddingHorizontal: 4,
+    marginBottom: space.md,
   },
-  quickActionCol: { alignItems: 'center', width: 76 },
-  squircleBtn: {
-    width: 60,
-    height: 60,
-    borderRadius: 18,
-    borderWidth: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginBottom: 8,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.05,
-    shadowRadius: 6,
-    elevation: 2,
-  },
-  squircleSymbol: { fontSize: 24, fontWeight: '800' },
-  squircleLabel: { fontSize: 12, fontWeight: '700', textAlign: 'center' },
-  sectionHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginTop: 28,
-    marginBottom: 12,
-  },
-  sectionTitle: { fontSize: 17, fontWeight: '800' },
-  viewAllText: { fontSize: 13, fontWeight: '700' },
-  transactionsCard: { borderRadius: 20, borderWidth: 1, overflow: 'hidden' },
-  txRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingHorizontal: 16,
-    paddingVertical: 14,
-  },
-  txLeft: { flexDirection: 'row', alignItems: 'center', gap: 12 },
-  txIconBox: {
-    width: 40,
-    height: 40,
-    borderRadius: 14,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  txTitle: { fontSize: 14, fontWeight: '700' },
-  txSub: { fontSize: 12, marginTop: 2 },
-  txAmount: { fontSize: 14, fontWeight: '800' },
+  list: { marginHorizontal: -gutter, paddingHorizontal: gutter },
 });

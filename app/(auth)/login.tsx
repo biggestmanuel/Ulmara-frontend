@@ -1,173 +1,175 @@
 import { useState } from 'react';
-import { View, Text, TextInput, StyleSheet, Pressable, KeyboardAvoidingView, Platform, ActivityIndicator } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { KeyboardAvoidingView, Platform, StyleSheet, View } from 'react-native';
 import { router } from 'expo-router';
-import { Ionicons } from '@expo/vector-icons';
 
+import { Button, Input, PasswordField, Screen, Touchable, Typography } from '../../components/ui';
 import { login as loginApi } from '../../lib/api/auth';
+import { friendlyError, setCachedSessionToken } from '../../lib/api/client';
+import { setSecureItem, SecureStorageKeys } from '../../lib/storage/secureStorage';
+import { getSecureItem } from '../../lib/storage/secureStorage';
 import { getMe } from '../../lib/api/accountId';
-import type { ApiErrorShape } from '../../lib/api/client';
-import { getSecureItem, setSecureItem, SecureStorageKeys } from '../../lib/storage/secureStorage';
 import { useAuthGateStore } from '../../stores/authGateStore';
-import { useThemeStore, ThemeColors } from '../../lib/theme';
+import { space, useThemeStore } from '../../lib/theme';
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
+/**
+ * Login.
+ *
+ * ## What changed
+ *
+ * Structure is the same — email, password, forgot link, primary action — but the
+ * fields now carry their own labels and their own error slot, and the "Log in"
+ * button is the shared `Button` rather than a hand-rolled 54pt `Pressable` with
+ * a `#FFFFFF` label and a spinner that replaced the text outright (so the button
+ * changed width mid-request). It also now has `accessibilityState={{ busy }}`,
+ * so a screen reader hears that the request is in flight.
+ */
 export default function Login() {
-  const { colors } = useThemeStore();
-  const styles = getStyles(colors);
+  const colors = useThemeStore((state) => state.colors);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-  const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [fieldError, setFieldError] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(false);
 
   const handleLogin = async () => {
-    setError(null);
-    if (!EMAIL_RE.test(email)) return setError('Enter a valid email address');
-    if (password.length < 8) return setError('Password must be at least 8 characters');
+    const errors: Record<string, string> = {};
+    if (!EMAIL_RE.test(email.trim())) errors.email = 'Enter a valid email address';
+    if (!password) errors.password = 'Enter your password';
+    setFieldError(errors);
+    if (Object.keys(errors).length > 0) return;
 
+    setError(null);
     setLoading(true);
     try {
-      const { token } = await loginApi({ email, password });
+      const { token } = await loginApi({ email: email.trim(), password });
       await setSecureItem(SecureStorageKeys.SESSION_TOKEN, token);
+      setCachedSessionToken(token);
 
       // Deliberately do NOT check the auth gate here. The gate only tracks
-      // session + account id — PIN is checked server-side on the next screen,
-      // not by the gate — so flipping it to 'authed' before that would let
-      // _layout route straight to home and skip PIN entry entirely.
+      // session + account id — PIN is checked server-side on the next screen, not
+      // by the gate — so flipping it to 'authed' before that would let _layout
+      // route straight to home and skip PIN entry entirely.
       let accountId = await getSecureItem(SecureStorageKeys.ACCOUNT_ID);
       if (!accountId) {
-        // Fresh device, existing account: fetch and cache it so PIN entry
-        // (and everything after) has what it needs. No local prompt needed —
-        // an account is created once at signup, not per device.
+        // Fresh device, existing account: fetch and cache it so PIN entry (and
+        // everything after) has what it needs. No local prompt needed — an
+        // account is created once at signup, not per device.
         const me = await getMe();
         accountId = me?.accountId?.accountId ?? null;
         if (accountId) await setSecureItem(SecureStorageKeys.ACCOUNT_ID, accountId);
       }
 
       if (!accountId) {
-        setError('No Account ID found for this account. Please complete signup.');
+        // A real, reachable state: the account exists and the password is
+        // correct, but onboarding never got as far as minting an Account ID.
+        // The session token is already stored, so send them to the screen that
+        // mints the ID instead of stranding them on a message they cannot act on.
+        router.replace('/(auth)/create-account-id');
         return;
       }
 
-      // session + accountId now present, pinVerified still false this
-      // launch -> gate flips to 'locked', which _layout also routes to
-      // verify-pin, but we navigate directly rather than wait on the effect.
+      // session + accountId now present, pinVerified still false this launch ->
+      // gate flips to 'locked', which _layout also routes to verify-pin, but we
+      // navigate directly rather than wait on the effect.
       await useAuthGateStore.getState().check();
       router.replace('/(auth)/verify-pin');
     } catch (err) {
-      setError((err as ApiErrorShape).message ?? 'Login failed. Check your credentials and try again.');
+      // friendlyError never renders a bare status code: the backend's 401
+      // "Invalid email or password…" passes through, anything else falls back to
+      // readable per-status copy.
+      setError(friendlyError(err, 'Login failed. Check your details and try again.'));
     } finally {
       setLoading(false);
     }
   };
 
   return (
-    <SafeAreaView style={styles.container}>
-      <KeyboardAvoidingView
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-        style={{ flex: 1 }}
-      >
-        <View style={styles.body}>
-          <Text style={styles.title}>Welcome back</Text>
-          <Text style={styles.subtitle}>Log in to your account</Text>
-
-          <View style={styles.field}>
-            <Text style={styles.label}>Email</Text>
-            <TextInput
-              style={styles.input}
-              placeholder="you@example.com"
-              placeholderTextColor={colors.textMuted}
-              autoCapitalize="none"
-              keyboardType="email-address"
-              value={email}
-              onChangeText={setEmail}
-            />
-          </View>
-
-          <View style={styles.field}>
-            <Text style={styles.label}>Password</Text>
-            <View style={styles.passwordWrap}>
-              <TextInput
-                style={styles.input}
-                placeholder="••••••••"
-                placeholderTextColor={colors.textMuted}
-                secureTextEntry={!showPassword}
-                autoCapitalize="none"
-                value={password}
-                onChangeText={setPassword}
-              />
-              <Pressable
-                style={styles.eyeBtn}
-                onPress={() => setShowPassword((v) => !v)}
-                hitSlop={8}
-                accessibilityLabel={showPassword ? 'Hide password' : 'Show password'}
-              >
-                <Ionicons
-                  name={showPassword ? 'eye-off-outline' : 'eye-outline'}
-                  size={20}
-                  color={colors.textMuted}
-                />
-              </Pressable>
-            </View>
-          </View>
-
-          {error && <Text style={styles.error}>{error}</Text>}
-
-          <Pressable onPress={() => router.push('/(auth)/forgot-password')}>
-            <Text style={styles.link}>Forgot password?</Text>
-          </Pressable>
+    <KeyboardAvoidingView
+      behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+      style={{ flex: 1 }}
+    >
+      <Screen>
+        <View style={styles.headings}>
+          <Typography variant="title">Welcome back</Typography>
+          <Typography variant="body" color={colors.textMuted} style={styles.subtitle}>
+            Log in to your account
+          </Typography>
         </View>
+
+        <View style={styles.form}>
+          <Input
+            label="Email"
+            placeholder="you@example.com"
+            value={email}
+            onChangeText={setEmail}
+            error={fieldError.email}
+            keyboardType="email-address"
+            autoCapitalize="none"
+            autoCorrect={false}
+            autoComplete="email"
+            textContentType="emailAddress"
+            returnKeyType="next"
+          />
+          <PasswordField
+            label="Password"
+            placeholder="Your password"
+            value={password}
+            onChangeText={setPassword}
+            error={fieldError.password}
+            returnKeyType="go"
+            onSubmitEditing={handleLogin}
+          />
+        </View>
+
+        {error ? (
+          <Typography
+            variant="label"
+            color={colors.error}
+            style={styles.error}
+            accessibilityLiveRegion="polite"
+            accessibilityRole="alert"
+          >
+            {error}
+          </Typography>
+        ) : null}
+
+        <Touchable
+          accessibilityRole="button"
+          accessibilityLabel="Forgot password"
+          accessibilityHint="Opens password recovery"
+          onPress={() => router.push('/(auth)/forgot-password')}
+          pressScale={0.97}
+          style={styles.forgot}
+        >
+          <Typography variant="label" color={colors.primary}>
+            Forgot password?
+          </Typography>
+        </Touchable>
 
         <View style={styles.footer}>
-          <Pressable style={styles.primaryBtn} onPress={handleLogin} disabled={loading}>
-            {loading ? <ActivityIndicator color="#fff" /> : <Text style={styles.primaryBtnText}>Log In</Text>}
-          </Pressable>
-          <Pressable onPress={() => router.push('/(auth)/signup')}>
-            <Text style={styles.secondaryText}>
-              Don't have an account? <Text style={styles.linkInline}>Sign up</Text>
-            </Text>
-          </Pressable>
+          <Button label="Log in" onPress={handleLogin} loading={loading} />
+          <Button
+            label="Create an account"
+            variant="ghost"
+            onPress={() => router.push('/(auth)/signup')}
+          />
         </View>
-      </KeyboardAvoidingView>
-    </SafeAreaView>
+      </Screen>
+    </KeyboardAvoidingView>
   );
 }
 
-function getStyles(colors: ThemeColors) {
-  return StyleSheet.create({
-    container: { flex: 1, backgroundColor: colors.background, justifyContent: 'space-between' },
-    body: { flex: 1, paddingHorizontal: 24, paddingTop: 40 },
-    title: { fontSize: 28, fontWeight: '800', color: colors.textPrimary },
-    subtitle: { fontSize: 15, color: colors.textMuted, marginTop: 6, marginBottom: 32 },
-    field: { marginBottom: 18 },
-    label: { fontSize: 13, color: colors.textMuted, marginBottom: 8, fontWeight: '600' },
-    input: {
-      backgroundColor: colors.surface,
-      borderRadius: 16,
-      paddingHorizontal: 16,
-      paddingVertical: 14,
-      color: colors.textPrimary,
-      fontSize: 16,
-      borderWidth: 1,
-      borderColor: colors.border,
-    },
-    passwordWrap: { position: 'relative', justifyContent: 'center' },
-    eyeBtn: { position: 'absolute', right: 16 },
-    error: { color: colors.error, fontSize: 13, marginTop: 4, marginBottom: 8 },
-    link: { color: colors.primary, fontSize: 14, fontWeight: '600', marginTop: 4 },
-    linkInline: { color: colors.primary, fontWeight: '700' },
-    footer: { paddingHorizontal: 24, paddingBottom: 36, gap: 16 },
-    primaryBtn: {
-      backgroundColor: colors.primary,
-      borderRadius: 16,
-      paddingVertical: 16,
-      alignItems: 'center',
-      justifyContent: 'center',
-      height: 54,
-    },
-    primaryBtnText: { color: '#FFFFFF', fontSize: 16, fontWeight: '700' },
-    secondaryText: { color: colors.textMuted, fontSize: 14, textAlign: 'center' },
-  });
-}
+const styles = StyleSheet.create({
+  headings: { marginBottom: space.xxl },
+  subtitle: { marginTop: space.xs },
+
+  form: { gap: space.lg },
+
+  error: { marginTop: space.lg },
+
+  forgot: { alignSelf: 'flex-start', marginTop: space.lg, paddingVertical: space.xs },
+
+  footer: { marginTop: 'auto', paddingTop: space.xxl, gap: space.sm },
+});

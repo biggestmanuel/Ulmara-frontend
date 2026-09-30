@@ -1,38 +1,69 @@
-import { useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { randomUUID } from 'expo-crypto';
-import { View, Text, StyleSheet, Pressable, ActivityIndicator, Modal, TextInput } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
-import { Check } from 'lucide-react-native';
+import { View, StyleSheet, ScrollView } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
 import { router, useLocalSearchParams } from 'expo-router';
-import { useThemeStore, ThemeColors } from '../../lib/theme';
+
+import { useThemeStore, type ThemeColors } from '../../lib/theme';
+import { defineStyles } from '../../lib/theme/styles';
 import { broadcastTransaction, sendPayment } from '../../lib/api/transactions';
-import { toApiError, type ApiErrorShape } from '../../lib/api/client';
+import { friendlyError, toApiError } from '../../lib/api/client';
 import { useTxStore } from '../../stores/txStore';
-import { signEvmNativeTransfer } from '../../lib/signing/evm';
-import { getSigningAdapter } from '../../lib/signing/chainAdapters';
+import { getSigningAdapterByWire } from '../../lib/signing/chainAdapters';
 import { prepareExternalTransfer, submitExternalTransfer } from '../../lib/api/externalTransfers';
-import type { ChainId } from '../../lib/chains';
+import { isTokenSymbol } from '../../constants/tokens';
+import { authenticateWithBiometrics, describeOutcome } from '../../lib/security/biometrics';
+import { useUserStore } from '../../stores/userStore';
+import { BackButton } from '../../components/navigation/BackButton';
+// Aliased because the bare name `Screen` collides with the DOM lib's global
+// `Screen` type when the DOM lib is in scope.
+import {
+  Button,
+  Input,
+  Screen as UlmaraScreen,
+  Sheet,
+  Touchable,
+  Typography,
+} from '../../components/ui';
+import { space } from '../../lib/theme';
+
+const PIN_LENGTH = 6;
+
+type Stage = 'idle' | 'authorizing' | 'prepare' | 'sign' | 'submit' | 'done';
 
 export default function SendConfirm() {
   const { colors } = useThemeStore();
   const styles = getStyles(colors);
 
   const params = useLocalSearchParams<{
-    accountId?: string; recipientName?: string; externalAddress?: string;
-    asset: string; amount: string; network: string; networkName: string; fee: string; targetAddress?: string;
+    accountId?: string;
+    recipientName?: string;
+    externalAddress?: string;
+    asset: string;
+    amount: string;
+    network: string;
+    networkName: string;
+    fee: string;
+    targetAddress?: string;
+    isToken?: string;
+    nativeBalance?: string;
+    insufficientGas?: string;
   }>();
 
   const isExternal = !params.accountId;
+  const isToken = isTokenSymbol(params.asset ?? '');
+
   const [showAddress, setShowAddress] = useState(false);
-  const [sending, setSending] = useState(false);
-  const [done, setDone] = useState(false);
+  const [stage, setStage] = useState<Stage>('idle');
   const [error, setError] = useState<string | null>(null);
   const [pinModal, setPinModal] = useState(false);
   const [pin, setPin] = useState('');
-  // Authorization failures (wrong PIN, lockout, send errors) surface inside
-  // the PIN modal so the user can retry without closing it.
   const [pinError, setPinError] = useState<string | null>(null);
-  const upsertTransaction = useTxStore((state) => state.upsertTransaction);
+  const [biometricBusy, setBiometricBusy] = useState(false);
+  const [biometricNotice, setBiometricNotice] = useState<string | null>(null);
+
+  const upsertTransaction = useTxStore((s) => s.upsertTransaction);
+  const biometricEnabled = useUserStore((s) => s.biometricEnabled);
 
   // One idempotency key per transfer attempt (this screen). Every request of
   // the attempt carries it: if the server created the transaction but the
@@ -43,321 +74,599 @@ export default function SendConfirm() {
   const idempotencyKey = idempotencyKeyRef.current;
 
   // Synchronous double-submit guard: React state updates are async, so two
-  // taps in the same instant can both observe sending === false. A ref check
+  // taps in the same instant can both observe `stage === 'idle'`. A ref check
   // runs before either request is built.
   const submitLockRef = useRef(false);
 
   const resolvedAddress = isExternal ? params.externalAddress : params.targetAddress;
+  const sending = stage !== 'idle' && stage !== 'done';
 
-  const handleSend = async (authorizationPin: string) => {
-    if (submitLockRef.current) return;
+  // --- External token transfers are blocked by the server ---------------------
+  // `externalTransferService.prepare` rejects any asset that is not the chain's
+  // native coin ("USDC transfers are not supported on ETH"), and
+  // `verifySignedTransaction` rejects any signed payload with a non-empty
+  // `data` field ("The signed transaction contains unexpected data") — which
+  // every ERC-20 transfer has. The client cannot work around either check, so
+  // it refuses up front with the reason instead of letting the user type a PIN
+  // for a transfer that is guaranteed to fail.
+  const externalTokenBlocked = isExternal && isToken;
+
+  useEffect(() => {
+    if (externalTokenBlocked) {
+      setError(
+        `${params.asset} transfers to external wallets are not supported yet. Sending to another Ulmara user works today.`
+      );
+    }
+  }, [externalTokenBlocked, params.asset]);
+
+  const openAuthorization = useCallback(() => {
+    if (stage !== 'idle') return;
     setError(null);
     setPinError(null);
-    if (isExternal) {
-      if (!params.externalAddress || !params.asset || !params.amount || !params.network) {
-        setPinError('This transfer is missing required details. Go back and try again.');
+    setBiometricNotice(null);
+    setPin('');
+    setPinModal(true);
+  }, [stage]);
+
+  /**
+   * Optional local biometric authorization, run *before* PIN entry.
+   *
+   * This is an extra gate the user opts into, never a replacement: the PIN is
+   * still typed, still verified server-side, and the lockout is untouched. It
+   * exists so a stolen unlocked phone cannot start a transfer.
+   */
+  const handleBiometricAuthorize = useCallback(async () => {
+    if (biometricBusy) return;
+    setBiometricBusy(true);
+    setBiometricNotice(null);
+    try {
+      const outcome = await authenticateWithBiometrics({
+        promptTitle: 'Authorize this transfer',
+        promptSubtitle: `${params.amount} ${params.asset} on ${params.networkName}`,
+        fallbackLabel: 'Use PIN',
+      });
+      if (outcome === 'success') {
+        setBiometricNotice('Identity confirmed. Enter your PIN to authorise.');
         return;
       }
-      // params.network arrives UPPERCASE (the API wire format, e.g. 'ETH',
-      // 'BSC') from external-wallet.tsx, and is sent to the backend as-is —
-      // the prepare endpoint's zod enum is uppercase (CHAIN_NAMES on the
-      // backend). Convert to the lowercase internal ChainId only for the
-      // local signing-adapter lookup.
-      const wireChain = params.network;
-      const chain = wireChain.toLowerCase() as ChainId;
-      const adapter = getSigningAdapter(chain);
-      if (adapter.availability === 'unavailable') {
-        setPinError(`External sending is unavailable: ${adapter.unavailableReason}. Your funds were not sent.`);
-        return;
-      }
-      submitLockRef.current = true;
-      setSending(true);
-      // Stage tracks how far the flow got so failures map to the right copy:
-      // prepare (PIN/TriVerify), sign (local), submit (server-side verification).
-      let stage: 'prepare' | 'sign' | 'submit' = 'prepare';
-      try {
-        // Stage 1 — authorize + validate on the server. The PIN rides with the
-        // prepare request (same 5-attempt/15-minute lockout as internal sends)
-        // and a rejected prepare leaves no intent behind.
-        const intent = await prepareExternalTransfer({
-          chain: wireChain,
-          asset: params.asset,
-          amount: params.amount,
-          to: params.externalAddress,
-          pin: authorizationPin,
-        });
-        const submitIdempotencyKey = randomUUID();
-        stage = 'sign';
-        // Stage 2 — sign locally; keys never leave the device. The intent id
-        // binds the signature to the server-verified transfer details.
-        const signed = await adapter.signTransfer({ asset: params.asset, amount: params.amount, to: params.externalAddress, transactionId: intent.id });
-        stage = 'submit';
-        // Stage 3 — the server re-verifies the signature against the prepared
-        // intent (recipient/amount/chain) before broadcasting anything.
-        const submitted = await submitExternalTransfer(intent.id, signed, submitIdempotencyKey);
-        upsertTransaction(submitted);
+      if (outcome === 'cancelled' || outcome === 'fallback') return;
+      setBiometricNotice(describeOutcome(outcome) ?? 'Biometric check did not complete.');
+    } finally {
+      setBiometricBusy(false);
+    }
+  }, [biometricBusy, params.amount, params.asset, params.networkName]);
+
+  const handleSendError = useCallback(
+    (err: unknown, external: boolean, tokenBlocked: boolean) => {
+      const apiError = toApiError(err);
+      setPin('');
+
+      if (tokenBlocked) {
         setPinModal(false);
-        setDone(true);
-        setTimeout(() => router.replace('/(tabs)/home'), 1200);
-      } catch (err) {
-        const apiError = toApiError(err);
+        setError(friendlyError(err, 'This transfer type is not supported yet.'));
+        return;
+      }
+
+      if (apiError.status === 401 || apiError.status === 423) {
+        // Wrong PIN or lockout — retryable in place. The server's wording is
+        // non-revealing by design and shared with the app-unlock PIN gate.
+        setPinError(apiError.message);
+        setPinModal(true);
+        return;
+      }
+
+      if (external) {
         if (apiError.status === 409 || apiError.status === 410) {
-          // Dead intent (reused/expired): restart the flow cleanly — close the
-          // modal and surface the message on the confirm screen instead of
-          // inviting a retry against an id that can never go through.
-          setPin('');
-          setPinError(null);
           setPinModal(false);
           setError('This request has expired, please try again.');
-        } else if (stage === 'sign') {
-          // Local signing failure (e.g. signing credentials unavailable) is not
-          // a server rejection — show it on the confirm screen.
-          setPin('');
-          setPinError(null);
-          setPinModal(false);
-          setError(apiError.message);
-        } else {
-          // PIN/verification failures stay in the modal so the user can retry.
-          setPinError(stage === 'submit' ? mapExternalSubmitError(apiError) : mapExternalPrepareError(apiError));
-          setPin('');
-          setPinModal(true);
+          return;
         }
+        if (apiError.status === 400) {
+          if (/pin/i.test(apiError.message)) {
+            setPinError(apiError.message);
+            setPinModal(true);
+          } else {
+            setPinModal(false);
+            setError("This address doesn't look valid for the selected network. Double-check it and try again.");
+          }
+          return;
+        }
+        if (apiError.status === 502 || apiError.status === 503) {
+          setPinError('The network is busy right now. Please try again shortly.');
+          setPinModal(true);
+          return;
+        }
+        setPinModal(false);
+        setError(friendlyError(err, 'Something went wrong. Please try again.'));
+        return;
+      }
+
+      // Internal transfer. A wrong PIN / lockout stays in the modal; anything
+      // else (insufficient balance, unknown Account ID, node failure) means the
+      // attempt itself is invalid and belongs on the confirm screen.
+      if (apiError.status === 400 || apiError.status === 404) {
+        setPinModal(false);
+        setError(friendlyError(err, 'This transfer could not be started.'));
+        return;
+      }
+      setPinError(friendlyError(err, 'Something went wrong. Please try again.'));
+      setPinModal(true);
+    },
+    []
+  );
+
+  const handleSend = useCallback(
+    async (authorizationPin: string) => {
+      if (submitLockRef.current) return;
+      submitLockRef.current = true;
+      setPinError(null);
+      setError(null);
+
+      try {
+        if (isExternal) {
+          if (!params.externalAddress || !params.asset || !params.amount || !params.network) {
+            setPinError('This transfer is missing required details. Go back and try again.');
+            return;
+          }
+          if (externalTokenBlocked) {
+            setPinModal(false);
+            setError(
+              `${params.asset} transfers to external wallets are not supported yet.`
+            );
+            return;
+          }
+
+          const adapter = getSigningAdapterByWire(params.network);
+          if (!adapter || adapter.availability === 'unavailable') {
+            setPinError(
+              `External sending is unavailable: ${adapter?.unavailableReason ?? 'this network is not supported'}. Your funds were not sent.`
+            );
+            return;
+          }
+
+          setStage('prepare');
+          // Stage 1 — authorize + validate on the server. The PIN rides with
+          // the prepare request (same 5-attempt/15-minute lockout as internal
+          // sends) and a rejected prepare leaves no intent behind.
+          const intent = await prepareExternalTransfer({
+            chain: params.network,
+            asset: params.asset,
+            amount: params.amount,
+            to: params.externalAddress,
+            pin: authorizationPin,
+          });
+
+          const submitIdempotencyKey = randomUUID();
+          setStage('sign');
+          // Stage 2 — sign locally; keys never leave the device. The intent id
+          // binds the signature to the server-verified transfer details.
+          const signed = await adapter.signTransfer({
+            asset: params.asset,
+            amount: params.amount,
+            to: params.externalAddress,
+            transactionId: intent.id,
+          });
+
+          setStage('submit');
+          // Stage 3 — the server re-verifies the signature against the prepared
+          // intent (recipient/amount/chain) before broadcasting anything.
+          const submitted = await submitExternalTransfer(intent.id, signed, submitIdempotencyKey);
+          upsertTransaction(submitted);
+          setPinModal(false);
+          setStage('done');
+          setTimeout(() => router.replace('/(tabs)/home'), 1200);
+          return;
+        }
+
+        // --- Internal (Account ID) transfer ---
+        if (!params.accountId || !params.asset || !params.amount || !params.network) {
+          setPinError('This transfer is missing required details. Go back and try again.');
+          return;
+        }
+        if (!params.targetAddress) {
+          setPinError('We could not resolve the recipient address. Go back and try again.');
+          return;
+        }
+
+        const adapter = getSigningAdapterByWire(params.network);
+        if (!adapter || adapter.availability === 'unavailable') {
+          setPinError(
+            `Sending is unavailable: ${adapter?.unavailableReason ?? 'this network is not supported'}. Your funds were not sent.`
+          );
+          return;
+        }
+
+        setStage('prepare');
+        // The backend records the ledger row (and applies the PIN gate and
+        // idempotency) before the signature exists — the broadcast endpoint then
+        // takes the signed payload.
+          const created = await sendPayment({
+          recipientAccountId: params.accountId,
+          amount: params.amount,
+          symbol: params.asset,
+          network: params.network,
+          pin: authorizationPin,
+          idempotencyKey,
+        });
+
+        setStage('sign');
+        const signedTx = await adapter.signTransfer({
+          asset: params.asset,
+          amount: params.amount,
+          to: params.targetAddress,
+        });
+
+        setStage('submit');
+        const broadcast = await broadcastTransaction(created.transaction.id, signedTx, idempotencyKey);
+        upsertTransaction(broadcast);
+        setPinModal(false);
+        setStage('done');
+        setTimeout(() => router.replace('/(tabs)/home'), 1200);
+      } catch (err) {
+        handleSendError(err, isExternal, externalTokenBlocked);
       } finally {
-        setSending(false);
+        if (stage !== 'done') setStage('idle');
         submitLockRef.current = false;
       }
-      return;
-    }
+    },
+    // `stage` is read in the finally block only to decide whether to reset.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [isExternal, externalTokenBlocked, params, upsertTransaction, idempotencyKey]
+  );
 
-    if (!params.accountId || !params.asset || !params.amount || !params.network) {
-      setPinError('This transfer is missing required details. Go back and try again.');
-      return;
+  /**
+   * Maps a failure to where the user should see it. PIN/authorization problems
+   * stay inside the modal so the user can retry without losing their place;
+   * everything that invalidates the attempt itself goes to the confirm screen.
+   */
+  const stageLabel = useMemo(() => {
+    switch (stage) {
+      case 'prepare':
+        return 'Authorising with the server…';
+      case 'sign':
+        return 'Signing on this device…';
+      case 'submit':
+        return 'Broadcasting…';
+      default:
+        return null;
     }
-    if (params.network !== 'ETH' || params.asset !== 'ETH') {
-      setPinError('This wallet currently supports native ETH transfers on Ethereum only.');
-      return;
-    }
+  }, [stage]);
 
-    submitLockRef.current = true;
-    setSending(true);
-    try {
-      const created = await sendPayment({
-        recipientAccountId: params.accountId,
-        amount: params.amount,
-        symbol: params.asset,
-        network: params.network,
-        pin: authorizationPin,
-        idempotencyKey,
-      });
-      const signedTx = await signEvmNativeTransfer({ network: params.network, asset: params.asset, to: params.targetAddress!, amount: params.amount });
-      const broadcast = await broadcastTransaction(created.transaction.id, signedTx, idempotencyKey);
-      upsertTransaction(broadcast);
-      setPinModal(false);
-      setDone(true);
-      setTimeout(() => router.replace('/(tabs)/home'), 1200);
-    } catch (err) {
-      // Keep the modal open so the user can retry; wrong PINs and lockouts
-      // are reported by the server without revealing attempt counts.
-      setPinError(toApiError(err).message);
-      setPin('');
-    } finally {
-      setSending(false);
-      submitLockRef.current = false;
-    }
-  };
-
-  if (done) {
+  if (stage === 'done') {
     return (
-      <SafeAreaView style={styles.container}>
+      <UlmaraScreen center testID="send-success">
         <View style={styles.successWrap}>
-          <View style={styles.successCircle}>
-            <Check size={34} color={colors.success} />
+          <View style={[styles.successCircle, { backgroundColor: colors.successTint }]}>
+            <Ionicons name="checkmark" size={34} color={colors.success} />
           </View>
-          <Text style={styles.successTitle}>Sent</Text>
-          <Text style={styles.successSubtitle}>
-            {params.amount} {params.asset} is on its way
-          </Text>
+
+          <Typography variant="title" style={styles.successTitle}>
+            Sent
+          </Typography>
+
+          <Typography variant="amount" numeric style={styles.successAmount}>
+            {params.amount} {params.asset}
+          </Typography>
+
+          <Typography variant="body" color={colors.textMuted} style={styles.successSubtitle}>
+            is on its way
+            {isExternal ? ' to that wallet' : ` to ${params.recipientName ?? 'your recipient'}`}.
+          </Typography>
+
+          {isToken ? (
+            <Typography variant="caption" color={colors.textMuted} style={styles.successMeta}>
+              A network fee was charged in {params.networkName}'s native coin. ERC-20 tokens do
+              not pay for themselves.
+            </Typography>
+          ) : null}
+
+          <Button
+            label="View transaction"
+            onPress={() => router.replace('/(tabs)/activity')}
+            style={styles.successBtn}
+          />
+          <Button
+            label="Done"
+            variant="ghost"
+            onPress={() => router.replace('/(tabs)/home')}
+          />
         </View>
-      </SafeAreaView>
+      </UlmaraScreen>
     );
   }
 
   return (
-    <SafeAreaView style={styles.container}>
+    <UlmaraScreen testID="send-confirm-screen">
       <View style={styles.header}>
-        <Pressable onPress={() => router.back()}>
-          <Text style={styles.back}>‹</Text>
-        </Pressable>
-        <Text style={styles.headerTitle}>Confirm</Text>
-        <View style={{ width: 24 }} />
+        <BackButton />
+        <Typography variant="titleSm" style={styles.headerTitle}>
+          Confirm
+        </Typography>
       </View>
 
-      <View style={styles.body}>
-        <Text style={styles.bigAmount}>{params.amount} {params.asset}</Text>
-        <Text style={styles.toText}>
-          to {isExternal ? 'External Wallet' : params.recipientName}
-        </Text>
+      <ScrollView
+        style={styles.bodyScroll}
+        contentContainerStyle={styles.body}
+        keyboardShouldPersistTaps="handled"
+        showsVerticalScrollIndicator={false}
+      >
+        {/* The amount is the largest type in the app, because on this screen it
+            is the one number the user must be certain about. */}
+        <View style={styles.headline}>
+          <Typography variant="amount" numeric style={styles.bigAmount}>
+            {params.amount} {params.asset}
+          </Typography>
+          <Typography variant="body" color={colors.textMuted} style={styles.toText}>
+            to {isExternal ? 'an external wallet' : params.recipientName ?? 'your recipient'}
+          </Typography>
+        </View>
 
-        <View style={styles.summaryCard}>
-          <Row styles={styles} label="Recipient" value={isExternal ? 'External Wallet' : `${params.recipientName} (${params.accountId})`} />
-          <Row styles={styles} label="Network" value={params.networkName} />
-          <Row styles={styles} label="Network Fee" value={params.fee} />
-          <Row styles={styles} label="Amount" value={`${params.amount} ${params.asset}`} />
+        <View style={styles.summary}>
+          <SummaryRow label="Asset" value={params.asset} />
+          <SummaryRow label="Asset type" value={isToken ? 'ERC-20 token' : 'Native coin'} />
+          <SummaryRow label="Network" value={params.networkName} />
+          <SummaryRow
+            label={isToken ? 'Network fee (native)' : 'Network fee'}
+            value={params.fee || '—'}
+            emphasis={isToken}
+          />
+          {isToken && params.nativeBalance ? (
+            <SummaryRow label="Your native balance" value={params.nativeBalance} />
+          ) : null}
+          <SummaryRow
+            label="Recipient"
+            value={isExternal ? 'External wallet' : params.recipientName ?? 'Ulmara user'}
+            last={!showAddress}
+          />
 
-          <Pressable style={styles.addressToggle} onPress={() => setShowAddress((v) => !v)}>
-            <Text style={styles.addressToggleText}>
-              {showAddress ? 'Hide resolved address' : 'Show resolved address'}
-            </Text>
-          </Pressable>
-          {showAddress && (
-            <View style={styles.addressBox}>
-              <Text style={styles.addressText}>{resolvedAddress}</Text>
+          <Touchable
+            accessibilityRole="button"
+            accessibilityLabel={showAddress ? 'Hide recipient address' : 'Show recipient address'}
+            accessibilityState={{ expanded: showAddress }}
+            onPress={() => setShowAddress((v) => !v)}
+            pressScale={0.98}
+            style={styles.addressToggle}
+          >
+            <Ionicons
+              name={showAddress ? 'chevron-up' : 'chevron-down'}
+              size={15}
+              color={colors.primary}
+            />
+            <Typography variant="label" color={colors.primary}>
+              {showAddress ? 'Hide recipient address' : 'Show recipient address'}
+            </Typography>
+          </Touchable>
+
+          {showAddress ? (
+            <View style={[styles.addressBox, { backgroundColor: colors.surfaceElevated }]}>
+              <Typography variant="code">{resolvedAddress ?? 'Not resolved'}</Typography>
             </View>
-          )}
+          ) : null}
         </View>
 
-        <View style={styles.warningBox}>
-          <Text style={styles.warningText}>
-            Double-check the details above. Crypto transactions can't be reversed once sent.
-          </Text>
+        {isToken ? (
+          <View style={[styles.notice, { backgroundColor: colors.primaryLight }]}>
+            <Ionicons name="information-circle-outline" size={16} color={colors.primary} />
+            <Typography variant="caption" color={colors.primary} style={styles.noticeText}>
+              {params.asset} is an ERC-20 token. It does not pay for itself — the fee above is
+              charged in the {params.networkName} native coin, so you need a small{' '}
+              {feeSymbol(params.fee)} balance as well as the tokens you are sending.
+            </Typography>
+          </View>
+        ) : null}
+
+        {params.insufficientGas === '1' ? (
+          <View style={[styles.notice, { backgroundColor: colors.warningTint }]}>
+            <Ionicons name="warning-outline" size={16} color={colors.warning} />
+            <Typography variant="caption" color={colors.warning} style={styles.noticeText}>
+              Your {feeSymbol(params.fee)} balance does not cover the network fee for this
+              transfer. Add some {feeSymbol(params.fee)} before sending.
+            </Typography>
+          </View>
+        ) : null}
+
+        <View style={[styles.notice, { backgroundColor: colors.surfaceElevated }]}>
+          <Ionicons name="shield-outline" size={16} color={colors.textSecondary} />
+          <Typography variant="caption" color={colors.textSecondary} style={styles.noticeText}>
+            Check the details above. Crypto transfers cannot be reversed once sent.
+          </Typography>
         </View>
-        {error && <Text style={styles.error}>{error}</Text>}
-      </View>
+
+        {error ? (
+          <Typography
+            variant="label"
+            color={colors.error}
+            style={styles.error}
+            accessibilityLiveRegion="polite"
+            accessibilityRole="alert"
+          >
+            {error}
+          </Typography>
+        ) : null}
+      </ScrollView>
 
       <View style={styles.footer}>
-        {/* Disabled while a request is in flight; the onPress guard is a
-            synchronous backstop for double-taps that beat the state update. */}
-        <Pressable
-          style={styles.primaryBtn}
-          onPress={() => { if (!sending) setPinModal(true); }}
-          disabled={sending}
-        >
-          {sending ? <ActivityIndicator color="#fff" /> : <Text style={styles.primaryBtnText}>Confirm & Send</Text>}
-        </Pressable>
+        {/* Disabled while a request is in flight; `openAuthorization` also guards
+            synchronously so a double-tap that beats the state update cannot fire
+            two transfers. */}
+        <Button
+          label={sending ? stageLabel ?? 'Working…' : 'Confirm and send'}
+          onPress={openAuthorization}
+          loading={sending}
+          disabled={sending || externalTokenBlocked}
+        />
       </View>
-      <Modal visible={pinModal} transparent animationType="fade">
-        <View style={styles.pinOverlay}>
-          <View style={[styles.pinCard, { backgroundColor: colors.surface }]}>
-            <Text style={styles.pinTitle}>Confirm with PIN</Text>
-            <Text style={styles.pinSubtitle}>Enter your 6-digit PIN to authorize this transfer.</Text>
-            <TextInput
-              autoFocus
-              secureTextEntry
-              keyboardType="number-pad"
-              maxLength={6}
-              value={pin}
-              editable={!sending}
-              onChangeText={(value) => {
-                setPinError(null);
-                setPin(value);
-                if (value.length === 6) handleSend(value);
-              }}
-              style={[styles.pinInput, { color: colors.textPrimary, borderColor: colors.border }]} />
-            {pinError && <Text style={styles.pinError}>{pinError}</Text>}
-            {sending && <ActivityIndicator color={colors.primary} style={styles.pinSpinner} />}
-            {/* Cancelling closes the modal without sending anything: no request
-                is made, so a cancel can never count as a failed attempt. */}
-            <Pressable onPress={() => { setPinModal(false); setPin(''); setPinError(null); }}>
-              <Text style={styles.cancelText}>Cancel</Text>
-            </Pressable>
-          </View>
-        </View>
-      </Modal>
-    </SafeAreaView>
+
+      <Sheet
+        visible={pinModal}
+        onClose={() => {
+          // Cancelling closes the sheet without sending anything: no request is
+          // made, so a cancel can never count as a failed attempt.
+          if (sending) return;
+          setPinModal(false);
+          setPin('');
+          setPinError(null);
+        }}
+        title="Confirm with your PIN"
+        subtitle={`Enter your ${PIN_LENGTH}-digit PIN to authorise this transfer.`}
+        footer={
+          biometricEnabled ? (
+            <Button
+              label={biometricBusy ? 'Checking…' : 'Authorise with biometrics'}
+              variant="secondary"
+              onPress={handleBiometricAuthorize}
+              loading={biometricBusy}
+              disabled={sending}
+              accessibilityLabel="Authorise this transfer with biometrics"
+            />
+          ) : null
+        }
+      >
+        <Input
+          autoFocus
+          label="PIN"
+          placeholder="••••••"
+          value={pin}
+          onChangeText={(value) => {
+            setPinError(null);
+            const next = value.replace(/\D/g, '').slice(0, PIN_LENGTH);
+            setPin(next);
+            if (next.length === PIN_LENGTH) void handleSend(next);
+          }}
+          keyboardType="number-pad"
+          secureTextEntry
+          maxLength={PIN_LENGTH}
+          editable={!sending}
+          error={pinError ?? undefined}
+          hint={biometricNotice ?? undefined}
+        />
+      </Sheet>
+    </UlmaraScreen>
   );
 }
 
-function Row({ styles, label, value }: { styles: ReturnType<typeof getStyles>; label: string; value?: string }) {
+/** One label/value row in the summary block. */
+function SummaryRow({
+  label,
+  value,
+  emphasis = false,
+  last = false,
+}: {
+  label: string;
+  value: string;
+  emphasis?: boolean;
+  last?: boolean;
+}) {
+  const colors = useThemeStore((state) => state.colors);
   return (
-    <View style={styles.row}>
-      <Text style={styles.rowLabel}>{label}</Text>
-      <Text style={styles.rowValue} numberOfLines={1}>{value}</Text>
+    <View
+      style={[
+        summaryStyles.row,
+        last
+          ? null
+          : { borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.divider },
+      ]}
+    >
+      <Typography variant="body" color={colors.textSecondary}>
+        {label}
+      </Typography>
+      <Typography
+        variant={emphasis ? 'titleSm' : 'body'}
+        color={colors.textPrimary}
+        numeric
+        style={summaryStyles.value}
+      >
+        {value}
+      </Typography>
     </View>
   );
 }
 
-// Error mapping for the external-send flow. 401 (wrong PIN) and 423 (lockout)
-// pass through verbatim — the server wording is shared with the internal
-// transfer's PIN gate, so the UX matches exactly. Everything else is
-// translated to UX-appropriate copy without exposing backend internals.
-function mapExternalPrepareError(apiError: ApiErrorShape): string {
-  if (apiError.status === 401 || apiError.status === 423) return apiError.message;
-  if (apiError.status === 400) {
-    // A 400 on prepare is either a malformed PIN (its message is readable and
-    // safe to show) or a TriVerify/format rejection of the recipient.
-    if (/pin/i.test(apiError.message)) return apiError.message;
-    return "This address doesn't look valid for the selected network. Double-check it and try again.";
-  }
-  if (apiError.status === 502 || apiError.status === 503) {
-    return 'The network is busy right now. Please try again shortly.';
-  }
-  return apiError.message || 'Something went wrong. Please try again.';
+/**
+ * Layout for the summary block, defined at module scope because it does not
+ * depend on the theme — the theme supplies colours inline where they are needed.
+ */
+const summaryStyles = StyleSheet.create({
+  row: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: space.lg,
+    paddingVertical: space.md,
+  },
+  value: { flexShrink: 1, textAlign: 'right' },
+});
+
+/** Extracts the native gas symbol from a formatted fee string. */
+function feeSymbol(fee: string): string {
+  const parts = fee.trim().split(/\s+/);
+  return parts.length > 1 ? parts[parts.length - 1] : 'the network';
 }
 
-function mapExternalSubmitError(apiError: ApiErrorShape): string {
-  if (apiError.status === 401 || apiError.status === 423) return apiError.message;
-  if (apiError.status === 400) {
-    // The server's signed-transaction verification failed — keep the internals
-    // out of the UI and offer a retry.
-    return "This transaction couldn't be verified, please try again.";
-  }
-  return apiError.message || 'Something went wrong. Please try again.';
-}
+/**
+ * Layout for the redesigned confirm body.
+ *
+ * Only the keys the new markup actually reads are defined. The pre-redesign
+ * version carried 29 more — a hand-rolled modal, its overlay, card, PIN field
+ * and spinner, a summary card with its own row component, a primary button with
+ * a hardcoded `#FFFFFF` label, and a `‹` back glyph. All of that is now the
+ * shared `Sheet` / `Button` / `Input` / `BackButton`, and leaving the old
+ * entries behind is how a design system quietly grows a second, private one.
+ */
+const getStyles = defineStyles((colors: ThemeColors) =>
+  StyleSheet.create({
+    header: { flexDirection: 'row', alignItems: 'center', gap: space.md, paddingTop: space.sm },
+    headerTitle: { flex: 1 },
 
-function getStyles(colors: ThemeColors) {
-  return StyleSheet.create({
-    container: { flex: 1, backgroundColor: colors.background, justifyContent: 'space-between' },
-    header: {
-      flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
-      paddingHorizontal: 20, paddingTop: 12, paddingBottom: 8,
+    bodyScroll: { flex: 1 },
+    body: { paddingTop: space.lg, paddingBottom: space.xl, gap: space.lg },
+
+    headline: { alignItems: 'center', paddingTop: space.xl, paddingBottom: space.xxl },
+    bigAmount: { textAlign: 'center' },
+    toText: { textAlign: 'center', marginTop: space.sm },
+
+    summary: { marginBottom: space.xl },
+    addressToggle: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: space.sm,
+      alignSelf: 'flex-start',
+      paddingVertical: space.sm,
     },
-    back: { color: colors.textPrimary, fontSize: 28 },
-    headerTitle: { color: colors.textPrimary, fontSize: 17, fontWeight: '700' },
-    body: { flex: 1, paddingHorizontal: 20, paddingTop: 20, alignItems: 'center' },
-    bigAmount: { color: colors.textPrimary, fontSize: 32, fontWeight: '700' },
-    toText: { color: colors.textMuted, fontSize: 14, marginTop: 6, marginBottom: 24 },
-    summaryCard: {
-      width: '100%',
-      backgroundColor: colors.surface,
-      borderRadius: 20,
-      borderWidth: 1,
-      borderColor: colors.border,
-      padding: 20,
+    addressBox: { padding: space.md, borderRadius: 12 },
+
+    notice: {
+      flexDirection: 'row',
+      alignItems: 'flex-start',
+      gap: space.sm,
+      padding: space.md,
+      borderRadius: 12,
+      marginBottom: space.md,
     },
-    row: { flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 10 },
-    rowLabel: { color: colors.textMuted, fontSize: 14, fontWeight: '500' },
-    rowValue: { color: colors.textPrimary, fontSize: 14, fontWeight: '700', maxWidth: '60%' },
-    addressToggle: { marginTop: 10, paddingTop: 12, borderTopWidth: 1, borderTopColor: colors.divider },
-    addressToggleText: { color: colors.primary, fontSize: 13, fontWeight: '700' },
-    addressBox: { marginTop: 10, backgroundColor: colors.surfaceElevated, borderRadius: 12, padding: 12, borderWidth: 1, borderColor: colors.border },
-    addressText: { color: colors.textSecondary, fontSize: 12, fontFamily: 'monospace' },
-    warningBox: {
-      width: '100%', backgroundColor: `${colors.warning}1A`, borderRadius: 12, borderWidth: 1,
-      borderColor: `${colors.warning}40`, padding: 14, marginTop: 20,
+    noticeText: { flex: 1 },
+
+    error: { marginTop: space.sm },
+
+    footer: { paddingTop: space.lg },
+
+    successWrap: {
+      flex: 1,
+      alignItems: 'center',
+      justifyContent: 'center',
+      paddingHorizontal: 24,
     },
-    warningText: { color: colors.warning, fontSize: 12, lineHeight: 17 },
-    error: { color: colors.error, fontSize: 13, lineHeight: 18, marginTop: 12, textAlign: 'center' },
-    footer: { paddingHorizontal: 20, paddingBottom: 32 },
-    primaryBtn: {
-      backgroundColor: colors.primary, borderRadius: 14, paddingVertical: 16,
-      alignItems: 'center', justifyContent: 'center', height: 54,
-    },
-    primaryBtnText: { color: '#FFFFFF', fontSize: 16, fontWeight: '600' },
-    pinOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.65)', justifyContent: 'center', padding: 24 },
-    pinCard: { borderRadius: 24, padding: 24 },
-    pinTitle: { color: colors.textPrimary, fontSize: 20, fontWeight: '800', textAlign: 'center' },
-    pinSubtitle: { color: colors.textMuted, textAlign: 'center', marginTop: 8, lineHeight: 20 },
-    pinInput: { borderWidth: 1, borderRadius: 12, marginTop: 20, padding: 14, textAlign: 'center', fontSize: 24, letterSpacing: 8 },
-    pinError: { color: colors.error, fontSize: 13, lineHeight: 18, marginTop: 14, textAlign: 'center' },
-    pinSpinner: { marginTop: 14 },
-    cancelText: { color: colors.primary, textAlign: 'center', marginTop: 18, fontWeight: '700' },
-    successWrap: { flex: 1, alignItems: 'center', justifyContent: 'center' },
     successCircle: {
-      width: 72, height: 72, borderRadius: 36, backgroundColor: `${colors.success}22`,
-      alignItems: 'center', justifyContent: 'center', marginBottom: 20,
+      width: 72,
+      height: 72,
+      borderRadius: 36,
+      alignItems: 'center',
+      justifyContent: 'center',
+      marginBottom: space.xl,
     },
-    successCheck: { color: colors.success, fontSize: 32, fontWeight: '700' },
-    successTitle: { color: colors.textPrimary, fontSize: 22, fontWeight: '700' },
-    successSubtitle: { color: colors.textMuted, fontSize: 14, marginTop: 8 },
-  });
-}
+    successTitle: {},
+    successSubtitle: { marginTop: space.sm, textAlign: 'center' },
+    successAmount: { marginTop: space.lg },
+    successMeta: { marginTop: space.md, textAlign: 'center', maxWidth: 320 },
+    successBtn: { marginTop: space.xxl },
+  })
+);

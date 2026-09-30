@@ -9,11 +9,17 @@
     "scheme": "avora",
     "ios": {
       "bundleIdentifier": "com.biggestmanuel.avora",
-      "supportsTablet": false
+      "supportsTablet": false,
+      "infoPlist": {
+        "NSFaceIDUsageDescription": "Ulmara uses Face ID to unlock your wallet on this device. Your PIN still authorises every transfer, and no biometric data is stored or sent."
+      }
     },
     "android": {
       "package": "com.biggestmanuel.avora",
       "permissions": [
+        "android.permission.USE_BIOMETRIC",
+        "android.permission.USE_FINGERPRINT",
+        "android.permission.POST_NOTIFICATIONS",
         "android.permission.READ_EXTERNAL_STORAGE",
         "android.permission.WRITE_EXTERNAL_STORAGE",
         "android.permission.READ_MEDIA_VISUAL_USER_SELECTED",
@@ -30,6 +36,19 @@
       "expo-status-bar",
       "expo-sharing",
       "expo-dev-client",
+      [
+        "expo-notifications",
+        {
+          "color": "#4A2D5C",
+          "defaultChannel": "transactions"
+        }
+      ],
+      [
+        "expo-local-authentication",
+        {
+          "faceIDPermission": "Ulmara uses Face ID to unlock your wallet on this device. Your PIN still authorises every transfer, and no biometric data is stored or sent."
+        }
+      ],
       [
         "expo-media-library",
         {

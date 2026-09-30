@@ -1,137 +1,71 @@
-import { Tabs } from 'expo-router';
-import { router } from 'expo-router';
-import { Ionicons } from '@expo/vector-icons';
-import { Pressable, Text, View, StyleSheet } from 'react-native';
+import { View } from 'react-native';
+import { Tabs, router } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { useThemeStore } from '../../lib/theme';
 
+import { TabBar, type TabItem } from '../../components/navigation/TabBar';
+import { gutter, useThemeStore } from '../../lib/theme';
+
+/**
+ * Tab navigation.
+ *
+ * ## What changed
+ *
+ * The route set, order and destinations are unchanged — five items with Send in
+ * the middle — so no navigation is lost. What changed is the *chrome*: the
+ * previous layout built a floating 26pt-radius pill with a 64pt Send button
+ * raised out of it (`marginTop: -28`, `elevation: 12`) inline in this file.
+ * That is now `components/navigation/TabBar`, a flat bar with a single hairline,
+ * and this file only decides which screens exist and where Send sits.
+ *
+ * Keeping the bar as a real component (rather than an inline `tabBar` render
+ * prop) also means the five tab buttons are stable components with stable
+ * `accessibilityState`, instead of being rebuilt inside a render callback on
+ * every navigation.
+ */
 export default function TabsLayout() {
-  const { colors } = useThemeStore();
+  const colors = useThemeStore((state) => state.colors);
   const insets = useSafeAreaInsets();
-  const tabs = [
-    { name: 'home', label: 'Home', icon: 'home-outline' as const },
-    { name: 'activity', label: 'Transactions', icon: 'time-outline' as const },
-    { name: 'balances', label: 'Balances', icon: 'wallet-outline' as const },
-    { name: 'profile', label: 'Profile', icon: 'person-outline' as const },
+
+  const tabs: TabItem[] = [
+    { key: 'home', label: 'Home', icon: 'home-outline' },
+    { key: 'activity', label: 'Activity', icon: 'time-outline' },
+    { key: 'send', label: 'Send', icon: 'arrow-up-outline' },
+    { key: 'balances', label: 'Balances', icon: 'wallet-outline' },
+    { key: 'profile', label: 'Profile', icon: 'person-outline' },
   ];
 
   return (
     <Tabs
-      screenOptions={{
-        headerShown: false,
-      }}
-      tabBar={({ state, descriptors, navigation }) => (
-        <View style={[styles.dockWrap, { paddingBottom: Math.max(insets.bottom, 10) }]}>
-          <View style={[styles.dock, { backgroundColor: colors.background, borderColor: colors.background, shadowColor: colors.textPrimary }]}>
-            {tabs.slice(0, 2).map((tab) => {
-              const route = state.routes.find((item) => item.name === tab.name);
-              if (!route) return null;
-              const focused = state.routes[state.index]?.name === route.name;
-              return (
-                <Pressable
-                  key={route.key}
-                  accessibilityRole="button"
-                  accessibilityState={focused ? { selected: true } : {}}
-                  onPress={() => navigation.navigate(route.name)}
-                  style={styles.dockItem}
-                >
-                  <View style={[styles.iconBubble, focused && { backgroundColor: colors.primaryLight }]}>
-                    <Ionicons name={tab.icon} size={21} color={focused ? colors.primary : colors.textMuted} />
-                  </View>
-                  <Text style={[styles.dockLabel, { color: focused ? colors.primary : colors.textMuted }]}>{tab.label}</Text>
-                </Pressable>
-              );
-            })}
-            <Pressable
-              accessibilityRole="button"
-              accessibilityLabel="Send"
-              onPress={() => router.push('/send')}
-              style={[styles.sendButton, { backgroundColor: colors.primary, shadowColor: colors.primary }]}
-            >
-              <Ionicons name="arrow-up" size={25} color="#FFFFFF" />
-              <Text style={styles.sendLabel}>Send</Text>
-            </Pressable>
-            {tabs.slice(2).map((tab) => {
-              const route = state.routes.find((item) => item.name === tab.name);
-              if (!route) return null;
-              const focused = state.routes[state.index]?.name === route.name;
-              return (
-                <Pressable
-                  key={route.key}
-                  accessibilityRole="button"
-                  accessibilityState={focused ? { selected: true } : {}}
-                  onPress={() => navigation.navigate(route.name)}
-                  style={styles.dockItem}
-                >
-                  <View style={[styles.iconBubble, focused && { backgroundColor: colors.primaryLight }]}>
-                    <Ionicons name={tab.icon} size={20} color={focused ? colors.primary : colors.textMuted} />
-                  </View>
-                  <Text style={[styles.dockLabel, { color: focused ? colors.primary : colors.textMuted }]}>{tab.label}</Text>
-                </Pressable>
-              );
-            })}
-          </View>
+      screenOptions={{ headerShown: false }}
+      tabBar={({ state, navigation }) => (
+        <View
+          style={{
+            backgroundColor: colors.background,
+            paddingBottom: Math.max(insets.bottom, 8),
+            paddingHorizontal: gutter,
+          }}
+        >
+          <TabBar
+            tabs={tabs}
+            activeKey={state.routes[state.index]?.name ?? 'home'}
+            primaryKey="send"
+            onPrimaryPress={() => router.push('/send')}
+            onChange={(key) => {
+              if (key === 'send') {
+                router.push('/send');
+                return;
+              }
+              const route = state.routes.find((item) => item.name === key);
+              if (route) navigation.navigate(route.name);
+            }}
+          />
         </View>
       )}
     >
-      <Tabs.Screen
-        name="home"
-        options={{
-          title: 'Home',
-        }}
-      />
-      <Tabs.Screen
-        name="balances"
-        options={{
-          title: 'Balances',
-        }}
-      />
-      <Tabs.Screen
-        name="activity"
-        options={{
-          title: 'Transactions',
-        }}
-      />
-      <Tabs.Screen
-        name="profile"
-        options={{
-          title: 'Profile',
-        }}
-      />
+      <Tabs.Screen name="home" options={{ title: 'Home' }} />
+      <Tabs.Screen name="balances" options={{ title: 'Balances' }} />
+      <Tabs.Screen name="activity" options={{ title: 'Activity' }} />
+      <Tabs.Screen name="profile" options={{ title: 'Profile' }} />
     </Tabs>
   );
 }
-
-const styles = StyleSheet.create({
-  dockWrap: { paddingHorizontal: 16, backgroundColor: 'transparent' },
-  dock: {
-    minHeight: 78,
-    borderRadius: 26,
-    borderWidth: 0,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-around',
-    paddingHorizontal: 10,
-    shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 0.16,
-    shadowRadius: 18,
-    elevation: 8,
-  },
-  dockItem: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 3 },
-  iconBubble: { width: 38, height: 30, borderRadius: 15, alignItems: 'center', justifyContent: 'center' },
-  dockLabel: { fontSize: 10, fontWeight: '700', letterSpacing: 0.1 },
-  sendButton: {
-    width: 64,
-    height: 64,
-    borderRadius: 23,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginTop: -28,
-    marginHorizontal: 4,
-    shadowOffset: { width: 0, height: 6 },
-    shadowOpacity: 0.28,
-    shadowRadius: 10,
-    elevation: 12,
-  },
-  sendLabel: { color: '#FFFFFF', fontSize: 10, fontWeight: '800', marginTop: 1 },
-});

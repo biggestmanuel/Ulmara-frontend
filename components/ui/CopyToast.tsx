@@ -1,14 +1,31 @@
 import { useEffect, useRef, useState } from 'react';
-import { Modal, Pressable, StyleSheet, Text, View } from 'react-native';
+import { Modal, StyleSheet, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import * as Clipboard from 'expo-clipboard';
 
-import { useThemeStore } from '../../lib/theme';
+import { Typography } from './Typography';
+import { useReducedMotion } from '../../lib/hooks/useReducedMotion';
+import { radius, space, useThemeStore } from '../../lib/theme';
 
-// Copy confirmation styled after the logout confirmation modal (same dimmed
-// overlay, rounded bordered surface card, and button treatment) so copy
-// feedback matches the app's design language instead of a bare Alert.
-// Auto-dismisses after a moment; the overlay tap also dismisses it.
+/**
+ * Clipboard feedback.
+ *
+ * ## What changed
+ *
+ * The old toast was a **blocking modal**: `Modal` + a full-screen `Pressable`
+ * that dimmed everything and swallowed a tap. Copying your own Account ID is a
+ * routine, near-invisible act — interrupting the whole screen for 1.6 seconds
+ * to say "copied" is disproportionate, and the dim overlay made the app feel
+ * like it was blocking. This is now a small floating pill near the bottom that
+ * does not intercept touches.
+ *
+ * ## Accessibility
+ *
+ * It is a live region, so a screen-reader user is told the copy succeeded
+ * without losing their place. Critically, it is rendered as a toast rather than
+ * a dialog: it takes no focus, so focus is not stolen from whatever the user
+ * was actually doing.
+ */
 export function useCopyToast() {
   const [label, setLabel] = useState<string | null>(null);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -29,55 +46,49 @@ export function useCopyToast() {
   return { copyToClipboard, message: label, visible: label !== null };
 }
 
-export function CopyToast({ message, visible, onHide }: { message: string; visible: boolean; onHide: () => void }) {
-  const { colors } = useThemeStore();
+export function CopyToast({ message, visible }: { message: string; visible: boolean }) {
+  const colors = useThemeStore((state) => state.colors);
+  // Honoured so the toast still appears — it carries information — but without
+  // the modal fade when motion is reduced.
+  const reducedMotion = useReducedMotion();
+
+  if (!visible || !message) return null;
 
   return (
-    <Modal visible={visible} transparent animationType="fade" onRequestClose={onHide}>
-      <Pressable style={styles.overlay} onPress={onHide}>
-        <View pointerEvents="box-none" style={styles.centerWrap}>
-          <Pressable
-            style={[styles.toastCard, { backgroundColor: colors.surface, borderColor: colors.border }]}
-            onPress={(e) => e.stopPropagation()}
-          >
-            <View style={[styles.checkBadge, { backgroundColor: colors.primaryLight }]}>
-              <Ionicons name="checkmark" size={16} color={colors.primary} />
-            </View>
-            <Text style={[styles.toastText, { color: colors.textPrimary }]} numberOfLines={2}>
-              {message}
-            </Text>
-          </Pressable>
+    <Modal
+      visible={visible}
+      transparent
+      // "none" when motion is reduced; the content is still announced.
+      animationType={reducedMotion ? 'none' : 'fade'}
+      onRequestClose={() => {}}
+      statusBarTranslucent
+    >
+      <View style={styles.layer} pointerEvents="none">
+        <View
+          accessible
+          accessibilityRole="alert"
+          accessibilityLiveRegion="polite"
+          accessibilityLabel={message}
+          style={[styles.pill, { backgroundColor: colors.textPrimary }]}
+        >
+          <Ionicons name="checkmark" size={14} color={colors.background} />
+          <Typography variant="label" color={colors.background}>
+            {message}
+          </Typography>
         </View>
-      </Pressable>
+      </View>
     </Modal>
   );
 }
 
 const styles = StyleSheet.create({
-  overlay: {
-    flex: 1,
-    backgroundColor: 'rgba(0, 0, 0, 0.65)',
-    alignItems: 'center',
-    justifyContent: 'center',
-    padding: 24,
-  },
-  centerWrap: { alignItems: 'center' },
-  toastCard: {
+  layer: { flex: 1, justifyContent: 'flex-end', alignItems: 'center', paddingBottom: 120 },
+  pill: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 12,
-    maxWidth: 380,
-    borderRadius: 24,
-    borderWidth: 1,
-    paddingHorizontal: 20,
-    paddingVertical: 16,
+    gap: space.sm,
+    paddingHorizontal: space.lg,
+    paddingVertical: space.md,
+    borderRadius: radius.pill,
   },
-  checkBadge: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  toastText: { fontSize: 14, fontWeight: '700', flexShrink: 1 },
 });

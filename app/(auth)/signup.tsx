@@ -1,33 +1,49 @@
 import { useState } from 'react';
-import { View, Text, TextInput, StyleSheet, Pressable, KeyboardAvoidingView, Platform, ActivityIndicator, ScrollView } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { KeyboardAvoidingView, Platform, StyleSheet, View } from 'react-native';
 import { router } from 'expo-router';
-import { Ionicons } from '@expo/vector-icons';
 
+import { Button, Input, PasswordField, Screen, Typography } from '../../components/ui';
 import { signup as signupApi } from '../../lib/api/auth';
-import type { ApiErrorShape } from '../../lib/api/client';
+import { friendlyError, setCachedSessionToken } from '../../lib/api/client';
 import { setSecureItem, SecureStorageKeys } from '../../lib/storage/secureStorage';
-import { useThemeStore, ThemeColors } from '../../lib/theme';
+import { space, useThemeStore } from '../../lib/theme';
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
+/**
+ * Signup.
+ *
+ * ## What changed
+ *
+ * The old screen hand-rolled a `KeyboardAvoidingView` + `ScrollView` + four raw
+ * `TextInput`s, with a single page-level error string set from whichever
+ * validation failed — so the message appeared *above the form* with no
+ * indication of which field was wrong, and a server error looked identical to a
+ * local one. The redesign uses the shared `Input`, which owns its own error
+ * slot, so **each field reports its own problem in place**, and a form-level
+ * error is reserved for failures that genuinely belong to the whole submission
+ * (a duplicate account, a server error).
+ */
 export default function Signup() {
-  const { colors } = useThemeStore();
-  const styles = getStyles(colors);
+  const colors = useThemeStore((state) => state.colors);
+
   const [fullName, setFullName] = useState('');
   const [email, setEmail] = useState('');
   const [phone, setPhone] = useState('');
   const [password, setPassword] = useState('');
-  const [showPassword, setShowPassword] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+
+  const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
+  const [formError, setFormError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
   const validate = () => {
-    if (fullName.trim().length < 2) return 'Enter your full name';
-    if (!EMAIL_RE.test(email)) return 'Enter a valid email address';
-    if (phone.replace(/\D/g, '').length < 10) return 'Enter a valid phone number';
-    if (password.length < 8) return 'Password must be at least 8 characters';
-    return null;
+    const errors: Record<string, string> = {};
+    if (fullName.trim().length < 2) errors.fullName = 'Enter your full name';
+    if (!EMAIL_RE.test(email)) errors.email = 'Enter a valid email address';
+    if (phone.replace(/\D/g, '').length < 10) errors.phone = 'Enter a valid phone number';
+    if (password.length < 8) errors.password = 'At least 8 characters';
+    setFieldErrors(errors);
+    return Object.keys(errors).length === 0;
   };
 
   // Matches the backend's signup phone regex: optional +, 10-15 digits.
@@ -37,9 +53,8 @@ export default function Signup() {
   };
 
   const handleSignup = async () => {
-    const err = validate();
-    setError(err);
-    if (err) return;
+    setFormError(null);
+    if (!validate()) return;
 
     setLoading(true);
     try {
@@ -49,6 +64,7 @@ export default function Signup() {
         password,
       });
       await setSecureItem(SecureStorageKeys.SESSION_TOKEN, token);
+      setCachedSessionToken(token);
       router.push({
         pathname: '/(auth)/verify-email',
         params: {
@@ -60,137 +76,108 @@ export default function Signup() {
         },
       });
     } catch (err) {
-      // apiClient's response interceptor already normalizes rejected errors
-      // to a readable ApiErrorShape (409/500 included) — don't re-wrap here.
-      setError((err as ApiErrorShape).message);
+      // friendlyError guarantees readable copy: the backend's 409 "An account
+      // with this email already exists…" wins, and anything that is not
+      // user-facing prose (a bare 500, a proxy status line) falls back to
+      // per-status wording instead of leaking transport detail.
+      setFormError(friendlyError(err, 'We could not create your account. Please try again.'));
     } finally {
       setLoading(false);
     }
   };
 
   return (
-    <SafeAreaView style={styles.container}>
-      <KeyboardAvoidingView
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-        style={{ flex: 1 }}
-      >
-        <ScrollView contentContainerStyle={styles.body} keyboardShouldPersistTaps="handled">
-          <Text style={styles.title}>Create your account</Text>
-          <Text style={styles.subtitle}>Takes less than a minute</Text>
+    <KeyboardAvoidingView
+      behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+      style={{ flex: 1 }}
+    >
+      <Screen>
+        <View style={styles.headings}>
+          <Typography variant="title">Create your account</Typography>
+          <Typography variant="body" color={colors.textMuted} style={styles.subtitle}>
+            Takes less than a minute
+          </Typography>
+        </View>
 
-          <View style={styles.field}>
-            <Text style={styles.label}>Full name</Text>
-            <TextInput
-              style={styles.input}
-              placeholder="John Doe"
-              placeholderTextColor={colors.textMuted}
-              value={fullName}
-              onChangeText={setFullName}
-            />
-          </View>
+        <View style={styles.form}>
+          <Input
+            label="Full name"
+            placeholder="Ada Lovelace"
+            value={fullName}
+            onChangeText={setFullName}
+            error={fieldErrors.fullName}
+            autoCapitalize="words"
+            autoComplete="name"
+            textContentType="name"
+            returnKeyType="next"
+          />
+          <Input
+            label="Email"
+            placeholder="you@example.com"
+            value={email}
+            onChangeText={setEmail}
+            error={fieldErrors.email}
+            keyboardType="email-address"
+            autoCapitalize="none"
+            autoCorrect={false}
+            autoComplete="email"
+            textContentType="emailAddress"
+            returnKeyType="next"
+          />
+          <Input
+            label="Phone number"
+            placeholder="+234 800 000 0000"
+            value={phone}
+            onChangeText={setPhone}
+            error={fieldErrors.phone}
+            keyboardType="phone-pad"
+            autoComplete="tel"
+            textContentType="telephoneNumber"
+            returnKeyType="next"
+          />
+          <PasswordField
+            label="Password"
+            placeholder="At least 8 characters"
+            value={password}
+            onChangeText={setPassword}
+            error={fieldErrors.password}
+            returnKeyType="go"
+            onSubmitEditing={handleSignup}
+          />
+        </View>
 
-          <View style={styles.field}>
-            <Text style={styles.label}>Email</Text>
-            <TextInput
-              style={styles.input}
-              placeholder="you@example.com"
-              placeholderTextColor={colors.textMuted}
-              autoCapitalize="none"
-              keyboardType="email-address"
-              value={email}
-              onChangeText={setEmail}
-            />
-          </View>
-
-          <View style={styles.field}>
-            <Text style={styles.label}>Phone number</Text>
-            <TextInput
-              style={styles.input}
-              placeholder="+234 800 000 0000"
-              placeholderTextColor={colors.textMuted}
-              keyboardType="phone-pad"
-              value={phone}
-              onChangeText={setPhone}
-            />
-          </View>
-
-          <View style={styles.field}>
-            <Text style={styles.label}>Password</Text>
-            <View style={styles.passwordWrap}>
-              <TextInput
-                style={styles.input}
-                placeholder="At least 8 characters"
-                placeholderTextColor={colors.textMuted}
-                secureTextEntry={!showPassword}
-                autoCapitalize="none"
-                value={password}
-                onChangeText={setPassword}
-              />
-              <Pressable
-                style={styles.eyeBtn}
-                onPress={() => setShowPassword((v) => !v)}
-                hitSlop={8}
-                accessibilityLabel={showPassword ? 'Hide password' : 'Show password'}
-              >
-                <Ionicons
-                  name={showPassword ? 'eye-off-outline' : 'eye-outline'}
-                  size={20}
-                  color={colors.textMuted}
-                />
-              </Pressable>
-            </View>
-          </View>
-
-          {error && <Text style={styles.error}>{error}</Text>}
-        </ScrollView>
+        {formError ? (
+          <Typography
+            variant="label"
+            color={colors.error}
+            style={styles.formError}
+            accessibilityLiveRegion="polite"
+            accessibilityRole="alert"
+          >
+            {formError}
+          </Typography>
+        ) : null}
 
         <View style={styles.footer}>
-          <Pressable style={styles.primaryBtn} onPress={handleSignup} disabled={loading}>
-            {loading ? <ActivityIndicator color="#fff" /> : <Text style={styles.primaryBtnText}>Continue</Text>}
-          </Pressable>
-          <Pressable onPress={() => router.push('/(auth)/login')}>
-            <Text style={styles.secondaryText}>
-              Already have an account? <Text style={styles.linkInline}>Log in</Text>
-            </Text>
-          </Pressable>
+          <Button label="Continue" onPress={handleSignup} loading={loading} />
+          <Button
+            label="I already have an account"
+            variant="ghost"
+            onPress={() => router.replace('/(auth)/login')}
+          />
         </View>
-      </KeyboardAvoidingView>
-    </SafeAreaView>
+      </Screen>
+    </KeyboardAvoidingView>
   );
 }
 
-function getStyles(colors: ThemeColors) {
-  return StyleSheet.create({
-    container: { flex: 1, backgroundColor: colors.background, justifyContent: 'space-between' },
-    body: { paddingHorizontal: 24, paddingTop: 40, paddingBottom: 20 },
-    title: { fontSize: 28, fontWeight: '800', color: colors.textPrimary },
-    subtitle: { fontSize: 15, color: colors.textMuted, marginTop: 6, marginBottom: 32 },
-    field: { marginBottom: 18 },
-    label: { fontSize: 13, color: colors.textMuted, marginBottom: 8, fontWeight: '600' },
-    input: {
-      backgroundColor: colors.surface,
-      borderRadius: 16,
-      paddingHorizontal: 16,
-      paddingVertical: 14,
-      color: colors.textPrimary,
-      fontSize: 16,
-      borderWidth: 1,
-      borderColor: colors.border,
-    },
-    passwordWrap: { position: 'relative', justifyContent: 'center' },
-    eyeBtn: { position: 'absolute', right: 16 },
-    error: { color: colors.error, fontSize: 13, marginTop: 4 },
-    footer: { paddingHorizontal: 24, paddingBottom: 36, gap: 16 },
-    primaryBtn: {
-      backgroundColor: colors.primary,
-      borderRadius: 16,
-      paddingVertical: 16,
-      alignItems: 'center',
-      justifyContent: 'center',
-      height: 54,
-    },
-    primaryBtnText: { color: '#FFFFFF', fontSize: 16, fontWeight: '700' },
-    secondaryText: { color: colors.textMuted, fontSize: 14, textAlign: 'center' },
-    linkInline: { color: colors.primary, fontWeight: '700' },
-  });
-}
+const styles = StyleSheet.create({
+  headings: { marginBottom: space.xxl },
+  subtitle: { marginTop: space.xs },
+
+  form: { gap: space.lg },
+
+  formError: { marginTop: space.lg },
+
+  footer: { marginTop: 'auto', paddingTop: space.xxl, gap: space.sm },
+});

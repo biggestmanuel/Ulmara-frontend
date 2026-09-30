@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import { getSecureItem, setSecureItem, clearAllSecureItems, SecureStorageKeys } from '../lib/storage/secureStorage';
 import { getMe } from '../lib/api/accountId';
+import { clearCachedSessionToken, setCachedSessionToken } from '../lib/api/client';
 import { useAuthGateStore } from './authGateStore';
 
 // Own-profile shape from GET /api/account/me — richer than the public
@@ -62,6 +63,7 @@ export const useUserStore = create<UserState>((set, get) => ({
       setSecureItem(SecureStorageKeys.ACCOUNT_ID, accountId),
       setSecureItem(SecureStorageKeys.SESSION_TOKEN, sessionToken),
     ]);
+    setCachedSessionToken(sessionToken);
     set({ accountId });
   },
 
@@ -71,18 +73,38 @@ export const useUserStore = create<UserState>((set, get) => ({
   },
 
   logout: async () => {
+    // Release the server-side push token before the session token is wiped —
+    // unregistering needs an authenticated request, so it has to happen first
+    // (best-effort: a failure here must not block sign-out). Dynamic import
+    // avoids a static cycle (push -> client -> storage, userStore -> push).
+    try {
+      const { unregisterPushToken } = await import('../lib/push/pushNotifications');
+      await unregisterPushToken();
+    } catch (err) {
+      console.error('Push token cleanup failed during logout:', err);
+    }
+
     await clearAllSecureItems();
+    // Drop the API client's cached bearer token too — otherwise the very next
+    // request after sign-out would still carry the old session.
+    clearCachedSessionToken();
     // Otherwise a re-login in the same app session (no process restart)
     // would inherit the stale pinVerified=true from before logout and skip
     // PIN entry entirely.
     useAuthGateStore.getState().resetPinVerified();
+    // Re-run the gate so its status actually flips to 'guest'. Without this the
+    // store still reports 'authed' and the root layout's redirect effect
+    // bounces the user straight back from /(auth)/welcome to /(tabs)/home.
+    await useAuthGateStore.getState().check();
     // Also clear in-memory wallet/tx state so a different account logging in
     // on the same device never flashes the previous user's balances or
     // transactions. Dynamic import avoids a static store-import cycle.
     const { useWalletStore } = await import('./walletStore');
     const { useTxStore } = await import('./txStore');
+    const { useNotificationStore } = await import('./notificationStore');
     useWalletStore.setState({ addresses: {}, balances: [], isHydrated: false, isLoadingBalances: false });
     useTxStore.setState({ items: [], nextCursor: null, isLoading: false, isLoadingMore: false });
+    useNotificationStore.getState().clear();
     set({ accountId: null, profile: null, biometricEnabled: false });
   },
 }));

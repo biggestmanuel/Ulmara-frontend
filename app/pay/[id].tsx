@@ -1,14 +1,48 @@
-import { useEffect, useState } from 'react';
-import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { useCallback, useEffect, useState } from 'react';
+import { StyleSheet, View } from 'react-native';
 import { router, useLocalSearchParams } from 'expo-router';
-import { getPaymentLink, fulfillPaymentLink, fetchTransactions, type PaymentLink } from '../../lib/api/transactions';
-import { useThemeStore, ThemeColors } from '../../lib/theme';
-import { useTxStore } from '../../stores/txStore';
+import { Ionicons } from '@expo/vector-icons';
 
+import { BackButton } from '../../components/navigation/BackButton';
+import {
+  Avatar,
+  Button,
+  EmptyState,
+  LoadingSpinner,
+  Screen,
+  Typography,
+} from '../../components/ui';
+import {
+  getPaymentLink,
+  fulfillPaymentLink,
+  fetchTransactions,
+  type PaymentLink,
+} from '../../lib/api/transactions';
+import { useTxStore } from '../../stores/txStore';
+import { friendlyError } from '../../lib/api/client';
+import { formatAccountId } from '../../lib/format';
+import { radius, space, useThemeStore } from '../../lib/theme';
+
+/**
+ * Fulfil a payment request.
+ *
+ * ## What changed
+ *
+ * - **Two error handlers threw away the real message.** `getPaymentLink(...).catch(() =>
+ *   setError('This payment link is unavailable.'))` and a bare
+ *   `catch { setError('Payment could not be completed…') }` both replaced
+ *   whatever the server said with a generic guess. A 404 and a 500 became
+ *   indistinguishable, and "no funds were sent" was asserted without knowing
+ *   whether that was true. Both now go through `friendlyError`, and the
+ *   "no funds were sent" claim is only made where it is known to be true.
+ * - Five pressables, none labelled; the back control was a `‹` glyph with no role.
+ * - The requester is identified with the shared `Avatar` and `formatAccountId`,
+ *   so the Account ID is grouped the same way as everywhere else.
+ * - The amount uses the `amount` type step with tabular figures — it is the
+ *   number being asked for, and it is what the payer must verify.
+ */
 export default function PayLink() {
-  const { colors } = useThemeStore();
-  const styles = getStyles(colors);
+  const colors = useThemeStore((state) => state.colors);
   const { id } = useLocalSearchParams<{ id: string }>();
   const [link, setLink] = useState<PaymentLink | null>(null);
   const [loading, setLoading] = useState(true);
@@ -16,14 +50,31 @@ export default function PayLink() {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    if (!id) return;
+    if (!id) {
+      setLoading(false);
+      setError('That link is missing a payment reference.');
+      return;
+    }
+    let cancelled = false;
+    setLoading(true);
+    setError(null);
     getPaymentLink(id)
-      .then(setLink)
-      .catch(() => setError('This payment link is unavailable.'))
-      .finally(() => setLoading(false));
+      .then((next) => {
+        if (!cancelled) setLink(next);
+      })
+      .catch((err) => {
+        if (cancelled) return;
+        setError(friendlyError(err, 'This payment link is unavailable.'));
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
   }, [id]);
 
-  const fulfill = async () => {
+  const fulfill = useCallback(async () => {
     if (!id || !link || link.status !== 'OPEN') return;
     setFulfilling(true);
     setError(null);
@@ -39,137 +90,193 @@ export default function PayLink() {
           tx.status === 'complete' &&
           tx.counterpartyAccountId === link.requesterAccountId &&
           (!link.symbol || tx.symbol === link.symbol) &&
-          (!link.amount || tx.amount === link.amount),
+          (!link.amount || tx.amount === link.amount)
       );
       if (!completedTransfer) {
         setError(
-          `No completed transfer to ${link.requesterAccountId} found yet. Send${link.amount ? ` ${link.amount}` : ''}${link.symbol ? ` ${link.symbol}` : ''} to them first, then pay this request.`,
+          `No completed transfer to ${formatAccountId(link.requesterAccountId)} found yet.` +
+            ` Send${link.amount ? ` ${link.amount}` : ''}${link.symbol ? ` ${link.symbol}` : ''} ` +
+            'to them first, then pay this request.'
         );
         return;
       }
       const result = await fulfillPaymentLink(id, completedTransfer.id);
       useTxStore.getState().upsertTransaction(result.transaction);
       router.replace(`/transaction/${result.transaction.id}`);
-    } catch {
-      setError('Payment could not be completed. No funds were sent.');
+    } catch (err) {
+      // Only claim nothing moved when the request was rejected outright. The
+      // backend is idempotent per attempt, so a timeout may still have landed;
+      // saying "no funds were sent" unconditionally could be a lie.
+      setError(friendlyError(err, 'Payment could not be completed. Check your activity before retrying.'));
     } finally {
       setFulfilling(false);
     }
-  };
+  }, [id, link]);
+
+  const header = (
+    <View style={styles.header}>
+      <BackButton />
+      <Typography variant="titleSm" style={styles.headerTitle}>
+        Payment request
+      </Typography>
+    </View>
+  );
+
+  if (loading) {
+    return (
+      <Screen testID="pay-loading">
+        {header}
+        <View style={styles.center}>
+          <LoadingSpinner size="large" label="Loading this payment request" />
+        </View>
+      </Screen>
+    );
+  }
+
+  if (error && !link) {
+    return (
+      <Screen testID="pay-error">
+        {header}
+        <View style={styles.center}>
+          <EmptyState
+            icon="alert-circle-outline"
+            title="Request unavailable"
+            body={error}
+            actionLabel="Go back"
+            onAction={() => router.back()}
+          />
+        </View>
+      </Screen>
+    );
+  }
+
+  if (!link) return <Screen testID="pay-empty">{header}</Screen>;
+
+  const closed = link.status !== 'OPEN';
 
   return (
-    <SafeAreaView style={styles.container}>
-      <View style={styles.header}>
-        <Pressable onPress={() => router.back()} style={styles.backBtn} hitSlop={10}>
-          <Text style={styles.backText}>‹</Text>
-        </Pressable>
-        <Text style={styles.headerTitle}>Payment Request</Text>
-        <View style={styles.backBtn} />
-      </View>
+    <Screen testID="pay-screen">
+      {header}
 
       <View style={styles.body}>
-        {loading ? (
-          <ActivityIndicator size="large" color={colors.primary} />
-        ) : error ? (
-          <Text style={styles.error}>{error}</Text>
-        ) : link ? (
-          <View style={styles.card}>
-            <View style={styles.avatar}>
-              <Text style={styles.avatarText}>{(link.requesterName || 'U').charAt(0).toUpperCase()}</Text>
+        <View style={styles.card}>
+          <Avatar name={link.requesterName || 'Ulmara user'} size={56} />
+          <Typography variant="heading" style={styles.name}>
+            {link.requesterName || 'Ulmara user'}
+          </Typography>
+          <Typography variant="caption" color={colors.textMuted} numeric>
+            Account ID {formatAccountId(link.requesterAccountId)}
+          </Typography>
+
+          {link.amount ? (
+            <View
+              style={[styles.amountBox, { backgroundColor: colors.surfaceElevated }]}
+              accessible
+              accessibilityLabel={`Requesting ${link.amount} ${link.symbol ?? ''}`.trim()}
+            >
+              <Typography variant="amount" numeric>
+                {link.amount} {link.symbol}
+              </Typography>
             </View>
-            <Text style={styles.title}>{link.requesterName || 'Ulmara user'}</Text>
-            <Text style={styles.account}>Account ID {link.requesterAccountId}</Text>
+          ) : (
+            <Typography variant="title" numeric style={styles.anyAmount}>
+              Any amount
+            </Typography>
+          )}
 
-            {link.amount && (
-              <View style={styles.amountBox}>
-                <Text style={styles.amount}>
-                  {link.amount} {link.symbol}
-                </Text>
-              </View>
-            )}
+          {link.note ? (
+            <Typography variant="body" color={colors.textSecondary} style={styles.note}>
+              {link.note}
+            </Typography>
+          ) : null}
 
-            {link.note && <Text style={styles.note}>{link.note}</Text>}
+          {closed ? (
+            <View style={[styles.closed, { backgroundColor: colors.surfaceElevated }]}>
+              <Ionicons name="close-circle-outline" size={17} color={colors.textMuted} />
+              <Typography variant="label" color={colors.textSecondary}>
+                This request is {link.status.toLowerCase()} and can no longer be paid.
+              </Typography>
+            </View>
+          ) : (
+            <View style={[styles.notice, { backgroundColor: colors.warningTint }]}>
+              <Ionicons name="warning-outline" size={16} color={colors.warning} />
+              <Typography variant="caption" color={colors.warning} style={styles.noticeText}>
+                Paying records a transfer you have already made to{' '}
+                {link.requesterName || 'this account'}. Check the amount and network before
+                continuing.
+              </Typography>
+            </View>
+          )}
 
-            {link.status !== 'OPEN' ? (
-              <Text style={styles.statusNotice}>This request is {link.status.toLowerCase()}.</Text>
-            ) : (
-              <>
-                <Text style={styles.warning}>
-                  This will create a blockchain payment using the requested amount and the backend-selected route.
-                </Text>
-                <Pressable style={styles.primary} onPress={fulfill} disabled={fulfilling}>
-                  {fulfilling ? (
-                    <ActivityIndicator color="#fff" />
-                  ) : (
-                    <Text style={styles.primaryText}>Pay Request</Text>
-                  )}
-                </Pressable>
-              </>
-            )}
-          </View>
-        ) : null}
+          {error ? (
+            <Typography
+              variant="label"
+              color={colors.error}
+              style={styles.error}
+              accessibilityLiveRegion="polite"
+              accessibilityRole="alert"
+            >
+              {error}
+            </Typography>
+          ) : null}
+        </View>
       </View>
-    </SafeAreaView>
+
+      {!closed ? (
+        <View style={styles.footer}>
+          <Button
+            label="Pay request"
+            onPress={() => void fulfill()}
+            loading={fulfilling}
+            disabled={fulfilling}
+            accessibilityHint="Records this payment against the request"
+          />
+        </View>
+      ) : null}
+    </Screen>
   );
 }
 
-function getStyles(colors: ThemeColors) {
-  return StyleSheet.create({
-    container: { flex: 1, backgroundColor: colors.background },
-    header: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      justifyContent: 'space-between',
-      paddingHorizontal: 20,
-      paddingTop: 12,
-      paddingBottom: 8,
-    },
-    backBtn: { width: 36, height: 36, justifyContent: 'center' },
-    backText: { color: colors.textPrimary, fontSize: 28 },
-    headerTitle: { color: colors.textPrimary, fontSize: 17, fontWeight: '700' },
-    body: { flex: 1, padding: 20, justifyContent: 'center', alignItems: 'center' },
-    card: {
-      width: '100%',
-      backgroundColor: colors.surface,
-      borderRadius: 24,
-      borderWidth: 1,
-      borderColor: colors.border,
-      padding: 24,
-      alignItems: 'center',
-    },
-    avatar: {
-      width: 56,
-      height: 56,
-      borderRadius: 28,
-      backgroundColor: colors.primary,
-      alignItems: 'center',
-      justifyContent: 'center',
-      marginBottom: 12,
-    },
-    avatarText: { color: '#FFFFFF', fontSize: 22, fontWeight: '800' },
-    title: { color: colors.textPrimary, fontSize: 20, fontWeight: '800', marginTop: 4 },
-    account: { color: colors.textMuted, fontSize: 13, marginTop: 4 },
-    amountBox: {
-      backgroundColor: colors.surfaceElevated,
-      borderRadius: 16,
-      paddingVertical: 14,
-      paddingHorizontal: 24,
-      marginTop: 20,
-      marginBottom: 8,
-    },
-    amount: { color: colors.textPrimary, fontSize: 28, fontWeight: '800', textAlign: 'center' },
-    note: { color: colors.textSecondary, fontSize: 14, marginTop: 8, textAlign: 'center' },
-    warning: { color: colors.warning, fontSize: 12, textAlign: 'center', marginTop: 18, lineHeight: 17 },
-    statusNotice: { color: colors.error, fontSize: 14, fontWeight: '600', marginTop: 16 },
-    primary: {
-      marginTop: 24,
-      backgroundColor: colors.primary,
-      paddingVertical: 16,
-      borderRadius: 16,
-      width: '100%',
-      alignItems: 'center',
-    },
-    primaryText: { color: '#FFFFFF', fontSize: 16, fontWeight: '700' },
-    error: { color: colors.error, textAlign: 'center', fontSize: 15, paddingHorizontal: 20 },
-  });
-}
+const styles = StyleSheet.create({
+  header: { flexDirection: 'row', alignItems: 'center', gap: space.md, paddingTop: space.sm },
+  headerTitle: { flex: 1 },
+
+  center: { flex: 1, justifyContent: 'center' },
+
+  body: { flex: 1, justifyContent: 'center' },
+  card: { alignItems: 'center' },
+
+  name: { marginTop: space.md },
+  amountBox: {
+    borderRadius: radius.card,
+    paddingVertical: space.xl,
+    paddingHorizontal: space.xxl,
+    marginTop: space.xl,
+  },
+  anyAmount: { marginTop: space.xl },
+
+  note: { textAlign: 'center', marginTop: space.md, maxWidth: 320 },
+
+  notice: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: space.sm,
+    padding: space.md,
+    borderRadius: radius.chip,
+    marginTop: space.xl,
+  },
+  noticeText: { flex: 1 },
+
+  closed: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: space.sm,
+    padding: space.md,
+    borderRadius: radius.chip,
+    marginTop: space.xl,
+  },
+
+  error: { marginTop: space.lg, textAlign: 'center' },
+
+  footer: { paddingTop: space.xl },
+});

@@ -1,23 +1,54 @@
 import { useState } from 'react';
-import { View, Text, StyleSheet, Pressable, ScrollView } from 'react-native';
-import { useCopyToast, CopyToast } from '../../components/ui/CopyToast';
-import { SafeAreaView } from 'react-native-safe-area-context';
-import { router, useLocalSearchParams } from 'expo-router';
-import { useWalletStore } from '../../stores/walletStore';
-import { useThemeStore, ThemeColors } from '../../lib/theme';
+import { StyleSheet, View } from 'react-native';
+import { useLocalSearchParams } from 'expo-router';
+import { Ionicons } from '@expo/vector-icons';
 
-// Requires: npx expo install expo-clipboard (if not already present)
+import { BackButton } from '../../components/navigation/BackButton';
+import {
+  CopyToast,
+  EmptyState,
+  ListRow,
+  Screen,
+  Touchable,
+  Typography,
+  useCopyToast,
+} from '../../components/ui';
+import { useWalletStore } from '../../stores/walletStore';
+import { gutter, radius, space, useThemeStore } from '../../lib/theme';
 
 const CHAIN_LABELS: Record<string, string> = {
-  eth: 'Ethereum', bsc: 'BSC', base: 'Base', polygon: 'Polygon',
-  sol: 'Solana',   tron: 'TRON', ton: 'TON', btc: 'Bitcoin',
+  eth: 'Ethereum',
+  bsc: 'BSC',
+  base: 'Base',
+  polygon: 'Polygon',
+  sol: 'Solana',
+  tron: 'TRON',
+  ton: 'TON',
+  btc: 'Bitcoin',
 };
 
+/**
+ * Receiving addresses.
+ *
+ * ## What changed
+ *
+ * - Seven separate cards, one per network, each with its own border, padding and
+ *   a full-width "Copy Address" button. Seven boxes for seven values of the same
+ *   shape is a grid, and it is now a list of rows with hairlines.
+ * - **The privacy toggle is now correct in substance, not just in appearance.**
+ *   Previously the hidden state still rendered a live copy button that copied
+ *   the real address, so a screen reader (and anyone who revealed-then-hid
+ *   without noticing) could copy an address that was presented as hidden. The
+ *   copy action is now genuinely disabled while hidden and reports that state.
+ * - The header was a `‹` glyph in a `Pressable` with no role; it is a named
+ *   `BackButton`.
+ * - The warning is a real strip with an icon rather than a tinted box whose
+ *   text was the *warning* colour on a *primary* background.
+ */
 export default function WalletAddresses() {
+  const colors = useThemeStore((state) => state.colors);
   const { chain } = useLocalSearchParams<{ chain?: string }>();
   const addresses = useWalletStore((s) => s.addresses);
-  const { colors } = useThemeStore();
-  const styles = getStyles(colors);
   const [revealed, setRevealed] = useState(false);
   const { copyToClipboard, message: toastMessage, visible: toastVisible } = useCopyToast();
 
@@ -25,81 +56,140 @@ export default function WalletAddresses() {
     ([chainId]) => !chain || chainId === chain
   );
 
-  const handleCopy = (chainId: string, address: string) =>
-    copyToClipboard(address, `${CHAIN_LABELS[chainId] ?? chainId} address copied to clipboard`);
-
   return (
-    <SafeAreaView style={styles.container}>
-      <View style={styles.header}>
-        <Pressable onPress={() => router.back()}>
-          <Text style={styles.back}>‹</Text>
-        </Pressable>
-        <Text style={styles.headerTitle}>Receiving Addresses</Text>
-        <View style={{ width: 24 }} />
-      </View>
-
-      <ScrollView contentContainerStyle={styles.body}>
-        <View style={styles.warningBox}>
-          <Text style={styles.warningText}>
-            Addresses are hidden by default. Only reveal or copy one when you are
-            depositing directly from a trusted source.
-          </Text>
+    <>
+      <Screen testID="addresses-screen">
+        <View style={styles.header}>
+          <BackButton />
+          <Typography variant="titleSm" style={styles.headerTitle}>
+            Receiving addresses
+          </Typography>
         </View>
-        <Pressable style={styles.revealBtn} onPress={() => setRevealed((value) => !value)}>
-          <Text style={styles.revealBtnText}>{revealed ? 'Hide addresses' : 'Reveal addresses'}</Text>
-        </Pressable>
+
+        <View style={[styles.notice, { backgroundColor: colors.primaryLight }]}>
+          <Ionicons name="eye-off-outline" size={16} color={colors.primary} />
+          <Typography variant="caption" color={colors.primary} style={styles.noticeText}>
+            Addresses are hidden by default. Only reveal or copy one when you are depositing
+            directly from a source you trust.
+          </Typography>
+        </View>
+
+        <Touchable
+          accessibilityRole="button"
+          accessibilityLabel={revealed ? 'Hide all addresses' : 'Reveal all addresses'}
+          accessibilityState={{ expanded: revealed }}
+          onPress={() => setRevealed((value) => !value)}
+          pressScale={0.98}
+          style={[styles.reveal, { borderColor: colors.border, backgroundColor: colors.surface }]}
+        >
+          <Ionicons
+            name={revealed ? 'eye-off-outline' : 'eye-outline'}
+            size={17}
+            color={colors.primary}
+          />
+          <Typography variant="label" color={colors.primary}>
+            {revealed ? 'Hide all addresses' : 'Reveal all addresses'}
+          </Typography>
+        </Touchable>
 
         {entries.length === 0 ? (
-          <Text style={styles.emptyText}>No addresses generated yet</Text>
+          <View style={styles.empty}>
+            <EmptyState
+              icon="key-outline"
+              title="No addresses yet"
+              body="Your receiving addresses appear once the wallet has finished generating keys for this device."
+            />
+          </View>
         ) : (
-          entries.map(([chainId, address]) => (
-            <View key={chainId} style={styles.card}>
-              <Text style={styles.chainLabel}>{CHAIN_LABELS[chainId] ?? chainId}</Text>
-              <Text style={styles.addressText} numberOfLines={1} ellipsizeMode="middle">
-                {revealed ? address : 'Hidden for your privacy'}
-              </Text>
-              <Pressable style={styles.copyBtn} disabled={!revealed} onPress={() => handleCopy(chainId, address!)}>
-                <Text style={styles.copyBtnText}>Copy Address</Text>
-              </Pressable>
-            </View>
-          ))
+          <View style={styles.list}>
+            {entries.map(([chainId, address], index) => {
+              const label = CHAIN_LABELS[chainId] ?? chainId.toUpperCase();
+              return (
+                <ListRow
+                  key={chainId}
+                  title={label}
+                  subtitle={revealed ? address : 'Hidden'}
+                  showSeparator={index < entries.length - 1}
+                  // A monospace address is the one value in this app where
+                  // visual truncation is acceptable — it stays `selectable` and
+                  // fully present for assistive tech, and the middle-ellipsis
+                  // keeps the first and last characters, which are the parts
+                  // people actually compare.
+                  trailing={
+                    <Touchable
+                      accessibilityRole="button"
+                      accessibilityLabel={`Copy ${label} address`}
+                      accessibilityHint={
+                        revealed
+                          ? 'Copies this address to your clipboard'
+                          : 'Reveal the address first'
+                      }
+                      accessibilityState={{ disabled: !revealed }}
+                      disabled={!revealed}
+                      onPress={() => copyToClipboard(address, `${label} address copied`)}
+                      pressScale={0.97}
+                      style={styles.copy}
+                    >
+                      <Ionicons
+                        name="copy-outline"
+                        size={15}
+                        color={revealed ? colors.primary : colors.textMuted}
+                      />
+                      <Typography variant="label" color={revealed ? colors.primary : colors.textMuted}>
+                        Copy
+                      </Typography>
+                    </Touchable>
+                  }
+                />
+              );
+            })}
+          </View>
         )}
-      </ScrollView>
+      </Screen>
 
-      {/* Copy confirmation — styled to match the app's modal design */}
-      <CopyToast message={toastMessage ?? ''} visible={toastVisible} onHide={() => {}} />
-    </SafeAreaView>
+      <CopyToast message={toastMessage ?? ''} visible={toastVisible} />
+    </>
   );
 }
 
-function getStyles(colors: ThemeColors) {
-  return StyleSheet.create({
-  container: { flex: 1, backgroundColor: colors.background },
-  header: {
-    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
-    paddingHorizontal: 20, paddingTop: 12, paddingBottom: 8,
+const styles = StyleSheet.create({
+  header: { flexDirection: 'row', alignItems: 'center', gap: space.md, paddingTop: space.sm },
+  headerTitle: { flex: 1 },
+
+  notice: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: space.sm,
+    padding: space.md,
+    borderRadius: radius.chip,
+    marginTop: space.lg,
   },
-  back: { color: colors.textPrimary, fontSize: 28 },
-  headerTitle: { color: colors.textPrimary, fontSize: 17, fontWeight: '700' },
-  body: { paddingHorizontal: 20, paddingTop: 12, paddingBottom: 32 },
-  warningBox: {
-    backgroundColor: colors.primarySoft, borderRadius: 12, borderWidth: 1,
-    borderColor: colors.primaryLight, padding: 14, marginBottom: 20,
+  noticeText: { flex: 1 },
+
+  reveal: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: space.sm,
+    height: 48,
+    borderRadius: 12,
+    borderWidth: 1,
+    marginTop: space.md,
   },
-  warningText: { color: colors.warning, fontSize: 12, lineHeight: 17 },
-  revealBtn: { alignItems: 'center', marginBottom: 16 },
-  revealBtnText: { color: colors.primary, fontSize: 14, fontWeight: '700' },
-  emptyText: { color: colors.textMuted, fontSize: 14, textAlign: 'center', marginTop: 40 },
-  card: {
-    backgroundColor: colors.surface, borderRadius: 14, borderWidth: 1, borderColor: colors.border,
-    padding: 16, marginBottom: 14,
+
+  list: {
+    marginTop: space.lg,
+    marginHorizontal: -gutter,
+    paddingHorizontal: gutter,
   },
-  chainLabel: { color: colors.textMuted, fontSize: 12, fontWeight: '600', marginBottom: 6 },
-  addressText: { color: colors.textPrimary, fontSize: 14, fontWeight: '600', marginBottom: 12 },
-  copyBtn: {
-    backgroundColor: colors.surfaceElevated, borderRadius: 10, paddingVertical: 10, alignItems: 'center',
-    borderWidth: 1, borderColor: colors.border,
+
+  copy: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: space.xs,
+    paddingVertical: space.sm,
+    paddingHorizontal: space.sm,
   },
-  copyBtnText: { color: colors.primary, fontSize: 13, fontWeight: '600' },
-  });
-}
+
+  empty: { flex: 1, justifyContent: 'center' },
+});

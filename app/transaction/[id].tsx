@@ -1,11 +1,9 @@
-import React, { useRef, useState, useEffect } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   View,
   Text,
   StyleSheet,
   ScrollView,
-  TouchableOpacity,
-  Alert,
   ActivityIndicator,
 } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
@@ -15,10 +13,45 @@ import * as Sharing from 'expo-sharing';
 
 import { useTxStore } from '../../stores/txStore';
 import { useUserStore } from '../../stores/userStore';
-import { useThemeStore, ThemeColors } from '../../lib/theme';
-import { fetchTransactionById, Transaction } from '../../lib/api/transactions';
-import { ReceiptCard, ReceiptData } from '../../components/transaction/ReceiptCard';
+import { radius, useThemeStore, type ThemeColors } from '../../lib/theme';
+import { defineStyles } from '../../lib/theme/styles';
+import { fetchTransactionById, type Transaction } from '../../lib/api/transactions';
+import { friendlyError } from '../../lib/api/client';
+import { ReceiptCard, type ReceiptData } from '../../components/transaction/ReceiptCard';
 import { useCopyToast, CopyToast } from '../../components/ui/CopyToast';
+import { BackButton } from '../../components/navigation/BackButton';
+import {
+  Button,
+  EmptyState,
+  IconButton,
+  Screen,
+  Touchable,
+  Typography,
+} from '../../components/ui';
+import { isTokenSymbol } from '../../constants/tokens';
+import { getEvmNetworkName, nativeSymbolForChain } from '../../lib/chains/evmConfig';
+import { CHAINS } from '../../constants/chains';
+
+const EVM_CHAINS = ['eth', 'bsc', 'base', 'polygon'] as const;
+type EvmChain = (typeof EVM_CHAINS)[number];
+
+/** Human network name from the UPPERCASE wire identifier. */
+function networkLabelFor(wire: string): string {
+  const chain = wire.toLowerCase() as keyof typeof CHAINS;
+  if ((EVM_CHAINS as readonly string[]).includes(chain)) {
+    return getEvmNetworkName(chain as EvmChain);
+  }
+  return CHAINS[chain]?.name ?? wire;
+}
+
+/** The coin that pays gas on that network. Never the token. */
+function nativeSymbolFor(wire: string): string {
+  const chain = wire.toLowerCase() as keyof typeof CHAINS;
+  if ((EVM_CHAINS as readonly string[]).includes(chain)) {
+    return nativeSymbolForChain(chain as EvmChain);
+  }
+  return CHAINS[chain]?.symbol ?? wire;
+}
 
 export default function TransactionDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -27,88 +60,117 @@ export default function TransactionDetailScreen() {
 
   const [sharing, setSharing] = useState(false);
   const [saving, setSaving] = useState(false);
+  /**
+   * Share / save outcomes.
+   *
+   * These were five `Alert.alert` calls. `Alert` is a system dialog: it ignores
+   * the theme completely on Android and renders as a bare, unstyled browser
+   * dialog on web, so the moments the user most wants to read clearly — "saved",
+   * "permission required", "could not share" — were the moments the app looked
+   * least like itself. The same reasoning that replaced the PIN-change alert in
+   * `settings/security.tsx`.
+   */
+  const [notice, setNotice] = useState<{ tone: 'error' | 'success'; text: string } | null>(null);
   const [fallbackTx, setFallbackTx] = useState<Transaction | null>(null);
   const [loadingDirect, setLoadingDirect] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const { copyToClipboard, message: toastMessage, visible: toastVisible } = useCopyToast();
 
-  // 1. User Store
-  const { accountId, profile } = useUserStore();
-  const { colors } = useThemeStore();
-  const styles = getStyles(colors);
+  // Selector-based subscriptions, not `useUserStore()` / `useTxStore()` with no
+  // selector: the latter re-renders this screen on *every* store write anywhere
+  // in the app (a balance refresh, a push arriving, a page of transactions
+  // loading), even though this screen reads four scalars and one list.
+  const accountId = useUserStore((s) => s.accountId);
+  const profileName = useUserStore((s) => s.profile?.name);
+  const colors = useThemeStore((s) => s.colors);
+  const styles = useMemo(() => getStyles(colors), [colors]);
 
-  // 2. Tx Store
-  const { items, isLoading, fetchInitial } = useTxStore();
+  const items = useTxStore((s) => s.items);
+  const isLoading = useTxStore((s) => s.isLoading);
+  const fetchInitial = useTxStore((s) => s.fetchInitial);
 
-  // Try finding in current items
-  const storeTx = items.find((item) => item.id === id);
+  // `storeTx` is a derived lookup, so it is memoized on the two inputs rather
+  // than rescanning the list on every render.
+  const storeTx = useMemo(
+    () => (id ? items.find((item) => item.id === id) : undefined),
+    [items, id]
+  );
 
-  // 3. Fallback: If not in local items (e.g. direct link or refresh), fetch by ID
+  // Fallback: a cold deep link (a notification tap) lands here with nothing in
+  // the store, so the row is fetched by id.
   useEffect(() => {
-    if (!storeTx && id) {
-      setLoadingDirect(true);
-      fetchTransactionById(id)
-        .then((data) => setFallbackTx(data))
-        .catch((err) => {
-          console.error('Failed to fetch transaction by id:', err);
-          // Also trigger list fetch just in case
-          fetchInitial();
-        })
-        .finally(() => setLoadingDirect(false));
-    }
+    if (storeTx || !id) return;
+    let cancelled = false;
+    setLoadingDirect(true);
+    setLoadError(null);
+    fetchTransactionById(id)
+      .then((data) => {
+        if (!cancelled) setFallbackTx(data);
+      })
+      .catch((err) => {
+        if (cancelled) return;
+        setLoadError(friendlyError(err, 'We could not load this transaction.'));
+        // Also refresh the list — a status flip may be why the id was unknown.
+        void fetchInitial();
+      })
+      .finally(() => {
+        if (!cancelled) setLoadingDirect(false);
+      });
+    return () => {
+      cancelled = true;
+    };
   }, [fetchInitial, id, storeTx]);
 
-  const tx = storeTx || fallbackTx;
+  const tx = storeTx ?? fallbackTx;
 
-  // Capture helper
-  const captureReceiptUri = async (): Promise<string> => {
+  const captureReceiptUri = useCallback(async (): Promise<string> => {
     if (!receiptRef.current) {
-      throw new Error('Receipt view reference is not ready');
+      throw new Error('The receipt is still rendering. Try again in a moment.');
     }
-    return await captureRef(receiptRef, {
-      format: 'png',
-      quality: 1.0,
-    });
-  };
+    return captureRef(receiptRef, { format: 'png', quality: 1 });
+  }, []);
 
-  // Real Share
-  const handleShareReceipt = async () => {
+  const handleShareReceipt = useCallback(async () => {
+    setSharing(true);
+    setNotice(null);
     try {
-      setSharing(true);
       const uri = await captureReceiptUri();
-      const isAvailable = await Sharing.isAvailableAsync();
-
-      if (isAvailable) {
-        await Sharing.shareAsync(uri, {
-          mimeType: 'image/png',
-          dialogTitle: `Ulmara Receipt - ${id}`,
+      if (!(await Sharing.isAvailableAsync())) {
+        setNotice({
+          tone: 'error',
+          text: 'Sharing is not supported on this device. You can save the receipt instead.',
         });
-      } else {
-        Alert.alert('Sharing Unavailable', 'Native sharing is not supported on this device.');
+        return;
       }
-    } catch (err: any) {
-      Alert.alert('Share Failed', err?.message || 'Unable to share receipt.');
+      await Sharing.shareAsync(uri, { mimeType: 'image/png', dialogTitle: `Ulmara receipt ${id ?? ''}` });
+      setNotice({ tone: 'success', text: 'Receipt shared' });
+    } catch (err) {
+      // friendlyError, not `err.message` — a raw native error string is not
+      // something a user can act on.
+      setNotice({
+        tone: 'error',
+        text: friendlyError(err, 'Unable to share the receipt image.'),
+      });
     } finally {
       setSharing(false);
     }
-  };
+  }, [captureReceiptUri, id]);
 
-  // Real Save to Gallery
-  const handleSaveToGallery = async () => {
+  const handleSaveToGallery = useCallback(async () => {
+    setSaving(true);
+    setNotice(null);
     try {
-      setSaving(true);
       const MediaLibrary = await import('expo-media-library');
       const { status } = await MediaLibrary.requestPermissionsAsync();
       if (status !== 'granted') {
-        Alert.alert(
-          'Permission Required',
-          'Please allow media access in your settings to save receipts to your photos.'
-        );
+        setNotice({
+          tone: 'error',
+          text: 'Allow photo access in your device settings to save receipts to your gallery.',
+        });
         return;
       }
-
       const uri = await captureReceiptUri();
       const asset = await MediaLibrary.createAssetAsync(uri);
-
       try {
         const album = await MediaLibrary.getAlbumAsync('Ulmara');
         if (album == null) {
@@ -117,277 +179,235 @@ export default function TransactionDetailScreen() {
           await MediaLibrary.addAssetsToAlbumAsync([asset], album, false);
         }
       } catch {
-        // Fallback: asset is safely in camera roll
+        // Album bookkeeping failed; the asset is already in the camera roll.
       }
-
-      Alert.alert('Saved!', 'Receipt saved to your Photos/Gallery.');
-    } catch (err: unknown) {
-      const message = err instanceof Error ? err.message : 'Unable to save receipt image.';
-      Alert.alert('Save Failed', message);
+      setNotice({ tone: 'success', text: 'Receipt saved to your gallery' });
+    } catch (err) {
+      setNotice({
+        tone: 'error',
+        text: friendlyError(err, 'Unable to save the receipt image.'),
+      });
     } finally {
       setSaving(false);
     }
-  };
+  }, [captureReceiptUri]);
 
-  const handleCopyId = async () => {
-    if (id) {
-      await copyToClipboard(id, 'Transaction ID copied to clipboard');
-    }
-  };
+  const handleCopyId = useCallback(() => {
+    if (id) void copyToClipboard(id, 'Transaction ID copied to clipboard');
+  }, [id, copyToClipboard]);
 
-  // Loading state
+  // Computed before the early returns below so the hook order is identical
+  // across the loading / not-found / loaded branches. Memoized so the
+  // view-shot capture target is not re-rendered by unrelated state changes.
+  const receiptData = useMemo<ReceiptData | null>(() => {
+    if (!tx) return null;
+    const sent = tx.direction === 'sent';
+    const token = isTokenSymbol(tx.symbol);
+    const myName = profileName || 'You';
+    const myTag = accountId ? `@${accountId}` : undefined;
+    const counterpartyTag = tx.counterpartyAccountId ? `@${tx.counterpartyAccountId}` : undefined;
+    const counterpartyName = tx.counterpartyAccountId || 'External account';
+    return {
+      id: tx.id,
+      direction: tx.direction,
+      status: tx.status,
+      amount: tx.amount,
+      symbol: tx.symbol,
+      network: tx.network,
+      networkLabel: networkLabelFor(tx.network),
+      assetType: token ? 'erc20' : 'native',
+      // The backend stores `feeAmount` in the chain's native coin. Anything
+      // else would be a lie on the receipt.
+      nativeSymbol: nativeSymbolFor(tx.network),
+      senderName: sent ? myName : counterpartyName,
+      senderTag: sent ? myTag : counterpartyTag,
+      beneficiaryName: sent ? counterpartyName : myName,
+      beneficiaryTag: sent ? counterpartyTag : myTag,
+      timestamp: new Date(tx.createdAt).toLocaleString('en-GB', {
+        day: '2-digit',
+        month: 'short',
+        year: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit',
+        second: '2-digit',
+      }),
+      fee: tx.fee,
+      txHash: tx.txHash,
+    };
+  }, [accountId, profileName, tx]);
+
   if ((isLoading || loadingDirect) && !tx) {
     return (
       <View style={styles.centerContainer}>
         <ActivityIndicator size="large" color={colors.primary} />
-        <Text style={styles.loadingText}>Loading receipt...</Text>
+        <Text style={styles.loadingText}>Loading receipt…</Text>
       </View>
     );
   }
 
-  // Not found state
   if (!tx) {
     return (
-      <View style={styles.centerContainer}>
-        <Ionicons name="alert-circle-outline" size={48} color={colors.error} />
-        <Text style={styles.errorTitle}>Transaction Not Found</Text>
-        <Text style={styles.errorSub}>The transaction reference could not be found.</Text>
-        <TouchableOpacity style={styles.backButton} onPress={() => router.back()}>
-          <Text style={styles.backButtonText}>Go Back</Text>
-        </TouchableOpacity>
-      </View>
+      <Screen center testID="tx-missing">
+        <EmptyState
+          icon="alert-circle-outline"
+          title="Transaction not found"
+          body={loadError ?? 'We could not find that transaction on your account.'}
+          actionLabel="Go back"
+          onAction={() => router.back()}
+        />
+      </Screen>
     );
   }
 
-  // Build 100% accurate dynamic ReceiptData matching lib/api/transactions.ts
-  const isSent = tx.direction === 'sent';
-  const myName = profile?.name || 'You';
-  const myTag = accountId ? `@${accountId}` : undefined;
-  const counterpartyTag = tx.counterpartyAccountId ? `@${tx.counterpartyAccountId}` : undefined;
-  const counterpartyName = tx.counterpartyAccountId || 'External Account';
-
-  const receiptData: ReceiptData = {
-    id: tx.id,
-    direction: tx.direction,
-    status: tx.status,
-    amount: tx.amount,
-    symbol: tx.symbol,
-    network: tx.network,
-    senderName: isSent ? myName : counterpartyName,
-    senderTag: isSent ? myTag : counterpartyTag,
-    beneficiaryName: isSent ? counterpartyName : myName,
-    beneficiaryTag: isSent ? counterpartyTag : myTag,
-    timestamp: new Date(tx.createdAt).toLocaleString('en-GB', {
-      day: '2-digit',
-      month: 'short',
-      year: 'numeric',
-      hour: '2-digit',
-      minute: '2-digit',
-      second: '2-digit',
-    }),
-    fee: tx.fee,
-    txHash: tx.txHash,
-  };
-
   return (
-    <View style={styles.screen}>
-      {/* Top Bar */}
+    <Screen testID="tx-screen">
       <View style={styles.topBar}>
-        <TouchableOpacity
-          onPress={() => router.back()}
-          style={styles.circleBtn}
-          accessibilityLabel="Go back"
-        >
-          <Ionicons name="chevron-back" size={22} color={colors.textPrimary} />
-        </TouchableOpacity>
-        <Text style={styles.screenTitle}>Transaction Details</Text>
-        <TouchableOpacity
+        <BackButton />
+        <Typography variant="titleSm" style={styles.screenTitle}>
+          Transaction
+        </Typography>
+        <IconButton
+          accessibilityLabel="Copy transaction ID"
+          accessibilityHint="Copies the reference for this transaction"
           onPress={handleCopyId}
-          style={styles.circleBtn}
-          accessibilityLabel="Copy Transaction ID"
         >
           <Ionicons name="copy-outline" size={18} color={colors.textPrimary} />
-        </TouchableOpacity>
+        </IconButton>
       </View>
 
       <ScrollView
+        style={styles.scrollView}
         contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={false}
       >
         <View ref={receiptRef} collapsable={false} style={styles.receiptWrapper}>
-          <ReceiptCard data={receiptData} />
+          {/* Non-null: the `!tx` early return above guarantees it. */}
+          <ReceiptCard data={receiptData!} />
         </View>
 
-        {/* Action Buttons */}
         <View style={styles.actionContainer}>
-          <TouchableOpacity
-            style={styles.shareBtn}
-            onPress={handleShareReceipt}
+          <Button
+            label={sharing ? 'Sharing…' : 'Share receipt'}
+            onPress={() => void handleShareReceipt()}
+            loading={sharing}
             disabled={sharing || saving}
-          >
-            {sharing ? (
-              <ActivityIndicator color="#FFFFFF" size="small" />
-            ) : (
-              <>
-                <Ionicons name="share-social" size={18} color="#FFFFFF" />
-                <Text style={styles.shareBtnText}>Share Receipt</Text>
-              </>
-            )}
-          </TouchableOpacity>
-
-          <TouchableOpacity
-            style={styles.downloadBtn}
-            onPress={handleSaveToGallery}
+          />
+          <Button
+            label={saving ? 'Saving…' : 'Save as image'}
+            variant="secondary"
+            onPress={() => void handleSaveToGallery()}
+            loading={saving}
             disabled={sharing || saving}
-          >
-            {saving ? (
-              <ActivityIndicator color="#FFFFFF" size="small" />
-            ) : (
-              <>
-                <Ionicons name="download-outline" size={18} color="#FFFFFF" />
-                <Text style={styles.downloadBtnText}>Save Image</Text>
-              </>
-            )}
-          </TouchableOpacity>
+          />
         </View>
 
-        <TouchableOpacity
-          style={styles.supportRow}
-          onPress={() => Alert.alert('Support', 'Contacting Ulmara 24/7 Support...')}
-        >
-          <Ionicons name="help-circle-outline" size={16} color={colors.textMuted} />
-          <Text style={styles.supportText}>Need help with this transaction?</Text>
-        </TouchableOpacity>
+        {notice ? (
+          <View
+            accessibilityLiveRegion="polite"
+            accessibilityRole="alert"
+            style={[
+              styles.notice,
+              { backgroundColor: notice.tone === 'error' ? colors.errorTint : colors.successTint },
+            ]}
+          >
+            <Ionicons
+              name={notice.tone === 'error' ? 'alert-circle-outline' : 'checkmark-circle-outline'}
+              size={16}
+              color={notice.tone === 'error' ? colors.error : colors.success}
+            />
+            <Typography
+              variant="caption"
+              color={notice.tone === 'error' ? colors.error : colors.success}
+              style={styles.noticeText}
+            >
+              {notice.text}
+            </Typography>
+          </View>
+        ) : null}
+
+        {tx.txHash ? (
+          <Touchable
+            accessibilityRole="button"
+            accessibilityLabel="Copy on-chain transaction hash"
+            accessibilityHint="Copies the hash to your clipboard"
+            onPress={() => void copyToClipboard(tx.txHash!, 'Transaction hash copied')}
+            pressScale={0.98}
+            style={[styles.hashRow, { backgroundColor: colors.surfaceElevated }]}
+          >
+            <Ionicons name="copy-outline" size={14} color={colors.textSecondary} />
+            <Typography variant="code" numberOfLines={1} style={styles.hashText}>
+              {tx.txHash}
+            </Typography>
+          </Touchable>
+        ) : null}
       </ScrollView>
 
-      {/* Copy confirmation — styled to match the app's modal design */}
-      <CopyToast message={toastMessage ?? ''} visible={toastVisible} onHide={() => {}} />
-    </View>
+      <CopyToast message={toastMessage ?? ''} visible={toastVisible} />
+    </Screen>
   );
 }
 
-function getStyles(colors: ThemeColors) {
-  return StyleSheet.create({
-  screen: {
-    flex: 1,
-    backgroundColor: colors.background,
-  },
-  centerContainer: {
-    flex: 1,
-    backgroundColor: colors.background,
-    alignItems: 'center',
-    justifyContent: 'center',
-    padding: 24,
-  },
-  loadingText: {
-    color: colors.textSecondary,
-    marginTop: 12,
-    fontSize: 14,
-  },
-  errorTitle: {
-    color: colors.textPrimary,
-    fontSize: 18,
-    fontWeight: '700',
-    marginTop: 16,
-    marginBottom: 6,
-  },
-  errorSub: {
-    color: colors.textSecondary,
-    fontSize: 13,
-    textAlign: 'center',
-    marginBottom: 20,
-  },
-  backButton: {
-    paddingHorizontal: 20,
-    paddingVertical: 10,
-    backgroundColor: colors.surfaceElevated,
-    borderRadius: 12,
-  },
-  backButtonText: {
-    color: colors.textPrimary,
-    fontWeight: '600',
-  },
-  topBar: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: 20,
-    paddingTop: 56,
-    paddingBottom: 16,
-    backgroundColor: colors.background,
-  },
-  circleBtn: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: colors.surfaceElevated,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  screenTitle: {
-    color: colors.textPrimary,
-    fontSize: 16,
-    fontWeight: '700',
-    letterSpacing: 0.3,
-  },
-  scrollContent: {
-    paddingHorizontal: 20,
-    paddingBottom: 40,
-    alignItems: 'center',
-  },
-  receiptWrapper: {
-    width: '100%',
-    marginVertical: 12,
-  },
-  actionContainer: {
-    flexDirection: 'row',
-    gap: 12,
-    width: '100%',
-    marginTop: 20,
-  },
-  shareBtn: {
-    flex: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 8,
-    backgroundColor: colors.primary,
-    paddingVertical: 15,
-    borderRadius: 16,
-  },
-  shareBtnText: {
-    color: '#FFFFFF',
-    fontWeight: '800',
-    fontSize: 14,
-  },
-  downloadBtn: {
-    flex: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 8,
-    backgroundColor: colors.surfaceElevated,
-    paddingVertical: 15,
-    borderRadius: 16,
-    borderWidth: 1,
-    borderColor: colors.border,
-  },
-  downloadBtnText: {
-    color: colors.textPrimary,
-    fontWeight: '700',
-    fontSize: 14,
-  },
-  supportRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    marginTop: 24,
-    paddingVertical: 8,
-  },
-  supportText: {
-    color: colors.textMuted,
-    fontSize: 12,
-    fontWeight: '500',
-  },
-  });
-}
+const getStyles = defineStyles((colors: ThemeColors) =>
+  StyleSheet.create({
+    screen: { flex: 1, backgroundColor: colors.background },
+    scrollView: { flex: 1 },
+    centerContainer: {
+      flex: 1,
+      backgroundColor: colors.background,
+      alignItems: 'center',
+      justifyContent: 'center',
+      padding: 24,
+    },
+    loadingText: { color: colors.textSecondary, marginTop: 12, fontSize: 12 },
+    errorSub: { color: colors.textSecondary, fontSize: 13, textAlign: 'center', marginBottom: 20, lineHeight: 19 },
+    backButton: {
+      paddingHorizontal: 20,
+      paddingVertical: 10,
+      backgroundColor: colors.surfaceElevated,
+      borderRadius: 12,
+    },
+    backButtonText: { color: colors.textPrimary, fontWeight: '600' },
+    topBar: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      paddingHorizontal: 20,
+      paddingTop: 56,
+      paddingBottom: 16,
+      backgroundColor: colors.background,
+    },
+    circleBtn: {
+      width: 40,
+      height: 40,
+      borderRadius: radius.card,
+      backgroundColor: colors.surfaceElevated,
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    screenTitle: { color: colors.textPrimary, fontSize: 17, fontWeight: '700', letterSpacing: 0.3 },
+    scrollContent: { paddingHorizontal: 20, paddingBottom: 40, alignItems: 'center' },
+    receiptWrapper: { width: '100%', marginVertical: 12 },
+    actionContainer: { flexDirection: 'row', gap: 12, width: '100%', marginTop: 20 },
+    notice: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 8,
+      width: '100%',
+      padding: 12,
+      borderRadius: 12,
+      marginTop: 12,
+    },
+    noticeText: { flex: 1 },
+    actionBtn: {
+      flex: 1,
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'center',
+      gap: 8,
+      paddingVertical: 15,
+      borderRadius: 16,
+    },
+    hashRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 16, paddingVertical: 6 },
+    hashText: { color: colors.textMuted, fontSize: 11, fontFamily: 'monospace', flex: 1 },
+  })
+);
