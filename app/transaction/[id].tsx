@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   View,
-  Text,
   StyleSheet,
   ScrollView,
   ActivityIndicator,
@@ -240,7 +239,12 @@ export default function TransactionDetailScreen() {
     return (
       <View style={styles.centerContainer}>
         <ActivityIndicator size="large" color={colors.primary} />
-        <Text style={styles.loadingText}>Loading receipt…</Text>
+        {/* The last raw <Text> in the app. It hardcoded a 12pt size and no font
+            family, so this string rendered in the platform fallback rather than
+            Manrope while every neighbouring string used the type scale. */}
+        <Typography variant="caption" color={colors.textSecondary} style={styles.loadingText}>
+          Loading receipt…
+        </Typography>
       </View>
     );
   }
@@ -358,7 +362,7 @@ const getStyles = defineStyles((colors: ThemeColors) =>
       justifyContent: 'center',
       padding: 24,
     },
-    loadingText: { color: colors.textSecondary, marginTop: 12, fontSize: 12 },
+    loadingText: { marginTop: 12 },
     errorSub: { color: colors.textSecondary, fontSize: 13, textAlign: 'center', marginBottom: 20, lineHeight: 19 },
     backButton: {
       paddingHorizontal: 20,

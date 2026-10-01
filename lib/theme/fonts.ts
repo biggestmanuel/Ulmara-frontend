@@ -1,14 +1,25 @@
 import { useFonts } from 'expo-font';
-import {
-  Newsreader_500Medium,
-  Newsreader_600SemiBold,
-} from '@expo-google-fonts/newsreader';
-import {
-  Manrope_400Regular,
-  Manrope_500Medium,
-  Manrope_600SemiBold,
-  Manrope_700Bold,
-} from '@expo-google-fonts/manrope';
+// Imported per weight rather than through the package barrel.
+//
+// `import { Manrope_400Regular } from '@expo-google-fonts/manrope'` resolves the
+// package index, and that index `require`s all seven Manrope weights and all
+// seven Newsreader faces. Metro cannot tree-shake a `require` of an asset, so
+// every weight in both packages was landing in the release artifact whether or
+// not the app named it — confirmed by counting `font/sfnt` files in the export
+// and by finding `Manrope_800ExtraBold` in the Hermes bundle while the loader
+// never referenced it.
+//
+// Each weight is its own module with its own `index.js` and the package
+// declares no `exports` map, so the subpaths resolve directly. This drops the
+// three unused Manrope weights and the five unused Newsreader faces from the
+// shipped app instead of merely from the source.
+
+import { Newsreader_500Medium } from '@expo-google-fonts/newsreader/500Medium';
+import { Newsreader_600SemiBold } from '@expo-google-fonts/newsreader/600SemiBold';
+import { Manrope_400Regular } from '@expo-google-fonts/manrope/400Regular';
+import { Manrope_500Medium } from '@expo-google-fonts/manrope/500Medium';
+import { Manrope_600SemiBold } from '@expo-google-fonts/manrope/600SemiBold';
+import { Manrope_700Bold } from '@expo-google-fonts/manrope/700Bold';
 
 /**
  * # Typography
