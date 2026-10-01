@@ -1479,7 +1479,7 @@ console.log('\n== F5: the guard is in place, not just the observable behaviour =
 // config, and documentation, in any casing.
 console.log('\n== F6: the client-side Bachs provider is gone entirely ==');
 {
-  const { readdirSync, readFileSync: rf, statSync: st, existsSync: ex } =
+  const { readdirSync, readFileSync: rf, statSync: st, existsSync } =
     await import('node:fs');
   const { join: pj } = await import('node:path');
   const root = process.argv[2] ?? '.';
@@ -1551,6 +1551,132 @@ console.log('\n== F6: the client-side Bachs provider is gone entirely ==');
   for (const screen of ['app/deposit-withdraw/deposit.tsx', 'app/deposit-withdraw/withdraw.tsx']) {
     eq(existsSync(pj(root, screen)), true, `${screen} still exists`);
   }
+}
+
+// F7. The bug this pins shut: `apiClient`'s 401 interceptor cleared the cached
+// session token on every 401, and the backend answers 401 for a wrong PIN as
+// well as for a dead session. So typing the wrong PIN threw away a session that
+// `requireAuth` had just accepted.
+//
+// These drive the real interceptor through the real axios instance, because the
+// interceptor is only reachable by an actual rejected request — there is no
+// exported function to call directly.
+console.log('\n== F7: a wrong PIN does not log the user out (401 vs session) ==');
+{
+  const client = await load('lib/api/client.ts');
+  const axios = require_('axios');
+
+  // The interceptor is registered at module scope on the real instance, so the
+  // only way to reach it is to make a request that fails. `adapter` is the
+  // documented axios seam for exactly this.
+  const realAdapter = client.apiClient.defaults.adapter;
+  let reply = null;
+  client.apiClient.defaults.adapter = async (config) => {
+    if (!reply) throw new Error('adapter called with no reply configured');
+    const response = { status: reply.status, data: reply.data, statusText: '', headers: {}, config };
+    throw new axios.AxiosError(
+      `Request failed with status code ${reply.status}`,
+      'ERR_BAD_REQUEST',
+      config,
+      {},
+      response
+    );
+  };
+
+  // A token in the cache, so "was it cleared?" is observable at all.
+  client.setCachedSessionToken('session-token-abc');
+
+  // Read the cache back the way the request interceptor does: a populated,
+  // loaded cache attaches the token without touching SecureStore. A cleared one
+  // sends no Authorization header at all.
+  const sessionOf = async () => {
+    let value = null;
+    const probe = client.apiClient.defaults.adapter;
+    client.apiClient.defaults.adapter = async (config) => {
+      value = config.headers?.Authorization ? 'attached' : null;
+      const response = { status: 200, data: { success: true, data: {} }, statusText: '', headers: {}, config };
+      return response;
+    };
+    await client.apiClient.get('/api/account/me').catch(() => null);
+    client.apiClient.defaults.adapter = probe;
+    return value === 'attached';
+  };
+
+  const attempt = async (status, message) => {
+    reply = { status, data: { success: false, message } };
+    let apiError = null;
+    try {
+      await client.apiClient.post('/api/auth/verify-pin', { pin: '000000' });
+    } catch (err) {
+      apiError = client.toApiError(err);
+    }
+    return apiError;
+  };
+
+  // --- a wrong PIN: 401 with the lockout service's prose ------------------
+  // This is the exact shape `pinLockout.assertPinAuthorized` produces.
+  let err = await attempt(401, 'Incorrect PIN. Try again.');
+  eq(err?.status, 401, 'a wrong PIN surfaces as 401');
+  eq(err?.message, 'Incorrect PIN. Try again.', "the user still sees the real PIN message");
+  eq(await sessionOf(), true,
+     'after a wrong PIN the session token is STILL attached to the next request');
+
+  // --- a lockout: 423 with the countdown ---------------------------------
+  // Preserved exactly: the countdown text must reach the user and the session
+  // must be untouched.
+  err = await attempt(423, 'Too many incorrect PIN attempts. Try again in 15 minutes.');
+  eq(err?.status, 423, 'a lockout surfaces as 423');
+  eq(
+    client.friendlyError(err),
+    'Too many incorrect PIN attempts. Try again in 15 minutes.',
+    'the lockout countdown reaches the user verbatim'
+  );
+  eq(await sessionOf(), true, 'a lockout leaves the session alone too');
+
+  // --- a genuinely dead session: 401 from requireAuth ---------------------
+  for (const message of ['Session expired', 'Invalid token', 'Unauthorized']) {
+    err = await attempt(401, message);
+    eq(err?.status, 401, `a ${message} 401 surfaces as 401`);
+    eq(await sessionOf(), false,
+       `"${message}" DOES clear the cached session token`);
+    // Re-arm for the next iteration.
+    client.setCachedSessionToken('session-token-abc');
+  }
+
+  // --- an unrecognised 401 body fails open, as before ---------------------
+  client.setCachedSessionToken('session-token-abc');
+  err = await attempt(401, 'Something the client has never seen');
+  eq(await sessionOf(), false,
+     'an unrecognised 401 body is treated as a session rejection (fails open)');
+
+  // --- a 401 with no body at all -----------------------------------------
+  client.setCachedSessionToken('session-token-abc');
+  err = await attempt(401, undefined);
+  eq(await sessionOf(), false, 'a bodyless 401 is treated as a session rejection');
+
+  // --- other statuses are untouched by this change -----------------------
+  for (const status of [403, 404, 409, 500]) {
+    client.setCachedSessionToken('session-token-abc');
+    err = await attempt(status, 'nope');
+    eq(await sessionOf(), true, `a ${status} leaves the cached session alone`);
+  }
+
+  // --- 401 during a transfer, not just on the unlock screen ---------------
+  // The same 401 can come back from a money-movement route; a rejected transfer
+  // must not sign the user out either.
+  client.setCachedSessionToken('session-token-abc');
+  reply = { status: 401, data: { success: false, message: 'Incorrect PIN. Try again.' } };
+  let transferError = null;
+  try {
+    await client.apiClient.post('/api/transaction/send', { pin: '000000' });
+  } catch (e) {
+    transferError = client.toApiError(e);
+  }
+  eq(transferError?.status, 401, 'a wrong PIN on a transfer surfaces as 401');
+  eq(await sessionOf(), true, 'a wrong PIN on a transfer does not clear the session');
+
+  client.apiClient.defaults.adapter = realAdapter;
+  client.setCachedSessionToken(null);
 }
 
 console.log(`\n  passed: ${pass}  failed: ${fail}`);

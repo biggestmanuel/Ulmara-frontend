@@ -23,7 +23,8 @@ export const apiClient: AxiosInstance = axios.create({
 // logout) both clear it.
 //
 // A 401 response also clears the cache, so a session revoked server-side cannot
-// keep sending a stale token for the rest of the process.
+// keep sending a stale token for the rest of the process - but only for the 401s
+// that actually mean the session is gone. See `isSessionRejection` below.
 let cachedToken: string | null = null;
 let tokenLoaded = false;
 
@@ -179,12 +180,55 @@ export function friendlyError(err: unknown, fallback = 'Something went wrong. Pl
   return fallback;
 }
 
+/**
+ * Whether a 401 means "this session is no longer valid".
+ *
+ * The backend uses 401 for two unrelated situations:
+ *
+ *  - the token is missing, expired or revoked (`requireAuth` answers
+ *    "Unauthorized", "Session expired" or "Invalid token");
+ *  - the PIN is wrong. `pinLockout.assertPinAuthorized` throws 401
+ *    "Incorrect PIN. Try again." for a bad guess, and 423 while an account is
+ *    locked out - both behind a `requireAuth` that already accepted the session.
+ *
+ * Treating them alike was a real defect. Every wrong keystroke on the unlock
+ * screen cleared the cached token, so the next request had to re-read it from
+ * SecureStore - a native keychain call on the request path - and the user was
+ * one bad guess away from the cache being defeated. The same function is the
+ * signal the auth gate and root layout read as "this session is no longer
+ * good", so a wrong PIN was indistinguishable from a revoked session at exactly
+ * the layer that decides what happens next.
+ *
+ * The lockout service's messages are matched rather than the endpoints it
+ * guards, because the endpoint list is not ours to keep in sync: PIN
+ * authorization reaches transfers, external transfers and PIN changes as well as
+ * the unlock screen, and a new one would otherwise silently regress this.
+ * `INCORRECT_MESSAGE` and `LOCKED_MESSAGE` are module constants in
+ * `pinLockout.service.ts`; matching on them means the check fails *open* - an
+ * unrecognised 401 body is treated as a session rejection, which is the
+ * behaviour that existed before.
+ *
+ * A 423 is deliberately not consulted: it is only ever a lockout, and it never
+ * implied an invalid session, so the countdown behaviour is untouched.
+ */
+function isSessionRejection(error: unknown): boolean {
+  if (!axios.isAxiosError(error)) return false;
+  if (error.response?.status !== 401) return false;
+
+  const data = error.response.data as { message?: unknown } | undefined;
+  const message = typeof data?.message === 'string' ? data.message : '';
+  if (message.startsWith('Incorrect PIN')) return false;
+  if (message.startsWith('Too many incorrect PIN attempts')) return false;
+  return true;
+}
+
 apiClient.interceptors.response.use(
   (response) => response,
   (error) => {
     // A rejected session must not keep being replayed from the cache for the
-    // rest of the process.
-    if (axios.isAxiosError(error) && error.response?.status === 401) {
+    // rest of the process. A wrong PIN must not: it says nothing about the
+    // session, which `requireAuth` had already accepted.
+    if (isSessionRejection(error)) {
       clearCachedSessionToken();
     }
     return Promise.reject(toApiError(error));
