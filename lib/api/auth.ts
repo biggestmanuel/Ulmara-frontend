@@ -39,23 +39,33 @@ export async function login(input: { email: string; password: string }): Promise
   return data.data;
 }
 
-export async function verifyEmail(input: { userId: string; code: string }): Promise<AuthUser> {
-  const { data } = await apiClient.post<ApiEnvelope<AuthUser>>('/api/auth/verify-email', input);
+/**
+ * The caller is identified by the session token, which `signup` (or `login`)
+ * already stored and cached before this screen is reachable. The backend
+ * validates only `code`: it previously also accepted a body-supplied `userId`,
+ * which let an authenticated caller complete verification for an arbitrary
+ * account, so that field was removed server-side and must not be sent here.
+ */
+export async function verifyEmail(input: { code: string }): Promise<AuthUser> {
+  const { data } = await apiClient.post<ApiEnvelope<AuthUser>>('/api/auth/verify-email', {
+    code: input.code,
+  });
   return data.data;
 }
 
-export async function verifyPhone(input: { userId: string; code: string }): Promise<AuthUser> {
-  const { data } = await apiClient.post<ApiEnvelope<AuthUser>>('/api/auth/verify-phone', input);
+export async function verifyPhone(input: { code: string }): Promise<AuthUser> {
+  const { data } = await apiClient.post<ApiEnvelope<AuthUser>>('/api/auth/verify-phone', {
+    code: input.code,
+  });
   return data.data;
 }
 
 export async function resendCode(input: {
-  userId: string;
   channel: 'email' | 'phone';
 }): Promise<{ success: boolean; devCode?: string }> {
   const { data } = await apiClient.post<ApiEnvelope<{ success: boolean; devCode?: string }>>(
     '/api/auth/resend-code',
-    input
+    { channel: input.channel }
   );
   return data.data;
 }

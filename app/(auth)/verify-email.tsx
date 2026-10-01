@@ -85,7 +85,7 @@ export default function VerifyEmail() {
 
     setLoading(true);
     try {
-      await verifyEmailApi({ userId, code: otp });
+      await verifyEmailApi({ code: otp });
       router.push({
         pathname: '/(auth)/verify-phone',
         params: { phone, userId, devPhoneCode },
@@ -103,7 +103,7 @@ export default function VerifyEmail() {
     setResending(true);
     setError(null);
     try {
-      const result = await resendCodeApi({ userId, channel: 'email' });
+      const result = await resendCodeApi({ channel: 'email' });
       // Dev mode returns the fresh code; drop it straight into the boxes.
       if (result.devCode) setCode(toDigits(result.devCode));
       setSeconds(RESEND_SECONDS);

@@ -48,6 +48,7 @@ const TARGETS = [
   'constants/tokens.ts',
   'lib/tokens/erc20.ts',
   'lib/api/contacts.ts',
+  'lib/api/auth.ts',
   'lib/push/pushNotifications.ts',
   'lib/security/biometrics.ts',
   'lib/chains/evmConfig.ts',
@@ -585,5 +586,71 @@ console.log('\n== lib/api/tokens: the UPPERCASE wire conversion ==');
   // Idempotent: an already-uppercase value must not change.
   eq(api.toWireChain('ETH'), 'ETH', 'already-uppercase input is unchanged');
 }
+console.log('\n== lib/api/auth: verification bodies carry no userId (C1) ==');
+{
+  const client = await load('lib/api/client.ts');
+  const auth = await load('lib/api/auth.ts');
+
+  // `auth.ts` and `client.ts` import the same `./client` module, so Node's ESM
+  // cache hands back one instance. Patching `post` on it intercepts the real
+  // production call path without stubbing axios or standing up a server.
+  const calls = [];
+  const realPost = client.apiClient.post;
+  client.apiClient.post = (url, body) => {
+    calls.push({ url: String(url), body });
+    return Promise.resolve({ data: { success: true, data: { id: 'u-1', valid: true } } });
+  };
+  const restore = () => { client.apiClient.post = realPost; };
+  const j = (v) => JSON.stringify(v ?? null);
+  const lastBody = () => calls.length ? calls[calls.length - 1].body : undefined;
+
+  // --- verify-email: { code } only ---------------------------------------
+  calls.length = 0;
+  await auth.verifyEmail({ code: '123456' });
+  eq(calls[0].url, '/api/auth/verify-email', 'verifyEmail posts to /api/auth/verify-email');
+  eq(j(lastBody()), j({ code: '123456' }), 'verifyEmail body is exactly { code }');
+  eq(Object.prototype.hasOwnProperty.call(lastBody(), 'userId'), false,
+     'verifyEmail body has no userId key');
+  eq(Object.keys(lastBody()).length, 1, 'verifyEmail body has exactly one key');
+
+  // --- verify-phone: { code } only ---------------------------------------
+  calls.length = 0;
+  await auth.verifyPhone({ code: '654321' });
+  eq(calls[0].url, '/api/auth/verify-phone', 'verifyPhone posts to /api/auth/verify-phone');
+  eq(j(lastBody()), j({ code: '654321' }), 'verifyPhone body is exactly { code }');
+  eq(Object.prototype.hasOwnProperty.call(lastBody(), 'userId'), false,
+     'verifyPhone body has no userId key');
+  eq(Object.keys(lastBody()).length, 1, 'verifyPhone body has exactly one key');
+
+  // --- resend-code: { channel } only -------------------------------------
+  calls.length = 0;
+  await auth.resendCode({ channel: 'email' });
+  eq(calls[0].url, '/api/auth/resend-code', 'resendCode posts to /api/auth/resend-code');
+  eq(j(lastBody()), j({ channel: 'email' }), 'resendCode(email) body is exactly { channel }');
+  eq(Object.prototype.hasOwnProperty.call(lastBody(), 'userId'), false,
+     'resendCode body has no userId key');
+
+  calls.length = 0;
+  await auth.resendCode({ channel: 'phone' });
+  eq(j(lastBody()), j({ channel: 'phone' }), 'resendCode(phone) body is exactly { channel }');
+
+  // --- an extra userId on the input must NOT leak into the body ----------
+  // Defence in depth: even if a caller passes one, the wire body is fixed.
+  calls.length = 0;
+  await auth.verifyEmail({ code: '111111', userId: 'leaked' });
+  eq(Object.prototype.hasOwnProperty.call(lastBody(), 'userId'), false,
+     'a userId passed by a caller is never forwarded to the wire');
+
+  // --- PIN bodies are unchanged by this fix -----------------------------
+  calls.length = 0;
+  await auth.setPin('123456');
+  eq(j(lastBody()), j({ pin: '123456' }), 'setPin body is still { pin }');
+  calls.length = 0;
+  await auth.verifyPin('123456');
+  eq(j(lastBody()), j({ pin: '123456' }), 'verifyPin body is still { pin }');
+
+  restore();
+}
+
 console.log(`\n  passed: ${pass}  failed: ${fail}`);
 process.exit(fail ? 1 : 0);

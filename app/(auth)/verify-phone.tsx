@@ -73,7 +73,7 @@ export default function VerifyPhone() {
 
     setLoading(true);
     try {
-      await verifyPhoneApi({ userId, code: otp });
+      await verifyPhoneApi({ code: otp });
       router.replace('/(auth)/create-pin');
     } catch (err) {
       setError(friendlyError(err, 'That code did not work. Try again.'));
@@ -88,7 +88,7 @@ export default function VerifyPhone() {
     setResending(true);
     setError(null);
     try {
-      const result = await resendCodeApi({ userId, channel: 'phone' });
+      const result = await resendCodeApi({ channel: 'phone' });
       if (result.devCode) setCode(toDigits(result.devCode));
       setSeconds(RESEND_SECONDS);
     } catch (err) {
