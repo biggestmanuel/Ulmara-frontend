@@ -5,7 +5,7 @@ import { Ionicons } from '@expo/vector-icons';
 
 import { Typography } from './Typography';
 import { IconButton } from './IconButton';
-import { controlHeight, radius, space, touchTarget, useThemeStore } from '../../lib/theme';
+import { font, controlHeight, radius, space, touchTarget, useThemeStore } from '../../lib/theme';
 
 interface PasswordFieldProps extends Omit<TextInputProps, 'style' | 'secureTextEntry' | 'value'> {
   value: string;
@@ -63,7 +63,11 @@ function PasswordFieldComponent({
 
   const toggle = useCallback(() => setVisible((v) => !v), []);
 
-  const borderColor = error ? colors.error : focused ? colors.primary : colors.border;
+  const borderColor = error
+    ? colors.error
+    : focused
+      ? colors.primary
+      : colors.borderControl;
   const borderWidth = focused || error ? 2 : 1;
 
   return (
@@ -172,7 +176,7 @@ const styles = StyleSheet.create({
     // Clear the toggle so the value is never rendered underneath the icon.
     paddingRight: touchTarget + space.md,
     fontSize: 15,
-    fontFamily: 'Manrope_500Medium',
+    fontFamily: font.sansMedium,
   },
   toggle: {
     position: 'absolute',

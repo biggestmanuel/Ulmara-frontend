@@ -4,6 +4,7 @@ import QRCode from 'react-native-qrcode-svg';
 import { Ionicons } from '@expo/vector-icons';
 import type { TransactionDirection, TransactionStatus } from '../../lib/api/transactions';
 import { radius, useThemeStore, ThemeColors } from '../../lib/theme';
+import { txUrl } from '../../constants/links';
 import { defineStyles } from '../../lib/theme/styles';
 import { memo } from 'react';
 
@@ -192,7 +193,16 @@ export const ReceiptCard = memo(function ReceiptCard({ data, style }: Props) {
       <View style={styles.footer}>
         <View style={styles.qrWrapper}>
           <QRCode
-            value={data.txHash ? `https://ulmara.fi/tx/${data.txHash}` : `https://ulmara.fi/tx/${data.id}`}
+            /*
+             * Built from the central link config.
+             *
+             * This previously hardcoded `https://ulmara.fi/tx/...` while every
+             * other screen used `https://ulmara.app/...` — two different domains
+             * for the same product. Anyone scanning a receipt image, which is
+             * the one artefact most likely to be sent to someone outside the
+             * app, would have been sent somewhere unrelated.
+             */
+            value={txUrl(data.txHash ?? data.id)}
             size={56}
             color="#000000"
             backgroundColor="#FFFFFF"

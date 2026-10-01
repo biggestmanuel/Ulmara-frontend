@@ -230,8 +230,18 @@ export function getTokenAddresses(symbol: string): Partial<Record<ChainId, strin
     const entry = bucket.get(symbol.toUpperCase());
     // Operator override beats the backend.
     const override = ADDRESS_OVERRIDES[`${symbol.toUpperCase()}:${chain.toUpperCase()}`];
-    if (override) resolved[chain] = override;
-    else if (entry) resolved[chain] = entry.addresses[chain]!;
+    if (override) {
+      resolved[chain] = override;
+      continue;
+    }
+    // The backend says this symbol exists on this chain, but the local
+    // definition may not list the chain at all. Previously the `!` here
+    // asserted it did, and on that path the function returned a map containing
+    // `chain: undefined` — a key that reads as present and carries no value.
+    // Skipping the assignment is what the assertion was pretending was already
+    // happening, and downstream lookups test truthiness anyway.
+    const address = entry?.addresses[chain];
+    if (address) resolved[chain] = address;
   }
 
   return resolved;

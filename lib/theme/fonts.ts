@@ -8,7 +8,6 @@ import {
   Manrope_500Medium,
   Manrope_600SemiBold,
   Manrope_700Bold,
-  Manrope_800ExtraBold,
 } from '@expo-google-fonts/manrope';
 
 /**
@@ -61,7 +60,6 @@ export function useUlmaraFonts() {
     Manrope_500Medium,
     Manrope_600SemiBold,
     Manrope_700Bold,
-    Manrope_800ExtraBold,
   });
 
   if (error) {

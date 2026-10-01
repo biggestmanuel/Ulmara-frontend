@@ -14,7 +14,11 @@
     "typecheck": "tsc --noEmit",
     "audit:design": "node scripts/audit-design.mjs",
     "verify:secp256k1": "node scripts/verify-secp256k1.mjs",
-    "postinstall": "patch-package"
+    "postinstall": "patch-package",
+    "test": "node scripts/logic-tests.mjs .",
+    "audit:contrast": "node --experimental-strip-types --no-warnings scripts/audit-contrast.mjs",
+    "audit:deps": "npm audit --omit=dev",
+    "verify": "npm run typecheck && npm run lint && npm run test && npm run audit:design && npm run audit:contrast"
   },
   "dependencies": {
     "@bitcoinerlab/secp256k1": "^2.0.0",

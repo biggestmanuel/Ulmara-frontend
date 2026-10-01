@@ -64,7 +64,7 @@ function CodeBoxesComponent({
           key={index}
           style={[
             styles.box,
-            { borderColor: invalid ? colors.error : colors.border },
+            { borderColor: invalid ? colors.error : colors.borderControl },
             digit ? { borderColor: colors.primary } : null,
           ]}
         >

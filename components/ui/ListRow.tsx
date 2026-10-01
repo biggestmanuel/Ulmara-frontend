@@ -144,7 +144,7 @@ export function ListRow({
       {actions.length > 0 ? (
         <View style={styles.actions}>
           {actions.map((action) => (
-            <IconButton key={action.label} accessibilityLabel={action.label} onPress={action.onPress} size={40}>
+            <IconButton key={action.label} accessibilityLabel={action.label} onPress={action.onPress}>
               <Ionicons name={action.icon} size={18} color={colors.textSecondary} />
             </IconButton>
           ))}

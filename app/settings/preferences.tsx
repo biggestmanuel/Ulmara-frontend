@@ -15,7 +15,7 @@ import {
 } from '../../components/ui';
 import { getMe, updateSettings } from '../../lib/api/accountId';
 import { friendlyError } from '../../lib/api/client';
-import { space, useThemeStore, type ThemeMode } from '../../lib/theme';
+import { radius, space, useThemeStore, type ThemeMode } from '../../lib/theme';
 
 const THEME_OPTIONS: { label: string; value: ThemeMode }[] = [
   { label: 'Dark', value: 'dark' },
@@ -28,12 +28,6 @@ const CURRENCIES = [
   { value: 'NGN', label: 'Nigerian Naira' },
   { value: 'EUR', label: 'Euro' },
   { value: 'GBP', label: 'Pound Sterling' },
-] as const;
-
-const LANGUAGES = [
-  { label: 'English', code: 'en' },
-  { label: 'French', code: 'fr' },
-  { label: 'Spanish', code: 'es' },
 ] as const;
 
 type Currency = (typeof CURRENCIES)[number]['value'];
@@ -64,7 +58,6 @@ export default function Preferences() {
   const setMode = useThemeStore((state) => state.setMode);
 
   const [currency, setCurrency] = useState<Currency>('USD');
-  const [languageCode, setLanguageCode] = useState<string>('en');
   const [savingKey, setSavingKey] = useState<string | null>(null);
   const [notice, setNotice] = useState<{ tone: 'error' | 'success'; text: string } | null>(null);
 
@@ -75,7 +68,11 @@ export default function Preferences() {
         const me = await getMe();
         if (cancelled) return;
         if (me.defaultCurrency) setCurrency(me.defaultCurrency as Currency);
-        if (me.defaultLanguage) setLanguageCode(me.defaultLanguage);
+        // `defaultLanguage` is deliberately NOT read or written. The backend
+        // accepts it, but the app has no translations and shipped a picker
+        // offering French and Spanish that changed nothing. Offering a language
+        // the app cannot speak is worse than not offering it, so the control is
+        // gone until there are actual translations to select between.
       } catch (err) {
         if (cancelled) return;
         // Not fatal: the user can still change a preference, and the write will
@@ -124,21 +121,6 @@ export default function Preferences() {
       void save('currency', { defaultCurrency: next }, () => setCurrency(previous), 'Currency');
     },
     [currency, save]
-  );
-
-  const pickLanguage = useCallback(
-    (next: string) => {
-      if (next === languageCode) return;
-      const previous = languageCode;
-      setLanguageCode(next);
-      void save(
-        'language',
-        { defaultLanguage: next },
-        () => setLanguageCode(previous),
-        'Language'
-      );
-    },
-    [languageCode, save]
   );
 
   return (
@@ -193,27 +175,19 @@ export default function Preferences() {
         </View>
 
         <View style={styles.group}>
-          <SectionLabel>LANGUAGE</SectionLabel>
-          {LANGUAGES.map((lang, index) => (
-            <ListRow
-              key={lang.code}
-              title={lang.label}
-              showSeparator={index < LANGUAGES.length - 1}
-              onPress={() => pickLanguage(lang.code)}
-              accessibilityLabel={lang.label}
-              accessibilityState={{ selected: languageCode === lang.code, busy: savingKey === 'language' }}
-              aria-selected={languageCode === lang.code}
-              trailing={
-                languageCode === lang.code ? (
-                  <Ionicons name="checkmark" size={18} color={colors.primary} />
-                ) : null
-              }
-            />
-          ))}
-        </View>
-
-        <View style={styles.group}>
           <SectionLabel>ABOUT</SectionLabel>
+          <ListRow
+            title="Language"
+            subtitle="English"
+            showSeparator={false}
+            accessibilityLabel="Language: English"
+            accessibilityHint="Ulmara is currently only available in English"
+            leading={
+              <View style={styles.langIcon}>
+                <Ionicons name="language-outline" size={17} color={colors.primary} />
+              </View>
+            }
+          />
           <ListRow
             title="Display currency"
             subtitle={`Balances are shown in ${currency}`}
@@ -260,6 +234,14 @@ const styles = StyleSheet.create({
   body: { paddingTop: space.lg, paddingBottom: space.xxxl },
 
   group: { marginBottom: space.xxl, gap: space.xs },
+
+  langIcon: {
+    width: 34,
+    height: 34,
+    borderRadius: radius.pill,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
 
   notice: {
     flexDirection: 'row',

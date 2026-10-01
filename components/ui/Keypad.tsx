@@ -115,7 +115,7 @@ export function PinDots({ length, total = PIN_LENGTH }: PinDotsProps) {
           key={index}
           accessibilityElementsHidden
           importantForAccessibility="no-hide-descendants"
-          style={[styles.dot, index < filled ? { backgroundColor: colors.primary } : { borderColor: colors.border }]}
+          style={[styles.dot, index < filled ? { backgroundColor: colors.primary } : { borderColor: colors.borderControl }]}
         />
       ))}
     </View>

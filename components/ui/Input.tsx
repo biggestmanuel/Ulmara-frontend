@@ -3,7 +3,7 @@ import { StyleSheet, TextInput, View } from 'react-native';
 import type { StyleProp, TextInputProps, ViewStyle } from 'react-native';
 
 import { Typography } from './Typography';
-import { controlHeight, radius, space, useThemeStore } from '../../lib/theme';
+import { font, controlHeight, radius, space, useThemeStore } from '../../lib/theme';
 
 export interface InputProps extends TextInputProps {
   label?: string;
@@ -38,7 +38,11 @@ export const Input = forwardRef<TextInput, InputProps>(function Input(
   const colors = useThemeStore((state) => state.colors);
   const [focused, setFocused] = useState(false);
 
-  const borderColor = error ? colors.error : focused ? colors.primary : colors.border;
+  const borderColor = error
+    ? colors.error
+    : focused
+      ? colors.primary
+      : colors.borderControl;
   const borderWidth = focused || error ? 2 : 1;
 
   return (
@@ -101,6 +105,6 @@ const styles = StyleSheet.create({
     borderRadius: radius.control,
     paddingHorizontal: space.lg,
     fontSize: 15,
-    fontFamily: 'Manrope_500Medium',
+    fontFamily: font.sansMedium,
   },
 });

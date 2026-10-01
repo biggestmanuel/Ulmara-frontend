@@ -7,7 +7,6 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 const STORAGE_KEY = 'ulmara_preferences_v1';
 
 export type Currency = 'USD' | 'NGN' | 'EUR' | 'GBP';
-export type Language = 'English' | 'French' | 'Portuguese';
 export type DefaultNetwork =
   | 'Auto (Recommended)' | 'TON' | 'BSC' | 'ETH' | 'SOL' | 'Base' | 'Polygon' | 'TRON';
 
@@ -28,14 +27,12 @@ export interface NotificationPrefs {
 
 interface PreferencesState {
   currency: Currency;
-  language: Language;
   defaultNetwork: DefaultNetwork;
   notifications: NotificationPrefs;
   isHydrated: boolean;
 
   hydrate: () => Promise<void>;
   setCurrency: (c: Currency) => void;
-  setLanguage: (l: Language) => void;
   setDefaultNetwork: (n: DefaultNetwork) => void;
   setNotification: (key: keyof NotificationPrefs, value: boolean) => void;
   /** Whether a given backend push event should surface on this device. */
@@ -75,17 +72,21 @@ function isTransactionEventEnabled(
   return notifications[EVENT_PREFERENCE[type]];
 }
 
-async function persist(state: Pick<PreferencesState, 'currency' | 'language' | 'defaultNetwork' | 'notifications'>) {
+async function persist(
+  state: Pick<PreferencesState, 'currency' | 'defaultNetwork' | 'notifications'>
+) {
   try {
     await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(state));
   } catch (err) {
+    // The in-memory state is already updated, so the setting works for this
+    // session; it just will not survive a restart. Worth a log, not worth
+    // interrupting the user over.
     console.error('Failed to persist preferences:', err);
   }
 }
 
 export const usePreferencesStore = create<PreferencesState>((set, get) => ({
   currency: 'USD',
-  language: 'English',
   defaultNetwork: 'Auto (Recommended)',
   notifications: DEFAULT_NOTIFICATIONS,
   isHydrated: false,
@@ -97,9 +98,10 @@ export const usePreferencesStore = create<PreferencesState>((set, get) => ({
         const parsed = JSON.parse(raw);
         set({
           currency: parsed.currency ?? 'USD',
-          language: parsed.language ?? 'English',
           defaultNetwork: parsed.defaultNetwork ?? 'Auto (Recommended)',
           notifications: { ...DEFAULT_NOTIFICATIONS, ...parsed.notifications },
+          // A stored `language` from an older build is deliberately ignored
+          // rather than read: there is no longer anywhere to display it.
         });
       }
     } catch (err) {
@@ -112,10 +114,6 @@ export const usePreferencesStore = create<PreferencesState>((set, get) => ({
   setCurrency: (currency) => {
     set({ currency });
     persist({ ...get(), currency });
-  },
-  setLanguage: (language) => {
-    set({ language });
-    persist({ ...get(), language });
   },
   setDefaultNetwork: (defaultNetwork) => {
     set({ defaultNetwork });

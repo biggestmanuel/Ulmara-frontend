@@ -15,11 +15,12 @@ import {
   Typography,
 } from '../../components/ui';
 import { useThemeStore } from '../../lib/theme';
-import { NATIVE_ASSET_SYMBOLS } from '../../constants/chains';
+import { NATIVE_ASSET_SYMBOLS, type NativeAssetSymbol } from '../../constants/chains';
 import { getConfiguredTokens } from '../../constants/tokens';
 import { getSigningAdapterByWire } from '../../lib/signing/chainAdapters';
 import { getEvmNetworkName } from '../../lib/chains/evmConfig';
 import { validateExternalAddress, type SupportedTriVerifyChain } from '../../lib/validation/triverify';
+import { friendlyError } from '../../lib/api/client';
 
 const NETWORKS = ['ETH', 'BSC', 'TRON', 'SOL', 'TON', 'BASE', 'POLYGON', 'BTC'] as const;
 type Network = (typeof NETWORKS)[number];
@@ -71,7 +72,10 @@ export default function ExternalWallet() {
 
     const nativeSymbol =
       network === 'ETH' || network === 'BASE' ? 'ETH' : network === 'BSC' ? 'BNB' : network === 'POLYGON' ? 'POL' : network;
-    if (adapter?.availability === 'available' && NATIVE_ASSET_SYMBOLS.includes(nativeSymbol as never)) {
+    const isKnownNative = NATIVE_ASSET_SYMBOLS.includes(
+        nativeSymbol as NativeAssetSymbol
+      );
+      if (adapter?.availability === 'available' && isKnownNative) {
       list.push({ symbol: nativeSymbol, isToken: false });
     }
     if (chainId) {
@@ -128,8 +132,16 @@ export default function ExternalWallet() {
           `The ${network} address could not be validated on ${network}. Check for a wrong-network paste.`
         );
       }
-    } catch {
-      return setError('Address validation is temporarily unavailable. Try again later.');
+    } catch (err) {
+      // Same reasoning as the Account ID resolver: prefer the server's own words.
+      // Verified against the running backend — an address that does not exist on
+      // the queried chain comes back as
+      // 400 "Address could not be verified on ETH", and this handler used to
+      // replace that with "validation is temporarily unavailable, try again
+      // later", sending the user off to retry something that will never pass.
+      return setError(
+        friendlyError(err, 'Address validation is temporarily unavailable. Try again later.')
+      );
     } finally {
       setValidating(false);
     }
@@ -201,7 +213,7 @@ export default function ExternalWallet() {
                       s.chip,
                       {
                         backgroundColor: active ? colors.primaryLight : colors.surface,
-                        borderColor: active ? colors.primary : colors.border,
+                        borderColor: active ? colors.primary : colors.borderControl,
                       },
                     ]}
                   >
@@ -258,7 +270,7 @@ export default function ExternalWallet() {
                         s.chip,
                         {
                           backgroundColor: active ? colors.primaryLight : colors.surface,
-                          borderColor: active ? colors.primary : colors.border,
+                          borderColor: active ? colors.primary : colors.borderControl,
                         },
                       ]}
                     >

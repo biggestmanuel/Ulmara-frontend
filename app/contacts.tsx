@@ -283,7 +283,7 @@ function ContactsScreen() {
               <IconButton
                 accessibilityLabel="Clear search"
                 onPress={() => setQuery('')}
-                size={40}
+               
               >
                 <Ionicons name="close-circle" size={19} color={colors.textMuted} />
               </IconButton>

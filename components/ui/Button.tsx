@@ -65,7 +65,11 @@ export function Button({
 
   const surface: Record<ButtonVariant, ViewStyle> = {
     primary: { backgroundColor: colors.primary },
-    secondary: { backgroundColor: colors.surfaceElevated, borderWidth: 1, borderColor: colors.border },
+    secondary: {
+      backgroundColor: colors.surfaceElevated,
+      borderWidth: 1,
+      borderColor: colors.borderControl,
+    },
     ghost: { backgroundColor: 'transparent' },
     destructive: { backgroundColor: colors.error },
   };

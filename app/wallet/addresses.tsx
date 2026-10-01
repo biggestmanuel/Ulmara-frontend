@@ -80,7 +80,7 @@ export default function WalletAddresses() {
           accessibilityState={{ expanded: revealed }}
           onPress={() => setRevealed((value) => !value)}
           pressScale={0.98}
-          style={[styles.reveal, { borderColor: colors.border, backgroundColor: colors.surface }]}
+          style={[styles.reveal, { borderColor: colors.borderControl, backgroundColor: colors.surface }]}
         >
           <Ionicons
             name={revealed ? 'eye-off-outline' : 'eye-outline'}

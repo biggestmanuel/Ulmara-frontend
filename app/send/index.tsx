@@ -18,6 +18,7 @@ import {
 import { ContactPicker } from '../../components/contacts/ContactPicker';
 import { getTokensForChain } from '../../lib/api/tokens';
 import { resolveAccountIdForTransfer, type AccountIdProfile } from '../../lib/api/accountId';
+import { friendlyError } from '../../lib/api/client';
 import { useContactsStore } from '../../stores/contactsStore';
 import type { Contact } from '../../lib/api/contacts';
 import { signingAdapters } from '../../lib/signing/chainAdapters';
@@ -126,11 +127,16 @@ export default function SendIndex() {
         setProfile(resolved ?? null);
         if (!resolved) setError('No Ulmara account matches that Account ID.');
       })
-      .catch(() => {
-        if (!cancelled) {
-          setProfile(null);
-          setError('We could not look up that Account ID. Try again shortly.');
-        }
+      .catch((err) => {
+        if (cancelled) return;
+        setProfile(null);
+        // The server's own message is the useful one. Verified against the
+        // running backend: entering *your own* Account ID returns
+        // 400 "Cannot resolve your own Account ID for transfer", which this
+        // handler discarded in favour of "we could not look up that Account ID,
+        // try again shortly" — telling the user to retry something that can
+        // never succeed, and hiding the actual reason.
+        setError(friendlyError(err, 'We could not look up that Account ID. Try again shortly.'));
       })
       .finally(() => {
         if (!cancelled) setResolving(false);
@@ -360,7 +366,7 @@ function AssetRow({
         styles.assetRow,
         {
           backgroundColor: active ? colors.primaryLight : colors.surface,
-          borderColor: active ? colors.primary : colors.border,
+          borderColor: active ? colors.primary : colors.borderControl,
         },
       ]}
     >

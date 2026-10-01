@@ -75,20 +75,23 @@ const FALLBACK_MESSAGES: Record<number, string> = {
 };
 
 export function toApiError(err: unknown): ApiErrorShape {
-  if (
-    typeof err === 'object' &&
-    err !== null &&
-    'status' in err &&
-    'code' in err &&
-    'message' in err
-  ) {
-    const apiError = err as Partial<ApiErrorShape>;
-    return {
-      status: typeof apiError.status === 'number' ? apiError.status : null,
-      code: typeof apiError.code === 'string' ? apiError.code : 'unknown_error',
-      message: typeof apiError.message === 'string' ? apiError.message : 'Something went wrong',
-    };
-  }
+  /**
+   * The axios check MUST come before the duck-typed check below.
+   *
+   * A thrown `AxiosError` carries `status`, `code` (`ERR_BAD_REQUEST`) and
+   * `message` (`"Request failed with status code 400"`), so it satisfies a
+   * duck-typed `{ status, code, message }` test. With that branch first, every
+   * axios rejection was captured there and returned its own transport echo as
+   * the message — so the envelope extraction below never ran for any real
+   * request. Verified against the live backend: entering your own Account ID
+   * returns `400 { success:false, message:"Cannot resolve your own Account ID
+   * for transfer" }`, and the Send screen displayed "Invalid request. Please
+   * check your details and try again." instead. `isUserFacingMessage` then
+   * correctly rejected the axios echo and `friendlyError` fell through to the
+   * per-status copy, which hid the reason on every screen in the app.
+   *
+   * `isAxiosError` is the more specific test, so it has to be asked first.
+   */
   if (axios.isAxiosError(err)) {
     const axiosErr = err as AxiosError<{ success?: boolean; message?: string }>;
     const status = axiosErr.response?.status ?? null;
@@ -110,6 +113,20 @@ export function toApiError(err: unknown): ApiErrorShape {
           : FALLBACK_MESSAGES[status as number] ??
             axiosErr.message ??
             'Something went wrong. Please try again.'),
+    };
+  }
+  if (
+    typeof err === 'object' &&
+    err !== null &&
+    'status' in err &&
+    'code' in err &&
+    'message' in err
+  ) {
+    const apiError = err as Partial<ApiErrorShape>;
+    return {
+      status: typeof apiError.status === 'number' ? apiError.status : null,
+      code: typeof apiError.code === 'string' ? apiError.code : 'unknown_error',
+      message: typeof apiError.message === 'string' ? apiError.message : 'Something went wrong',
     };
   }
   return { status: null, code: 'unknown_error', message: 'Something went wrong. Please try again.' };

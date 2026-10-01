@@ -1,21 +1,21 @@
 {
   "expo": {
-    "name": "Avora",
-    "slug": "avora-wallet",
+    "name": "Ulmara",
+    "slug": "ulmara-wallet",
     "version": "0.1.0",
     "orientation": "portrait",
     "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
-    "scheme": "avora",
+    "scheme": "ulmara",
     "ios": {
-      "bundleIdentifier": "com.biggestmanuel.avora",
+      "bundleIdentifier": "com.biggestmanuel.ulmara",
       "supportsTablet": false,
       "infoPlist": {
         "NSFaceIDUsageDescription": "Ulmara uses Face ID to unlock your wallet on this device. Your PIN still authorises every transfer, and no biometric data is stored or sent."
       }
     },
     "android": {
-      "package": "com.biggestmanuel.avora",
+      "package": "com.biggestmanuel.ulmara",
       "permissions": [
         "android.permission.USE_BIOMETRIC",
         "android.permission.USE_FINGERPRINT",
@@ -52,8 +52,8 @@
       [
         "expo-media-library",
         {
-          "photosPermission": "Allow Avora to save transaction receipts to your photos.",
-          "savePhotosPermission": "Allow Avora to save transaction receipts to your photos.",
+          "photosPermission": "Allow Ulmara to save transaction receipts to your photos.",
+          "savePhotosPermission": "Allow Ulmara to save transaction receipts to your photos.",
           "isAccessMediaLocationEnabled": false
         }
       ]

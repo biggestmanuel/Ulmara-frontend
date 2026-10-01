@@ -190,6 +190,45 @@ if (offKit.length) {
   }
 }
 
+// --- 7. Project-level invariants: deep-link scheme and the web base URL -------
+// Both were verified by hand and then forgotten; neither is visible from a
+// single file, which is exactly the kind of thing that rots.
+
+const appJson = JSON.parse(readFileSync(join(ROOT, 'app.json'), 'utf8')).expo ?? {};
+const linksSrc = readFileSync(join(ROOT, 'constants/links.ts'), 'utf8');
+
+const schemeInLinks = linksSrc.match(/DEFAULT_SCHEME\s*=\s*'([^']+)'/)?.[1];
+if (appJson.scheme && schemeInLinks && appJson.scheme !== schemeInLinks) {
+  failures.push(
+    `app.json scheme "${appJson.scheme}" does not match constants/links.ts DEFAULT_SCHEME ` +
+      `"${schemeInLinks}". Deep links and the QR payload would disagree.`
+  );
+}
+
+if (appJson.scheme === 'avora' || String(appJson.slug ?? '').startsWith('avora')) {
+  failures.push('app.json still carries the pre-rename "avora" identifiers.');
+}
+if (String(appJson.name ?? '') !== 'Ulmara') {
+  failures.push(`app.json name is "${appJson.name}", expected "Ulmara".`);
+}
+
+// No scattered host literals. `constants/links.ts` is the single source.
+for (const f of files) {
+  const key = rel(f);
+  if (key === 'constants/links.ts' || key === 'scripts/audit-design.mjs') continue;
+  const body = readFileSync(f, 'utf8')
+    .split('\n')
+    .filter((l) => !/^\s*(\*|\/\/|\/\*)/.test(l))
+    .join('\n');
+  const hits = body.match(/https?:\/\/(ulmara|avora)\.[a-z]+/g);
+  if (hits) {
+    failures.push(
+      `${key}: hardcoded host ${[...new Set(hits)].join(', ')}. ` +
+        'Build URLs from constants/links.ts so the domain is changed in one place.'
+    );
+  }
+}
+
 console.log('=== design conformance ===');
 console.log(`  screens/components scanned   ${files.length}`);
 console.log(`  hardcoded colours            ${hardcodedColours}`);

@@ -1,7 +1,7 @@
 // Standalone verification that @bitcoinerlab/secp256k1 (the React Native
 // replacement for tiny-secp256k1) derives correct Bitcoin keys/addresses.
 //
-// Run from avora-frontend/:  node scripts/verify-secp256k1.mjs
+// node scripts/verify-secp256k1.mjs
 //
 // Test vectors:
 //  1. BIP84 "abandon about" vector — mnemonic -> seed -> m/84'/0'/0'/0/0 ->

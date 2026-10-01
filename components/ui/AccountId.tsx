@@ -74,7 +74,6 @@ export function AccountId({ value, size = 'hero', onCopy, label = 'Account ID' }
             accessibilityHint="Copies your Account ID to the clipboard"
             onPress={onCopy}
             variant="filled"
-            size={40}
             style={styles.copy}
           >
             <Ionicons name="copy-outline" size={17} color={colors.textSecondary} />

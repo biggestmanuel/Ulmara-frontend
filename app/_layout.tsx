@@ -144,3 +144,12 @@ export default function RootLayout() {
     </GestureHandlerRootView>
   );
 }
+
+/**
+ * Root error boundary, via expo-router's `ErrorBoundary` export convention.
+ *
+ * Defined here rather than per-route so it covers every screen, including the
+ * ones pushed above this layout. See components/ErrorBoundary.tsx for why the
+ * fallback is custom rather than expo-router's built-in one.
+ */
+export { ErrorBoundary } from '../components/ErrorBoundary';

@@ -87,7 +87,6 @@ export const font = {
   sansMedium: 'Manrope_500Medium',
   sansSemiBold: 'Manrope_600SemiBold',
   sansBold: 'Manrope_700Bold',
-  sansExtraBold: 'Manrope_800ExtraBold',
   /** System monospace — addresses, hashes, seed phrases. Never for prose. */
   mono: 'monospace',
 } as const;

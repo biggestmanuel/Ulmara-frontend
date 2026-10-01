@@ -67,8 +67,28 @@ export interface ThemeColors {
   code: string;
 
   /* --- rules --------------------------------------------------------- */
-  /** Hairlines and input borders. */
+  /**
+   * Container edges: card outlines, sheet edges, decorative grouping.
+   *
+   * Deliberately subtle. WCAG 1.4.11 requires 3:1 for the boundary of a
+   * *control* whose edge is how you identify it, not for a container that is
+   * merely a box. A card is not a control, and pushing a hairline to 3:1 would
+   * turn every rule in the app into a heavy outline.
+   */
   border: string;
+  /**
+   * Control boundaries: inputs, switches, selected chips.
+   *
+   * These carry the 3:1 requirement, because on a text field the outline is
+   * the only thing that delineates the control 2014 the fill sits within about
+   * 1.05:1 of the page. See components/ui/Input.tsx.
+   */
+  borderControl: string;
+  /**
+   * Separator between list rows. Purely decorative: WCAG 1.4.11 does not apply
+   * to decorative separation, and the rows remain legible without it. Reported
+   * by scripts/audit-contrast.mjs for honesty, but not gated.
+   */
   divider: string;
 
   /* --- semantics ----------------------------------------------------- */
@@ -119,18 +139,19 @@ export const lightTheme: ThemeColors = {
   /* --- ink ----------------------------------------------------------- */
   /** Warm espresso near-black. Every primary piece of text. */
   textPrimary: '#2A2724',
-  textSecondary: '#6B6459',
-  textMuted: '#9A9287',
+  textSecondary: '#504B43',
+  textMuted: '#69635C',
   code: '#57514A',
 
   /* --- rules --------------------------------------------------------- */
   border: '#E7E1D8',
+  borderControl: '#888077',
   divider: '#EFE9E0',
 
   /* --- semantics ----------------------------------------------------- */
   success: '#2F6B45',
   /** Money out is *not* an error — it is neutral, with a directional icon. */
-  warning: '#8A6510',
+  warning: '#83600F',
   /** Reserved for failures that are the user's problem to fix. */
   error: '#A63D22',
   info: '#4A2D5C',
@@ -160,11 +181,12 @@ export const darkTheme: ThemeColors = {
   /** Warm off-white text on warm charcoal. */
   textPrimary: '#F4F0EA',
   textSecondary: '#B5AEA3',
-  textMuted: '#877F74',
+  textMuted: '#979087',
   code: '#C9C2B7',
 
   /* --- rules --------------------------------------------------------- */
   border: '#2C2926',
+  borderControl: '#877F74',
   divider: '#232120',
 
   /* --- semantics ----------------------------------------------------- */

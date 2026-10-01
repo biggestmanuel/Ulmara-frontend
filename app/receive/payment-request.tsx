@@ -160,7 +160,7 @@ export default function PaymentRequest() {
                     styles.chip,
                     {
                       backgroundColor: active ? colors.primaryLight : colors.surface,
-                      borderColor: active ? colors.primary : colors.border,
+                      borderColor: active ? colors.primary : colors.borderControl,
                     },
                   ]}
                 >

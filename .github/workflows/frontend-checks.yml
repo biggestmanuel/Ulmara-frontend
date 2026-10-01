@@ -1,0 +1,73 @@
+name: Frontend checks
+
+# Frontend only. The backend is a separate repository with its own CI and is
+# deliberately not referenced here.
+#
+# These are the same checks the pre-commit hook runs. The hook lives in
+# `.git/hooks/`, which is local-only and is not committed — so without this
+# workflow a fresh clone, a teammate, or a CI run would get none of them.
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+# Cancel superseded runs on the same ref rather than queueing them.
+concurrency:
+  group: frontend-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  checks:
+    name: typecheck, lint, tests, design + contrast
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          # Matches the Node version the project was developed and verified on.
+          node-version: '24'
+          cache: npm
+
+      - name: Install dependencies
+        # `npm ci` requires package-lock.json to be in sync with package.json.
+        # `--ignore-scripts` skips the postinstall `patch-package` step, which
+        # only affects the dev build and would otherwise need a longer timeout
+        # on a cold runner.
+        run: npm ci --ignore-scripts
+
+      - name: Apply patches
+        run: npx patch-package
+
+      - name: TypeScript
+        run: npm run typecheck
+
+      - name: ESLint
+        run: npm run lint
+
+      - name: Logic tests
+        # Exercises the real production modules: the harness transpiles the
+        # project's own TypeScript and stubs only native/expo imports.
+        run: npm test
+
+      - name: Design conformance
+        # Fails on a hardcoded colour outside the theme, a control with no
+        # accessible name, an off-scale radius or font size, a text glyph used
+        # as an icon, a hand-rolled Modal, or a screen off the shared kit.
+        run: npm run audit:design
+
+      - name: WCAG AA contrast
+        # Imports lib/theme/color.ts directly, so it checks the values the app
+        # actually renders rather than a copy.
+        run: npm run audit:contrast
+
+      - name: Dependency audit
+        # Reported as a warning rather than a hard failure: the open advisories
+        # are pre-existing and sit inside tronweb's own pinned dependency tree
+        # (nested axios / ethers / lodash) plus Expo's build-time chain. Force
+        # fixing would require breaking changes that risk the TRON chain, so it
+        # is tracked here rather than silently auto-fixed.
+        continue-on-error: true
+        run: npm run audit:deps

@@ -15,6 +15,7 @@ import {
   useCopyToast,
 } from '../../components/ui';
 import { useUserStore } from '../../stores/userStore';
+import { receiveQrPayload } from '../../constants/links';
 import { formatAccountId } from '../../lib/format';
 import { radius, space, useThemeStore } from '../../lib/theme';
 
@@ -47,7 +48,9 @@ export default function ReceiveIndex() {
   const [method, setMethod] = useState<Method>('QR Code');
   const { copyToClipboard, message: toastMessage, visible: toastVisible } = useCopyToast();
 
-  const shareLink = `https://ulmara.app/pay/${accountId}`;
+  // Built from the central link config rather than an inline literal, so the
+  // host is changed in exactly one place when the real domain exists.
+  const shareLink = receiveQrPayload(accountId);
 
   const handleCopy = async () => {
     await copyToClipboard(
@@ -197,5 +200,9 @@ const styles = StyleSheet.create({
   link: { padding: space.md, borderRadius: radius.chip },
 
   footer: { gap: space.md },
-  copyLink: { alignSelf: 'center', paddingVertical: space.sm, paddingHorizontal: space.md },
+  // 44pt minimum target. `space.sm` (8) + a 17pt line only reached 33pt,
+  // which passes the WCAG 2.2 AA minimum of 24 but not the target this
+  // design system states. `space.lg` (16) brings it to 49pt without
+  // changing the type size, so the link stays visually quiet.
+  copyLink: { alignSelf: 'center', paddingVertical: space.lg, paddingHorizontal: space.md },
 });

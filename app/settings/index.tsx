@@ -85,6 +85,23 @@ export default function SettingsScreen() {
               { value: 'system', label: 'System' },
             ]}
           />
+        {/* /settings/preferences was fully built, audited and unreachable:
+              no navigation anywhere pointed at it. Theme is set inline above,
+              so this row exists for what lives only on that screen — the
+              display currency and the language notice. */}
+          <ListRow
+            title="Preferences"
+            subtitle="Currency and language"
+            onPress={() => router.push('/settings/preferences')}
+            accessibilityLabel="Preferences"
+            accessibilityHint="Opens display preferences"
+            showSeparator={false}
+            leading={
+              <View style={styles.rowIcon}>
+                <Ionicons name="options-outline" size={17} color={colors.primary} />
+              </View>
+            }
+          />
         </View>
 
         <View style={styles.group}>

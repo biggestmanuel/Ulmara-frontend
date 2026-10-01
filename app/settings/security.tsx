@@ -274,7 +274,7 @@ export default function Security() {
                   <Switch
                     value={biometricEnabled}
                     onValueChange={(next) => void handleBiometricToggle(next)}
-                    trackColor={{ false: colors.border, true: colors.primary }}
+                    trackColor={{ false: colors.borderControl, true: colors.primary }}
                     thumbColor={colors.onPrimary}
                     accessibilityLabel="Biometric unlock"
                     accessibilityState={{ checked: biometricEnabled, busy: biometricBusy }}

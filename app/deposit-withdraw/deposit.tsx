@@ -93,7 +93,7 @@ export default function Deposit() {
                     styles.chip,
                     {
                       backgroundColor: active ? colors.primaryLight : colors.surface,
-                      borderColor: active ? colors.primary : colors.border,
+                      borderColor: active ? colors.primary : colors.borderControl,
                     },
                   ]}
                 >
@@ -132,7 +132,7 @@ export default function Deposit() {
                   setError(null);
                 }}
                 pressScale={0.97}
-                style={[styles.quick, { borderColor: colors.border, backgroundColor: colors.surface }]}
+                style={[styles.quick, { borderColor: colors.borderControl, backgroundColor: colors.surface }]}
               >
                 <Typography variant="label" color={colors.textSecondary} numeric>
                   ₦{quick.toLocaleString('en-NG')}

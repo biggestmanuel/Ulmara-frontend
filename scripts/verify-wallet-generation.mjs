@@ -1,6 +1,6 @@
 // End-to-end verification of the wallet key-generation stack.
 //
-// Run from avora-frontend/:  node scripts/verify-wallet-generation.mjs
+// node scripts/verify-wallet-generation.mjs
 //
 // Checks (mirrors the logic in lib/keyGeneration.ts — keyGeneration.ts is TS,
 // so it can't be imported directly from Node):

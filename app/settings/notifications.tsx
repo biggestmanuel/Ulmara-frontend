@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Linking, ScrollView, StyleSheet, Switch, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import type { ComponentProps } from 'react';
 
 import { BackButton } from '../../components/navigation/BackButton';
 import {
@@ -71,7 +72,13 @@ export default function Notifications() {
     void check();
   }, [check]);
 
-  const status = (() => {
+  // Explicit return type so `icon` stays a literal union rather than widening
+  // to `string`, which is what forced an `as never` at the call site.
+  const status = ((): {
+    text: string;
+    tone: 'muted' | 'success' | 'warning';
+    icon: ComponentProps<typeof Ionicons>['name'];
+  } => {
     if (registration.isChecking) {
       return { text: 'Checking notification status…', tone: 'muted' as const, icon: 'sync-outline' };
     }
@@ -144,7 +151,7 @@ export default function Notifications() {
             {registration.isChecking ? (
               <LoadingSpinner />
             ) : (
-              <Ionicons name={status.icon as never} size={18} color={statusColor} />
+              <Ionicons name={status.icon} size={18} color={statusColor} />
             )}
             <Typography
               variant="body"
@@ -338,7 +345,7 @@ function ToggleRow({
           value={value}
           onValueChange={onChange}
           disabled={disabled}
-          trackColor={{ false: colors.border, true: colors.primary }}
+          trackColor={{ false: colors.borderControl, true: colors.primary }}
           thumbColor={colors.onPrimary}
           accessibilityLabel={label}
           accessibilityHint={desc}
