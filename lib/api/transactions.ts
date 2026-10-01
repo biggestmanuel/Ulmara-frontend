@@ -123,8 +123,15 @@ export async function fetchTransactionById(id: string): Promise<Transaction> {
 }
 
 export interface PaymentRequestPayload {
-  amount?: string;
+  /** Chain the request is denominated on, for callers that already know it. */
+  asset?: string;
   symbol?: string;
+  amount?: string;
+  expiresAt?: string;
+  /**
+   * Free text from the requester. Trimmed before it is sent, and left out of
+   * the body entirely when it is blank.
+   */
   note?: string;
 }
 
@@ -136,7 +143,23 @@ export interface PaymentRequestResult {
 export async function createPaymentRequest(
   payload: PaymentRequestPayload
 ): Promise<PaymentRequestResult> {
-  const { data } = await apiClient.post<ApiEnvelope<PaymentRequestResult>>('/api/payment/request', payload);
+  // The note is optional and a blank one means "no note", so the key is dropped
+  // rather than sent as `note: ""`. The body is validated strictly, and an
+  // absent key and a present-but-empty one are not the same request. Keys the
+  // caller did not supply are dropped for the same reason, instead of riding
+  // along as explicit `undefined`.
+  const note = payload.note?.trim() ?? '';
+  const body: PaymentRequestPayload = {};
+  if (payload.asset !== undefined) body.asset = payload.asset;
+  if (payload.symbol !== undefined) body.symbol = payload.symbol;
+  if (payload.amount !== undefined) body.amount = payload.amount;
+  if (payload.expiresAt !== undefined) body.expiresAt = payload.expiresAt;
+  if (note !== '') body.note = note;
+
+  const { data } = await apiClient.post<ApiEnvelope<PaymentRequestResult>>(
+    '/api/payment/request',
+    body
+  );
   return data.data;
 }
 

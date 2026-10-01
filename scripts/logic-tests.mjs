@@ -49,6 +49,7 @@ const TARGETS = [
   'lib/tokens/erc20.ts',
   'lib/api/contacts.ts',
   'lib/api/auth.ts',
+  'lib/api/transactions.ts',
   'lib/push/pushNotifications.ts',
   'lib/security/biometrics.ts',
   'lib/chains/evmConfig.ts',
@@ -735,6 +736,149 @@ console.log('\n== send flow: amount -> network-select -> confirm (F2) ==');
     true,
     'confirm.tsx guards the external path on params.network (supplied by external-wallet)'
   );
+}
+
+console.log('\n== lib/api/transactions: payment request body matches C3 ==');
+{
+  const client = await load('lib/api/client.ts');
+  const tx = await load('lib/api/transactions.ts');
+
+  const calls = [];
+  const realPost = client.apiClient.post;
+  client.apiClient.post = (url, body) => {
+    calls.push({ url: String(url), body });
+    return Promise.resolve({ data: { success: true, data: { requestId: 'r-1', link: 'x' } } });
+  };
+  const restore = () => { client.apiClient.post = realPost; };
+  // Canonical JSON with sorted keys: object equality is not key-order
+  // sensitive, so a plain stringify would fail on a correct body purely
+  // because the builder assigns `symbol` before `amount`.
+  const canon = (v) => {
+    if (v === null || typeof v !== 'object') return JSON.stringify(v) ?? 'null';
+    if (Array.isArray(v)) return `[${v.map(canon).join(',')}]`;
+    return `{${Object.keys(v).sort().map((k) => `${JSON.stringify(k)}:${canon(v[k])}`).join(',')}}`;
+  };
+  const j = (v) => canon(v ?? null);
+  const lastBody = () => (calls.length ? calls[calls.length - 1].body : undefined);
+  const has = (o, k) => Object.prototype.hasOwnProperty.call(o, k);
+
+  // --- a blank note must leave the key out entirely, not ride as "" --------
+  calls.length = 0;
+  await tx.createPaymentRequest({ amount: '10', symbol: 'USDC', note: '' });
+  eq(calls[0].url, '/api/payment/request', 'createPaymentRequest posts to /api/payment/request');
+  eq(has(lastBody(), 'note'), false, 'an empty note omits the key');
+  eq(j(lastBody()), j({ amount: '10', symbol: 'USDC' }),
+     'empty note body is exactly { amount, symbol }');
+
+  // whitespace-only is blank by the same rule
+  calls.length = 0;
+  await tx.createPaymentRequest({ amount: '10', symbol: 'USDC', note: '   \n\t  ' });
+  eq(has(lastBody(), 'note'), false, 'a whitespace-only note omits the key');
+
+  // --- a real note is trimmed --------------------------------------------
+  calls.length = 0;
+  await tx.createPaymentRequest({ amount: '10', symbol: 'USDC', note: '  dinner  ' });
+  eq(lastBody().note, 'dinner', 'the note is trimmed on both ends');
+  eq(j(lastBody()), j({ amount: '10', symbol: 'USDC', note: 'dinner' }),
+     'trimmed note body is exact');
+
+  // internal whitespace is preserved; only the edges are cut
+  calls.length = 0;
+  await tx.createPaymentRequest({ note: '  split the bill  ' });
+  eq(lastBody().note, 'split the bill', 'only the edges are trimmed');
+
+  // --- an absent note is not invented ------------------------------------
+  calls.length = 0;
+  await tx.createPaymentRequest({ amount: '5' });
+  eq(has(lastBody(), 'note'), false, 'a note that was never supplied is not added');
+  eq(Object.keys(lastBody()).length, 1, 'only the supplied key is sent');
+
+  // --- the other C3 create fields are passed through ---------------------
+  calls.length = 0;
+  await tx.createPaymentRequest({
+    asset: 'eth',
+    symbol: 'USDC',
+    amount: '25',
+    expiresAt: '2026-12-31T00:00:00.000Z',
+    note: 'rent',
+  });
+  eq(j(lastBody()), j({
+    asset: 'eth', symbol: 'USDC', amount: '25',
+    expiresAt: '2026-12-31T00:00:00.000Z', note: 'rent',
+  }), 'asset / symbol / amount / expiresAt / note all reach the wire');
+
+  // --- no key is ever sent as an explicit undefined ----------------------
+  calls.length = 0;
+  await tx.createPaymentRequest({ amount: '1', asset: undefined, expiresAt: undefined });
+  eq(has(lastBody(), 'asset'), false, 'an explicitly-undefined asset is dropped');
+  eq(has(lastBody(), 'expiresAt'), false, 'an explicitly-undefined expiresAt is dropped');
+  eq(j(lastBody()), j({ amount: '1' }), 'no undefined-valued keys survive');
+
+  // --- the pay-link type carries the four C3 response fields ------------
+  // Asserted against the real module text: a type that loses a field is a
+  // silent regression, and this harness cannot reflect over a TS interface.
+  const { readFileSync } = await import('node:fs');
+  const { join: pathJoin } = await import('node:path');
+  const src = readFileSync(
+    pathJoin(process.argv[2] ?? '.', 'lib/api/transactions.ts'), 'utf8'
+  );
+  const linkIface = src.slice(src.indexOf('export interface PaymentLink'));
+  for (const field of ['note', 'symbol', 'requesterAccountId', 'requesterName']) {
+    eq(
+      new RegExp(`^\\s+${field}[?]?:`, 'm').test(linkIface),
+      true,
+      `PaymentLink declares ${field}`
+    );
+  }
+  // and it must not claim any personal detail the contract forbids
+  for (const forbidden of ['email', 'phone', 'requesterId', 'requesterEmail']) {
+    eq(
+      new RegExp(`^\\s+${forbidden}[?]?:`, 'm').test(linkIface),
+      false,
+      `PaymentLink does not expose ${forbidden}`
+    );
+  }
+
+  restore();
+}
+
+// The pay screen is .tsx and is not transpilable here, so this is a structural
+// assertion over the real source. It pins the one thing that makes the
+// comparison safe: the requester's Account ID is resolved to a non-empty value
+// and checked before any transaction is matched against it.
+console.log('\n== app/pay/[id].tsx: requester comparison cannot false-match ==');
+{
+  const { readFileSync } = await import('node:fs');
+  const { join: pathJoin } = await import('node:path');
+  const src = readFileSync(
+    pathJoin(process.argv[2] ?? '.', 'app/pay/[id].tsx'), 'utf8'
+  );
+
+  eq(
+    /const requesterAccountId\s*=\s*\n?\s*typeof link\.requesterAccountId === 'string'/.test(src),
+    true,
+    'pay/[id].tsx normalises requesterAccountId from the link'
+  );
+  eq(
+    /if \(requesterAccountId === ''\) \{/.test(src),
+    true,
+    'pay/[id].tsx bails out when no requester Account ID is present'
+  );
+  eq(
+    src.includes('tx.counterpartyAccountId === requesterAccountId'),
+    true,
+    'pay/[id].tsx compares against the normalised value'
+  );
+  eq(
+    src.includes('tx.counterpartyAccountId === link.requesterAccountId'),
+    false,
+    'pay/[id].tsx no longer compares against the raw, possibly-missing field'
+  );
+  // The bail-out has to happen before the lookup, or it guards nothing.
+  const bail = src.indexOf("if (requesterAccountId === '') {");
+  const find = src.indexOf('await fetchTransactions({ limit: 50 })');
+  eq(bail !== -1 && find !== -1 && bail < find, true,
+     'the guard runs before any transaction is fetched');
 }
 
 console.log(`\n  passed: ${pass}  failed: ${fail}`);

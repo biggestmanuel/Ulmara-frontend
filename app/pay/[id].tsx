@@ -79,6 +79,23 @@ export default function PayLink() {
     setFulfilling(true);
     setError(null);
     try {
+      // The requester's Account ID is what this whole lookup turns on, so it is
+      // normalised and checked before anything is compared. `requesterAccountId`
+      // is a plain `string` in the contract, but it is read off a row that may
+      // predate the field, and an unguarded `===` against a missing value is
+      // worse than useless: a transfer with no counterparty of its own satisfies
+      // `undefined === undefined` and would then be recorded as this payment.
+      // Failing closed here is the point.
+      const requesterAccountId =
+        typeof link.requesterAccountId === 'string' ? link.requesterAccountId.trim() : '';
+      if (requesterAccountId === '') {
+        setError(
+          'This request does not say who asked for it, so it cannot be paid safely. ' +
+            'Ask them for a new link.'
+        );
+        return;
+      }
+
       // The backend fulfills a request with the id of an existing COMPLETED
       // transfer from the payer (matching requester, asset, amount) — not
       // with amount/symbol. Find a qualifying sent transaction; if none
@@ -88,13 +105,13 @@ export default function PayLink() {
         (tx) =>
           tx.direction === 'sent' &&
           tx.status === 'complete' &&
-          tx.counterpartyAccountId === link.requesterAccountId &&
+          tx.counterpartyAccountId === requesterAccountId &&
           (!link.symbol || tx.symbol === link.symbol) &&
           (!link.amount || tx.amount === link.amount)
       );
       if (!completedTransfer) {
         setError(
-          `No completed transfer to ${formatAccountId(link.requesterAccountId)} found yet.` +
+          `No completed transfer to ${formatAccountId(requesterAccountId)} found yet.` +
             ` Send${link.amount ? ` ${link.amount}` : ''}${link.symbol ? ` ${link.symbol}` : ''} ` +
             'to them first, then pay this request.'
         );
