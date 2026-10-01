@@ -51,6 +51,7 @@ const TARGETS = [
   'lib/api/auth.ts',
   'lib/api/transactions.ts',
   'stores/contactsStore.ts',
+  'lib/gas/gasAbstraction.ts',
   'lib/push/pushNotifications.ts',
   'lib/security/biometrics.ts',
   'lib/chains/evmConfig.ts',
@@ -198,6 +199,70 @@ for (const file of emitted) {
 
 function load(rel) {
   return import(pathToFileURL(join(out, rel.replace(/\.tsx?$/, '.mjs'))).href);
+}
+
+/**
+ * Loads a second, independent copy of a module with a patched environment.
+ *
+ * Some modules read configuration once, at module scope, into a module-level
+ * constant. ESM caches by resolved URL, so re-calling `load` hands back the
+ * instance that was already evaluated and the constant can never change. This
+ * re-runs the same transpile-and-rewrite pipeline into a differently-named file
+ * so the copy under test really is evaluated against the patched env.
+ *
+ * Relative imports are left resolving beside the original, so the copy shares
+ * its dependencies — notably the one `apiClient` instance — with everything
+ * already loaded. That is what lets a test watch the requests it makes.
+ */
+let freshCount = 0;
+
+async function loadFresh(rel, envPatch) {
+  const previous = {};
+  for (const [k, v] of Object.entries(envPatch)) {
+    previous[k] = process.env[k];
+    if (v === undefined) delete process.env[k];
+    else process.env[k] = v;
+  }
+  try {
+    const src = readFileSync(join(ROOT, rel), 'utf8');
+    let js = ts.transpileModule(src, {
+      compilerOptions: {
+        module: ts.ModuleKind.ESNext,
+        target: ts.ScriptTarget.ES2022,
+        jsx: ts.JsxEmit.ReactJSX,
+        esModuleInterop: true,
+      },
+      fileName: rel,
+    }).outputText;
+
+    js = js.replace(/from ["'](\.[^"']*)["']/g, (m, spec) =>
+      /\.(mjs|json|node)$/.test(spec) ? m : `from '${spec}.mjs'`
+    );
+    for (const name of Object.keys(STUBS)) {
+      const esc = name.replace(/\//g, '\\/');
+      js = js.replace(
+        new RegExp(`from ["']${esc}["']`, 'g'),
+        `from '${pathToFileURL(join(work, 'stubs', name, 'index.mjs')).href}'`
+      );
+    }
+
+    // A unique name per call, and not merely a different one from the original:
+    // ESM caches by resolved URL, so writing to a path that has already been
+    // imported returns the previously-evaluated instance and the caller ends up
+    // asserting against a module built with a different environment. The first
+    // version of this helper had that bug and it silently made a flag-ON module
+    // answer a flag-OFF question.
+    freshCount += 1;
+    const dest = join(out, rel.replace(/\.tsx?$/, `.fresh${freshCount}.mjs`));
+    mkdirSync(dirname(dest), { recursive: true });
+    writeFileSync(dest, js);
+    return await import(pathToFileURL(dest).href);
+  } finally {
+    for (const [k, v] of Object.entries(previous)) {
+      if (v === undefined) delete process.env[k];
+      else process.env[k] = v;
+    }
+  }
 }
 
 // --- assertions -------------------------------------------------------------
@@ -1215,6 +1280,196 @@ console.log('\n== contactsStore: real add / rename behaviour ==');
   );
 
   restore();
+}
+
+console.log('\n== F5: no call to /api/push/token, /gas/quote or /gas/submit ==');
+{
+  const client = await load('lib/api/client.ts');
+  const push = await load('lib/push/pushNotifications.ts');
+  const gas = await load('lib/gas/gasAbstraction.ts');
+  const storage = await load('lib/storage/secureStorage.ts');
+  const { SecureStorageKeys } = storage;
+
+  const requests = [];
+  const real = {
+    post: client.apiClient.post,
+    delete: client.apiClient.delete,
+    get: client.apiClient.get,
+    patch: client.apiClient.patch,
+  };
+  const record = (m) => (url) => {
+    requests.push(`${m} ${url}`);
+    return Promise.resolve({ data: { success: true, data: {} } });
+  };
+  client.apiClient.post = record('POST');
+  client.apiClient.delete = record('DELETE');
+  client.apiClient.get = record('GET');
+  client.apiClient.patch = record('PATCH');
+  const restore = () => Object.assign(client.apiClient, real);
+  const forbidden = (what) =>
+    requests.filter((r) => r.includes('/api/push/token') || r.startsWith('POST /gas/'));
+
+  // --- the off-switch is off with no environment at all ------------------
+  eq(
+    process.env.EXPO_PUBLIC_PUSH_REGISTRATION,
+    undefined,
+    'no EXPO_PUBLIC_PUSH_REGISTRATION is set in the test environment'
+  );
+  eq(
+    process.env.EXPO_PUBLIC_GAS_SPONSOR,
+    undefined,
+    'no EXPO_PUBLIC_GAS_SPONSOR is set in the test environment'
+  );
+
+  // --- syncRegisteredToken: runs on every app foreground ------------------
+  // A stored token is required, or it returns before its request and the
+  // assertion below would prove nothing.
+  await storage.setSecureItem(SecureStorageKeys.PUSH_TOKEN, 'ExponentPushToken[stored]');
+  requests.length = 0;
+  await push.syncRegisteredToken();
+  eq(forbidden('sync').length, 0, 'syncRegisteredToken makes no request while the flag is off');
+  eq(requests.length, 0, 'syncRegisteredToken makes no request at all while the flag is off');
+
+  // --- unregisterPushToken: runs on every sign-out -----------------------
+  await storage.setSecureItem(SecureStorageKeys.PUSH_TOKEN, 'ExponentPushToken[stored]');
+  requests.length = 0;
+  await push.unregisterPushToken();
+  eq(forbidden('unregister').length, 0, 'unregisterPushToken makes no request while the flag is off');
+  eq(requests.length, 0, 'unregisterPushToken makes no request at all while the flag is off');
+  // The local wipe must still happen: that is what stops a signed-out install
+  // being able to re-register, and it is not a network call.
+  eq(
+    await storage.getSecureItem(SecureStorageKeys.PUSH_TOKEN),
+    null,
+    'the local push token is still wiped on sign-out'
+  );
+
+  // --- registerPushToken: the settings screen must keep working ----------
+  requests.length = 0;
+  const state = await push.registerPushToken();
+  eq(forbidden('register').length, 0, 'registerPushToken makes no request while the flag is off');
+  eq(state.support, 'backend-pending', 'registerPushToken reports backend-pending, not a failure');
+  eq(state.detail, null, 'registerPushToken reports no error detail');
+
+  // --- gas: both entry points refuse rather than invent a quote ----------
+  requests.length = 0;
+  let quoteThrew = null;
+  try {
+    await gas.getGasSponsorQuote({
+      network: 'ETH', fromAddress: '0x1', toAddress: '0x2', amount: '1', asset: 'ETH',
+    });
+  } catch (err) {
+    quoteThrew = err;
+  }
+  eq(quoteThrew !== null, true, 'getGasSponsorQuote throws instead of returning a fake quote');
+  eq(requests.length, 0, 'getGasSponsorQuote makes no request while the flag is off');
+
+  requests.length = 0;
+  let submitThrew = null;
+  try {
+    await gas.submitSponsoredTransaction({ network: 'ETH', signedPayload: '0xdeadbeef' });
+  } catch (err) {
+    submitThrew = err;
+  }
+  eq(submitThrew !== null, true, 'submitSponsoredTransaction throws instead of faking a result');
+  eq(requests.length, 0, 'submitSponsoredTransaction makes no request while the flag is off');
+
+  // ------------------------------------------------------------------------
+  // Causality. Everything above would also pass if the requests were being
+  // swallowed somewhere else entirely, or if the stub simply never fired. So
+  // load fresh copies with the switches ON and show the requests really do
+  // happen then — the guard is the only thing stopping them.
+  // ------------------------------------------------------------------------
+  const pushOn = await loadFresh('lib/push/pushNotifications.ts', {
+    EXPO_PUBLIC_PUSH_REGISTRATION: 'true',
+  });
+
+  await storage.setSecureItem(SecureStorageKeys.PUSH_TOKEN, 'ExponentPushToken[stored]');
+  requests.length = 0;
+  await pushOn.syncRegisteredToken();
+  eq(
+    requests.filter((r) => r === 'POST /api/push/token').length,
+    1,
+    'with the switch ON, syncRegisteredToken does POST /api/push token'
+  );
+
+  await storage.setSecureItem(SecureStorageKeys.PUSH_TOKEN, 'ExponentPushToken[stored]');
+  requests.length = 0;
+  await pushOn.unregisterPushToken();
+  eq(
+    requests.filter((r) => r === 'DELETE /api/push/token').length,
+    1,
+    'with the switch ON, unregisterPushToken does DELETE /api/push token'
+  );
+
+  const gasOn = await loadFresh('lib/gas/gasAbstraction.ts', {
+    EXPO_PUBLIC_GAS_SPONSOR: 'true',
+  });
+  requests.length = 0;
+  await gasOn
+    .getGasSponsorQuote({ network: 'ETH', fromAddress: '0x1', toAddress: '0x2', amount: '1', asset: 'ETH' })
+    .catch(() => null);
+  eq(
+    requests.filter((r) => r === 'POST /gas/quote').length,
+    1,
+    'with the switch ON, getGasSponsorQuote does POST /gas/quote'
+  );
+  requests.length = 0;
+  await gasOn
+    .submitSponsoredTransaction({ network: 'ETH', signedPayload: '0xdeadbeef' })
+    .catch(() => null);
+  eq(
+    requests.filter((r) => r === 'POST /gas/submit').length,
+    1,
+    'with the switch ON, submitSponsoredTransaction does POST /gas/submit'
+  );
+
+  // And the default really is off, not merely unset in this process.
+  const pushDefault = await loadFresh('lib/push/pushNotifications.ts', {
+    EXPO_PUBLIC_PUSH_REGISTRATION: undefined,
+  });
+  await storage.setSecureItem(SecureStorageKeys.PUSH_TOKEN, 'ExponentPushToken[stored]');
+  requests.length = 0;
+  const defaultState = await pushDefault.registerPushToken();
+  eq(
+    defaultState.support,
+    'backend-pending',
+    'a fresh copy with the variable UNSET is still switched off'
+  );
+  eq(requests.length, 0, 'a fresh copy with the variable UNSET makes no request');
+
+  restore();
+}
+
+console.log('\n== F5: the guard is in place, not just the observable behaviour ==');
+{
+  const { readFileSync: rf } = await import('node:fs');
+  const { join: pj } = await import('node:path');
+  const pushSrc = rf(pj(process.argv[2] ?? '.', 'lib/push/pushNotifications.ts'), 'utf8');
+
+  // The switch must gate the session flag, and the session flag must gate every
+  // call site. If `backendUnsupported` were hardcoded back to `false` the
+  // behavioural tests above would start failing, but these say so directly.
+  eq(
+    /let backendUnsupported = !PUSH_REGISTRATION_ENABLED;/.test(pushSrc),
+    true,
+    'the session flag is seeded from the off-switch, not hardcoded false'
+  );
+  eq(
+    /const PUSH_REGISTRATION_ENABLED = process\.env\.EXPO_PUBLIC_PUSH_REGISTRATION === 'true';/.test(pushSrc),
+    true,
+    'the off-switch is off unless the variable is exactly "true"'
+  );
+  for (const fn of ['registerPushToken', 'syncRegisteredToken', 'unregisterPushToken']) {
+    const at = pushSrc.indexOf(`export async function ${fn}(`);
+    const guard = pushSrc.indexOf('backendUnsupported', at);
+    const request = pushSrc.indexOf('PUSH_TOKEN_PATH', at);
+    eq(
+      at !== -1 && guard !== -1 && request !== -1 && guard < request,
+      true,
+      `${fn}() checks the flag before it builds a request`
+    );
+  }
 }
 
 console.log(`\n  passed: ${pass}  failed: ${fail}`);

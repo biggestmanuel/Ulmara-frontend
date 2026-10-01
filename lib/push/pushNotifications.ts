@@ -45,10 +45,29 @@ import { apiClient, toApiError } from '../api/client';
  *   DELETE {EXPO_PUBLIC_PUSH_TOKEN_PATH}  { token }                     -> { success }
  *
  * A 404/405 on either is treated as "backend not yet deployed" and remembered
- * for the session, so the app never hammers a missing route and never blocks
- * the user on it. See README "Push notifications" for the exact contract.
+ * for the session. See README "Push notifications" for the exact contract.
+ *
+ * ## The two calls below are switched off
+ *
+ * There is no `/api/push/token` route, and none is being added, so a request
+ * there can only ever fail. The session flag was not enough to stop it: it was
+ * set *after* a 404 came back, so the first call always went out. Because
+ * `notificationService` runs `syncRegisteredToken` every time the app is
+ * foregrounded, that was a doomed POST on every cold start and every return to
+ * the foreground, and a 404 in the server log for each one.
+ *
+ * `EXPO_PUBLIC_PUSH_REGISTRATION` turns the server call back on when a route
+ * exists. It is deliberately separate from `EXPO_PUBLIC_PUSH_TOKEN_PATH`:
+ * repointing the path at a different host does not make a route exist.
+ *
+ * Only the server call is suppressed. Permission prompts, token capture, badge
+ * clearing and the notification handler are untouched, so the settings screen
+ * still works and still reports its state honestly.
  */
 const PUSH_TOKEN_PATH = process.env.EXPO_PUBLIC_PUSH_TOKEN_PATH ?? '/api/push/token';
+
+/** Off unless explicitly turned on. See above. */
+const PUSH_REGISTRATION_ENABLED = process.env.EXPO_PUBLIC_PUSH_REGISTRATION === 'true';
 
 /** The three transaction events the backend triggers. */
 export type TransactionNotificationType =
@@ -192,7 +211,14 @@ export interface PushRegistrationState {
   detail: string | null;
 }
 
-let backendUnsupported = false;
+/**
+ * True when this install must not call `PUSH_TOKEN_PATH` — either the
+ * integration is switched off, or a 404/405 already proved the route is absent.
+ * `registerPushToken`, `syncRegisteredToken` and `unregisterPushToken` all
+ * consult this before their request, so seeding it from the flag disables all
+ * three in one place.
+ */
+let backendUnsupported = !PUSH_REGISTRATION_ENABLED;
 
 /** True when this runtime can ever receive an Expo push token. */
 export function isPushSupportedPlatform(): boolean {
