@@ -29,7 +29,9 @@ lib/
   signing/            key derivation, tx signing
   storage/            secure local storage wrappers
   api/                backend API client
-  ramp/               fiat on/off-ramp integration
+  lib/ramp/           (removed — the fiat on/off-ramp integration is backend-only,
+                     reached through /api/ramp/*; the unused client-side provider
+                     module was deleted, see the report)
 hooks/                useAccountId, useBalance, useTransactionStatus
 stores/               Zustand stores (auth gate, wallet, tx, user, prefs)
 types/                shared TS types
@@ -49,12 +51,13 @@ Fill in `.env`:
 EXPO_PUBLIC_API_BASE_URL=
 EXPO_PUBLIC_RPC_ETH / BSC / BASE / POLYGON / SOL / TRON / TON=
 # TriVerify is called by the backend; do not put its key in the app.
-EXPO_PUBLIC_BACHS_API_KEY=          # primary NGN ramp
 EXPO_PUBLIC_PAYSTACK_PUBLIC_KEY=    # fallback ramp
 EXPO_PUBLIC_FLUTTERWAVE_PUBLIC_KEY= # fallback ramp
 ```
 
 `GAS_SPONSOR_PRIVATE_KEY` is backend-only — never expose it as `EXPO_PUBLIC_*`.
+Fiat on/off-ramp goes through `/api/ramp/*`; the backend holds the provider
+credentials, so no provider key is set in the app.
 
 ## Scripts
 

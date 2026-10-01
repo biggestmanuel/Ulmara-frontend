@@ -1472,5 +1472,86 @@ console.log('\n== F5: the guard is in place, not just the observable behaviour =
   }
 }
 
+// F6. The point of deleting the Bachs client was that a third-party provider
+// key was being read in the app and sent off-device. The strongest statement
+// that can be made about a file that no longer exists is that nothing in the
+// repository mentions it any more, so that is what is asserted - across source,
+// config, and documentation, in any casing.
+console.log('\n== F6: the client-side Bachs provider is gone entirely ==');
+{
+  const { readdirSync, readFileSync: rf, statSync: st, existsSync: ex } =
+    await import('node:fs');
+  const { join: pj } = await import('node:path');
+  const root = process.argv[2] ?? '.';
+  const skip = new Set(['node_modules', '.git', '.expo', 'dist', '.expo-shared']);
+
+  const found = [];
+  const SELF = pj('scripts', 'logic-tests.mjs');
+  const walk = (dir) => {
+    for (const entry of readdirSync(dir)) {
+      if (skip.has(entry)) continue;
+      const abs = pj(dir, entry);
+      if (st(abs).isDirectory()) { walk(abs); continue; }
+      // This file names Bachs in order to assert it is gone, so it would
+      // otherwise match itself. The claim is about product code, config and
+      // documentation - not about the test that enforces it.
+      if (abs.endsWith(SELF)) continue;
+      // The source file itself is gone; only text files can still name it.
+      if (!/\.(ts|tsx|js|jsx|mjs|json|md|example|yml|yaml|txt)$/.test(entry)) continue;
+      let text;
+      try {
+        text = rf(abs, 'utf8');
+      } catch {
+        continue;
+      }
+      if (/bachs/i.test(text)) found.push(abs.slice(root.length + 1));
+    }
+  };
+  walk(root);
+
+  eq(found.length, 0, 'no source, config or documentation file mentions Bachs');
+  if (found.length) for (const f of found) console.log(`        still mentions it: ${f}`);
+
+  // The specific hazard: a provider credential readable by the bundle.
+  eq(
+    existsSync(pj(root, 'lib/ramp/bachs.ts')),
+    false,
+    'lib/ramp/bachs.ts does not exist'
+  );
+  eq(existsSync(pj(root, 'lib/ramp')), false, 'the empty lib/ramp/ directory is gone too');
+
+  // No client module may hold any ramp provider key. Bachs was the one that
+  // actually existed in code; this stops the same mistake being reintroduced
+  // with whichever provider is configured next.
+  const providerKeys = ['EXPO_PUBLIC_BACHS', 'api.bachs.io', 'api.paystack.com',
+                        'api.flutterwave.com'];
+  const holders = [];
+  const walkSrc = (dir) => {
+    for (const entry of readdirSync(dir)) {
+      if (skip.has(entry)) continue;
+      const abs = pj(dir, entry);
+      if (st(abs).isDirectory()) { walkSrc(abs); continue; }
+      if (!/\.(ts|tsx)$/.test(entry)) continue;
+      let text;
+      try { text = rf(abs, 'utf8'); } catch { continue; }
+      for (const key of providerKeys) {
+        if (text.includes(key)) holders.push(`${abs.slice(root.length + 1)} -> ${key}`);
+      }
+    }
+  };
+  walkSrc(pj(root, 'lib'));
+  walkSrc(pj(root, 'app'));
+  walkSrc(pj(root, 'components'));
+  walkSrc(pj(root, 'stores'));
+
+  eq(holders.length, 0, 'no module under lib/ app/ components/ stores/ holds a ramp provider key');
+  for (const h of holders) console.log(`        holds a key: ${h}`);
+
+  // The ramp screens must survive: this deletes a dead client, not the feature.
+  for (const screen of ['app/deposit-withdraw/deposit.tsx', 'app/deposit-withdraw/withdraw.tsx']) {
+    eq(existsSync(pj(root, screen)), true, `${screen} still exists`);
+  }
+}
+
 console.log(`\n  passed: ${pass}  failed: ${fail}`);
 process.exit(fail ? 1 : 0);
