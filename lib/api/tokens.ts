@@ -195,18 +195,32 @@ export async function fetchTokenBalances(input: {
         params: { chain: toWireChain(input.chain), address: input.address },
       });
       balancesSupported = true;
-      return { balances: data.data ?? [], source: 'backend', warning: null };
+      // Only an array is usable. `data.data ?? []` was not enough: the store
+      // spreads this value (`tokenRows.push(...result.value)`), so an object or
+      // a string in `data` threw a TypeError inside the fulfilment branch of
+      // `Promise.allSettled` and took the entire refresh down with it - native
+      // balances included, since they are merged afterwards. A malformed
+      // optional payload is worth less than the balances already in hand, so
+      // anything that is not an array is treated as no token data.
+      return {
+        balances: Array.isArray(data.data) ? data.data : [],
+        source: 'backend',
+        warning: null,
+      };
     } catch (err) {
       const status = toApiError(err).status;
       if (status === 404 || status === 405) {
+        // The route is absent. Remember it for the session so we stop probing,
+        // and fall through to the RPC path.
         balancesSupported = false;
-      } else if (status !== null) {
-        return {
-          balances: [],
-          source: 'backend',
-          warning: 'The server could not read your token balances.',
-        };
       }
+      // Any other status, and a transport failure with no status at all, also
+      // falls through. Token balances are an optional enrichment layered on top
+      // of native balances, which are already loaded by the time this runs, and
+      // the RPC path below answers the same question. Surfacing a warning here
+      // put a red banner over a perfectly good balance list because an endpoint
+      // the user never asked for returned 500. `balancesSupported` is left
+      // alone, so a transient failure is retried on the next refresh.
     }
   }
 

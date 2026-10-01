@@ -1679,5 +1679,225 @@ console.log('\n== F7: a wrong PIN does not log the user out (401 vs session) =='
   client.setCachedSessionToken(null);
 }
 
+console.log('\n== F8: token balances are optional and must never break the store ==');
+{
+  const client = await load('lib/api/client.ts');
+  const tokens = await load('lib/api/tokens.ts');
+
+  const axiosLike = (status, message) => ({
+    isAxiosError: true,
+    name: 'AxiosError',
+    message: `Request failed with status code ${status}`,
+    status,
+    code: 'ERR_BAD_REQUEST',
+    config: {},
+    response: { status, data: { success: false, message }, headers: {}, config: {} },
+    toJSON: () => ({}),
+  });
+
+  // The defect was a user-visible warning blaming the server for an endpoint the
+  // user never asked for. `fetchTokenBalances` may legitimately warn about a
+  // *skipped* token — under this suite's ethers stub `getCode` returns '0x', so
+  // `isTokenContract` is false and the RPC fallback reports a mainnet contract
+  // address with no code on a testnet, which is real and worth saying. So the
+  // assertion is that no warning blames the endpoint, not that there is none.
+  const blamesEndpoint = (w) =>
+    typeof w === 'string' && /server could not|could not be read from the network/i.test(w);
+
+  const calls = [];
+  const real = { get: client.apiClient.get, post: client.apiClient.post };
+  let reply = null;
+  client.apiClient.get = (url, config) => {
+    calls.push({ url: String(url), params: config?.params });
+    if (reply && reply.throws) return Promise.reject(reply.value);
+    return Promise.resolve({ data: { success: true, data: reply ? reply.value : [] } });
+  };
+  const restore = () => Object.assign(client.apiClient, real);
+  const ethTokens = [
+    { symbol: 'USDC', name: 'USD Coin', decimals: 6, addresses: { eth: '0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48' } },
+  ];
+  const run = async (fresh) =>
+    (fresh ?? tokens).fetchTokenBalances({ chain: 'eth', address: '0xowner', tokens: ethTokens });
+
+  // --- the path is exactly what C5 says, and is never changed -------------
+  calls.length = 0;
+  reply = { value: [] };
+  await run();
+  eq(calls.length, 1, 'one request is made per chain');
+  eq(calls[0].url, '/api/wallet/token-balances', 'the path is /api/wallet/token-balances');
+  eq(calls[0].params?.chain, 'ETH', 'the chain is sent as the UPPERCASE wire name');
+  eq(calls[0].params?.address, '0xowner', 'the address is sent');
+
+  // --- a normal backend response is used as-is ---------------------------
+  const row = { symbol: 'USDC', name: 'USD Coin', chain: 'eth', network: 'ETH',
+                decimals: 6, contractAddress: '0xc', balance: '12.5' };
+  reply = { value: [row] };
+  let out = await run();
+  eq(out.balances.length, 1, 'a well-formed array is returned untouched');
+  eq(out.balances[0].balance, '12.5', 'the balance string survives');
+  eq(out.warning, null, 'a good response produces no warning at all');
+  eq(out.source, 'backend', 'a good response is attributed to the backend');
+
+  // --- an empty result is fine, and is NOT a warning ---------------------
+  reply = { value: [] };
+  out = await run();
+  eq(out.balances.length, 0, 'an empty array yields no balances');
+  eq(out.warning, null, 'an empty result is not a warning');
+  eq(out.source, 'backend', 'an empty result still counts as the backend answering');
+
+  // --- 404: the documented "route absent" case ----------------------------
+  // `balancesSupported` is per-session module state, so each scenario needs a
+  // fresh instance or it inherits the previous one's verdict.
+  {
+    const fresh = await loadFresh('lib/api/tokens.ts', {});
+    client.apiClient.get = () => Promise.reject(axiosLike(404, 'Route not found'));
+    out = await run(fresh);
+    eq(out.balances.length, 0, 'a 404 yields no balances rather than throwing');
+    eq(blamesEndpoint(out.warning), false, 'a 404 produces no warning blaming the endpoint');
+    eq(out.source, 'rpc', 'a 404 falls through to the RPC path');
+
+    // And the probe is remembered: the second call must not hit the route again.
+    let secondCalls = 0;
+    client.apiClient.get = () => { secondCalls += 1; return Promise.reject(axiosLike(404, 'x')); };
+    await run(fresh);
+    eq(secondCalls, 0, 'after a 404 the route is not probed again this session');
+  }
+
+  // --- 405, the other "route absent" answer ------------------------------
+  {
+    const fresh = await loadFresh('lib/api/tokens.ts', {});
+    client.apiClient.get = () => Promise.reject(axiosLike(405, 'Method not allowed'));
+    out = await run(fresh);
+    eq(blamesEndpoint(out.warning), false, 'a 405 produces no warning blaming the endpoint');
+    eq(out.source, 'rpc', 'a 405 falls through to the RPC path');
+  }
+
+  // --- 500 and every other status: the defect. --------------------------
+  // Before the fix these returned a warning string that the store renders as a
+  // red banner over a perfectly good native balance list.
+  for (const status of [401, 403, 429, 500, 502, 503]) {
+    const fresh = await loadFresh('lib/api/tokens.ts', {});
+    client.apiClient.get = () => Promise.reject(axiosLike(status, 'nope'));
+    out = await run(fresh);
+    eq(blamesEndpoint(out.warning), false, `a ${status} produces no warning blaming the endpoint`);
+    eq(out.source, 'rpc', `a ${status} falls through to the RPC path`);
+    eq(out.balances.length, 0, `a ${status} yields no balances rather than throwing`);
+  }
+
+  // A 5xx must NOT be remembered as "route absent" — it is transient, and the
+  // next refresh should try again.
+  {
+    const fresh = await loadFresh('lib/api/tokens.ts', {});
+    let attempts = 0;
+    client.apiClient.get = () => {
+      attempts += 1;
+      return Promise.reject(axiosLike(500, 'boom'));
+    };
+    await run(fresh);
+    await run(fresh);
+    eq(attempts, 2, 'a 500 is retried on the next refresh (not remembered as absent)');
+  }
+
+  // --- a transport failure with no status at all -------------------------
+  {
+    const fresh = await loadFresh('lib/api/tokens.ts', {});
+    client.apiClient.get = () => Promise.reject(new Error('Network Error'));
+    out = await run(fresh);
+    eq(blamesEndpoint(out.warning), false,
+       'a transport failure produces no warning blaming the endpoint');
+    eq(out.source, 'rpc', 'a transport failure falls through to the RPC path');
+  }
+
+  // --- malformed payloads must not become a spread TypeError -------------
+  // The store does `tokenRows.push(...result.value)`, so a non-array here threw
+  // inside the fulfilment branch of Promise.allSettled and killed the whole
+  // refresh, native balances included.
+  for (const [label, value] of [
+    ['null', null],
+    ['an object', { balances: [row] }],
+    ['a string', '12.5'],
+    ['a number', 42],
+    ['a boolean', true],
+  ]) {
+    const fresh = await loadFresh('lib/api/tokens.ts', {});
+    client.apiClient.get = () => Promise.resolve({ data: { success: true, data: value } });
+    out = await run(fresh);
+    eq(Array.isArray(out.balances), true, `a payload of ${label} still yields an array`);
+    eq(out.balances.length, 0, `a payload of ${label} yields no balances`);
+
+    // The exact operation the store performs, so a throw here is caught here
+    // rather than in a screen.
+    let spreadOk = true;
+    try {
+      const rows = [];
+      rows.push(...out.balances);
+    } catch {
+      spreadOk = false;
+    }
+    eq(spreadOk, true, `the store's spread of a ${label} payload does not throw`);
+  }
+
+  // --- no tokens configured for the chain: no request at all --------------
+  calls.length = 0;
+  reply = { value: [] };
+  out = await tokens.fetchTokenBalances({ chain: 'eth', address: '0xowner', tokens: [] });
+  eq(calls.length, 0, 'an unconfigured chain makes no request');
+  eq(out.balances.length, 0, 'an unconfigured chain yields no balances');
+  eq(out.warning, null, 'an unconfigured chain produces no warning');
+
+  restore();
+  tokens.resetTokenBackendProbes();
+}
+
+console.log('\n== F8: the store keeps native balances and invents no token rows ==');
+{
+  // `stores/walletStore.ts` cannot be loaded here: it imports `../lib/chains`,
+  // a directory whose per-chain modules are reached only through dynamic
+  // import(), which the harness deliberately does not follow — so the transpiled
+  // copy has no `lib/chains.mjs` to resolve. Asserting against the source is the
+  // honest option; a comment claiming the store was exercised would be worse.
+  const { readFileSync: rf } = await import('node:fs');
+  const { join: pj } = await import('node:path');
+  const src = rf(pj(process.argv[2] ?? '.', 'stores/walletStore.ts'), 'utf8');
+
+  // Native balances are built before any token work, and the two lists are
+  // merged rather than replaced — so a token read that yields nothing leaves the
+  // native rows in place.
+  const nativeAt = src.indexOf('const native: AssetBalance[] = serverBalances.flatMap');
+  const tokenAt = src.indexOf('const tokenRows: TokenBalance[] = []');
+  eq(nativeAt !== -1, true, 'the store builds native balances from the server response');
+  eq(tokenAt !== -1, true, 'the store collects token rows separately');
+  eq(nativeAt !== -1 && tokenAt !== -1 && nativeAt < tokenAt, true,
+     'native balances are computed before token balances are requested');
+
+  eq(
+    /for \(const entry of \[\.\.\.assets, \.\.\.tokens\]\) merged\.set\(entry\.id, entry\);/.test(src),
+    true,
+    'native and token rows are merged by id, so neither list can erase the other'
+  );
+
+  // `Promise.allSettled` is what keeps a rejected token read from propagating:
+  // `all` would throw and the catch would replace the whole balance list.
+  eq(
+    /const tokenResults = await Promise\.allSettled\(/.test(src),
+    true,
+    'token reads use allSettled, so one failure cannot abort the refresh'
+  );
+
+  // And the spread that a malformed payload used to break.
+  eq(
+    /for \(const result of tokenResults\) \{\s*if \(result\.status === 'fulfilled'\) tokenRows\.push\(\.\.\.result\.value\);/.test(src),
+    true,
+    'token rows are spread only from a value fetchTokenBalances guaranteed is an array'
+  );
+
+  // The warning the store surfaces comes from the token layer alone.
+  eq(
+    /set\(\{ balances: \[\.\.\.merged\.values\(\)\], warning: warnings\[0\] \?\? null \}\);/.test(src),
+    true,
+    'the store reports only the first token-layer warning'
+  );
+}
+
 console.log(`\n  passed: ${pass}  failed: ${fail}`);
 process.exit(fail ? 1 : 0);
