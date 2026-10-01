@@ -1,4 +1,4 @@
-import { apiClient, toApiError } from './client';
+import { apiClient } from './client';
 
 /**
  * Contacts API.
@@ -20,14 +20,20 @@ import { apiClient, toApiError } from './client';
  * gone. `name` is `NOT NULL` and is the first half of a `@@unique([ownerId,
  * name])` constraint.
  *
+ *   PATCH  /api/contact/:id    -> Contact        (same id)
+ *
  * ## Edit support
  *
- * The backend exposes no `PATCH /api/contact/:id`. `updateContact` therefore
- * tries PATCH first and, on a 404/405 (route absent), falls back to
- * DELETE + POST, which are both supported and produce the same end state. The
- * fallback is a no-op once the backend ships the PATCH route — the PATCH call
- * will simply start succeeding. See README "Contacts" for the one-line backend
- * change that removes the fallback.
+ * `PATCH /api/contact/:id` takes `{ name?, accountId? }` with at least one of the
+ * two present, and answers with the updated row under its **original id**.
+ *
+ * There is no delete-and-recreate path. That fallback existed because the route
+ * was missing, and it was wrong in two ways: it destroyed and recreated the row,
+ * so the contact came back under a different id and anything already holding the
+ * old one was orphaned; and it read a genuine 404 as "route absent", so editing
+ * a contact that had been deleted elsewhere quietly deleted nothing and created
+ * a duplicate instead of reporting the failure. It also could not work from a
+ * browser, because CORS did not allow PATCH.
  */
 const CONTACTS_PATH = '/api/contact';
 
@@ -121,31 +127,39 @@ export async function createContact(input: { accountId: string; name: string }):
 }
 
 /**
- * Renames an existing contact.
+ * Renames an existing contact, or repoints it at a different Account ID.
  *
- * PATCH is attempted first so a backend that adds the route needs no client
- * change. On 404/405 the route is simply absent, so we fall back to the
- * DELETE + POST pair the current API does support. The delete is last: if it
- * fails, the original contact is still there and nothing is lost.
+ * Only the fields present in `input` are sent; the backend leaves the rest
+ * alone. `accountId` is therefore omitted by a pure rename, which is what keeps
+ * a rename from silently changing who the contact points at.
  *
- * `accountId` must be the contact's current value — the fallback recreates the
- * row, and a rename must never change which Account ID a contact points at.
+ * Failures are thrown for the store to translate, and it uses the status to
+ * pick the message:
+ *  - 409 "You already have a contact with that name" — the name is taken.
+ *  - 404 "Account ID not found" — the supplied Account ID belongs to nobody.
+ *  - 404 — the contact does not exist, or is not the caller's.
  */
 export async function updateContact(
   id: string,
-  input: { name: string; accountId: string }
+  input: { name?: string; accountId?: string }
 ): Promise<Contact> {
-  const name = input.name.trim();
-  try {
-    const { data } = await apiClient.patch<ApiEnvelope<Contact>>(`${CONTACTS_PATH}/${id}`, { name });
-    return data.data;
-  } catch (err) {
-    const status = toApiError(err).status;
-    if (status !== 404 && status !== 405) throw err;
+  const name = input.name?.trim();
+  const accountId =
+    input.accountId === undefined ? undefined : normalizeAccountId(input.accountId);
 
-    await deleteContact(id);
-    return createContact({ accountId: input.accountId, name });
+  const body: { name?: string; accountId?: string } = {};
+  if (name) body.name = name;
+  if (accountId) body.accountId = accountId;
+
+  // The backend requires at least one field. Posting `{}` would be a 400 that
+  // reads like a server fault rather than a caller mistake, so the mistake is
+  // named here.
+  if (Object.keys(body).length === 0) {
+    throw new Error('updateContact was called with neither a name nor an Account ID.');
   }
+
+  const { data } = await apiClient.patch<ApiEnvelope<Contact>>(`${CONTACTS_PATH}/${id}`, body);
+  return data.data;
 }
 
 /**

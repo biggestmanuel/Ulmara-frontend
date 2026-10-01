@@ -50,6 +50,7 @@ const TARGETS = [
   'lib/api/contacts.ts',
   'lib/api/auth.ts',
   'lib/api/transactions.ts',
+  'stores/contactsStore.ts',
   'lib/push/pushNotifications.ts',
   'lib/security/biometrics.ts',
   'lib/chains/evmConfig.ts',
@@ -879,6 +880,341 @@ console.log('\n== app/pay/[id].tsx: requester comparison cannot false-match ==')
   const find = src.indexOf('await fetchTransactions({ limit: 50 })');
   eq(bail !== -1 && find !== -1 && bail < find, true,
      'the guard runs before any transaction is fetched');
+}
+
+console.log('\n== lib/api/contacts: rename is a single PATCH and keeps the id (C4) ==');
+{
+  // `toApiError` reads an axios error's `response.status` and returns null for
+  // anything else — including a plain Error with a `.status` property. So a
+  // 404 stub built any other way would never reach the branch the old
+  // delete-then-create fallback keyed on, and the assertions about that
+  // fallback would pass against the code they exist to catch.
+  const httpError = (status, message) => ({
+    isAxiosError: true,
+    name: 'AxiosError',
+    message: `Request failed with status code ${status}`,
+    status,
+    code: 'ERR_BAD_REQUEST',
+    config: {},
+    response: { status, data: { success: false, message }, headers: {}, config: {} },
+    toJSON: () => ({}),
+  });
+
+  const client = await load('lib/api/client.ts');
+  const contacts = await load('lib/api/contacts.ts');
+
+  const calls = [];
+  const real = {
+    patch: client.apiClient.patch,
+    post: client.apiClient.post,
+    delete: client.apiClient.delete,
+  };
+  let patchReply = { data: { success: true, data: { id: 'c-1', name: 'Renamed' } } };
+  let patchThrows = null;
+  client.apiClient.patch = (url, body) => {
+    calls.push({ m: 'PATCH', url: String(url), body });
+    if (patchThrows) return Promise.reject(patchThrows);
+    return Promise.resolve(patchReply);
+  };
+  client.apiClient.post = (url, body) => {
+    calls.push({ m: 'POST', url: String(url), body });
+    return Promise.resolve({ data: { success: true, data: { id: 'c-new' } } });
+  };
+  client.apiClient.delete = (url) => {
+    calls.push({ m: 'DELETE', url: String(url) });
+    return Promise.resolve({ data: { success: true, data: { deleted: true } } });
+  };
+  const restore = () => Object.assign(client.apiClient, real);
+  const j = (v) => JSON.stringify(v ?? null);
+  const last = () => calls[calls.length - 1];
+
+  // --- a rename is exactly one PATCH, to the contact's own id ------------
+  calls.length = 0;
+  const updated = await contacts.updateContact('c-1', { name: 'Renamed' });
+  eq(calls.length, 1, 'a rename makes exactly one request');
+  eq(last().m, 'PATCH', 'a rename uses PATCH');
+  eq(last().url, '/api/contact/c-1', 'the PATCH targets /api/contact/:id');
+  eq(j(last().body), j({ name: 'Renamed' }), 'the body is exactly { name }');
+  eq(updated.id, 'c-1', 'the returned contact keeps its original id');
+
+  // --- the delete-then-create fallback is gone ---------------------------
+  calls.length = 0;
+  await contacts.updateContact('c-1', { name: 'Again' });
+  eq(
+    calls.filter((c) => c.m === 'DELETE').length,
+    0,
+    'a successful rename never issues a DELETE'
+  );
+  eq(
+    calls.filter((c) => c.m === 'POST').length,
+    0,
+    'a successful rename never issues a POST'
+  );
+
+  // --- a 404 is a real failure, not "the route is absent" ----------------
+  // This is the specific bug: the old code read 404 as a missing route and
+  // answered it by deleting the contact and creating a new row under a new id.
+  calls.length = 0;
+  patchThrows = httpError(404, 'Contact not found');
+  let threw = null;
+  try {
+    await contacts.updateContact('c-1', { name: 'Renamed' });
+  } catch (err) {
+    threw = err;
+  }
+  patchThrows = null;
+  eq(threw !== null, true, 'a 404 from PATCH is surfaced, not swallowed');
+  eq(
+    calls.filter((c) => c.m === 'DELETE').length,
+    0,
+    'a 404 does NOT trigger the delete-then-create fallback'
+  );
+  eq(
+    calls.filter((c) => c.m === 'POST').length,
+    0,
+    'a 404 does NOT recreate the contact under a new id'
+  );
+
+  // --- a 409 (duplicate name) propagates untouched too -------------------
+  calls.length = 0;
+  patchThrows = httpError(409, 'You already have a contact with that name');
+  threw = null;
+  try {
+    await contacts.updateContact('c-1', { name: 'Taken' });
+  } catch (err) {
+    threw = err;
+  }
+  patchThrows = null;
+  eq(threw?.status, 409, 'a 409 duplicate-name error reaches the caller');
+  // Guard the guard: if the stub stopped being axios-shaped, `toApiError` would
+  // report null and the fallback assertions below would stop meaning anything.
+  eq(
+    client.toApiError(httpError(404, 'x')).status,
+    404,
+    'the stub error shape is one toApiError can actually read'
+  );
+  eq(
+    calls.filter((c) => c.m === 'DELETE').length,
+    0,
+    'a 409 does NOT delete the original contact'
+  );
+
+  // --- field handling ----------------------------------------------------
+  calls.length = 0;
+  await contacts.updateContact('c-1', { name: '  Spaced  ' });
+  eq(last().body.name, 'Spaced', 'the name is trimmed before it is sent');
+
+  calls.length = 0;
+  await contacts.updateContact('c-1', { accountId: '1234 567 890' });
+  eq(j(last().body), j({ accountId: '1234567890' }),
+     'an Account ID is normalised to digits before it is sent');
+
+  calls.length = 0;
+  await contacts.updateContact('c-1', { name: 'Both', accountId: '1234567890' });
+  eq(j(last().body), j({ name: 'Both', accountId: '1234567890' }),
+     'both fields are sent when both are given');
+
+  // --- "at least one field" is enforced without a pointless round trip --
+  for (const [label, input] of [['an empty object', {}], ['a blank name', { name: '   ' }]]) {
+    calls.length = 0;
+    threw = null;
+    try {
+      await contacts.updateContact('c-1', input);
+    } catch (err) {
+      threw = err;
+    }
+    eq(threw !== null, true, `${label} is rejected before any request`);
+    eq(calls.length, 0, `${label} makes no network call`);
+  }
+
+  // --- the id in the response is authoritative, not the one we asked for --
+  calls.length = 0;
+  patchReply = { data: { success: true, data: { id: 'c-server', name: 'Renamed' } } };
+  const fromServer = await contacts.updateContact('c-1', { name: 'Renamed' });
+  eq(fromServer.id, 'c-server', 'the id the backend returned is used verbatim');
+  patchReply = { data: { success: true, data: { id: 'c-1', name: 'Renamed' } } };
+
+  restore();
+}
+
+console.log('\n== contactsStore: real add / rename behaviour ==');
+{
+  // The harness already has an `axiosLike` builder, but it is scoped to the
+  // lib/api/client block above, so this block needs its own. A bare `Error`
+  // would not do: `friendlyError` treats anything that is not an axios error as
+  // a transport failure and answers with generic copy, so the stubs have to look
+  // like what the backend actually produces.
+  const axiosLike = (status, code, echo, data) => ({
+    isAxiosError: true,
+    name: 'AxiosError',
+    message: echo,
+    status,
+    code,
+    config: {},
+    response: { status, data, headers: {}, config: {} },
+    toJSON: () => ({}),
+  });
+
+  const client = await load('lib/api/client.ts');
+  const { useContactsStore } = await load('stores/contactsStore.ts');
+  let userStore = null;
+  try {
+    ({ useUserStore: userStore } = await load('stores/userStore.ts'));
+  } catch {
+    // Not loadable in isolation; the store only reads `accountId` from it and
+    // an unset value simply means the "your own Account ID" guard stays off.
+  }
+
+  const seq = [];
+  const real = {
+    get: client.apiClient.get,
+    post: client.apiClient.post,
+    patch: client.apiClient.patch,
+    delete: client.apiClient.delete,
+  };
+  let resolveProfile = { accountId: '1234567890', profile: { id: 'u-9', name: 'Bob' } };
+  let resolveThrows = null;
+  let createdId = 'c-new';
+
+  client.apiClient.get = (url) => {
+    seq.push(`GET ${url}`);
+    if (resolveThrows) return Promise.reject(resolveThrows);
+    return Promise.resolve({ data: { success: true, data: resolveProfile } });
+  };
+  client.apiClient.post = (url, body) => {
+    seq.push(`POST ${url}`);
+    return Promise.resolve({
+      data: { success: true, data: { id: createdId, name: body.name, accountId: body.accountId } },
+    });
+  };
+  // The backend answers PATCH with the whole updated row, so the stub does too.
+  // A partial row here would look like the client had dropped a field.
+  const rowById = {
+    'c-1': { id: 'c-1', ownerId: 'u-1', accountId: '1234567890', name: 'Old', address: null,
+             chain: null, createdAt: '', updatedAt: '' },
+  };
+  client.apiClient.patch = (url, body) => {
+    seq.push(`PATCH ${url}`);
+    const id = url.split('/').pop();
+    const base = rowById[id] ?? { id, ownerId: 'u-1', accountId: null, name: '', address: null,
+                                  chain: null, createdAt: '', updatedAt: '' };
+    const merged = { ...base };
+    if (body.name !== undefined) merged.name = body.name;
+    if (body.accountId !== undefined) merged.accountId = body.accountId;
+    return Promise.resolve({ data: { success: true, data: merged } });
+  };
+  client.apiClient.delete = (url) => {
+    seq.push(`DELETE ${url}`);
+    return Promise.resolve({ data: { success: true, data: { deleted: true } } });
+  };
+  const restore = () => Object.assign(client.apiClient, real);
+
+  if (userStore) userStore.getState && userStore.setState({ accountId: null });
+  const seed = (contacts) =>
+    useContactsStore.setState({ contacts, mutationError: null, isMutating: false, status: 'ready' });
+
+  // --- add(): the Account ID is resolved before anything is created -------
+  seed([]);
+  seq.length = 0;
+  const added = await useContactsStore.getState().add({ name: 'Bob', accountId: '1234567890' });
+  eq(
+    seq[0],
+    'GET /api/account/resolve/1234567890',
+    'add() resolves the Account ID first'
+  );
+  eq(
+    seq.some((s) => s === 'POST /api/contact'),
+    true,
+    'add() then creates the contact'
+  );
+  eq(
+    seq.indexOf('GET /api/account/resolve/1234567890') <
+      seq.indexOf('POST /api/contact'),
+    true,
+    'the resolve call happens BEFORE the create call'
+  );
+  eq(added?.id, 'c-new', 'add() returns the created contact');
+  eq(useContactsStore.getState().mutationError, null, 'a valid add reports no error');
+
+  // --- add(): an Account ID that belongs to nobody is named, not created --
+  seed([]);
+  seq.length = 0;
+  resolveThrows = axiosLike(
+    404,
+    'ERR_BAD_REQUEST',
+    'Request failed with status code 404',
+    { success: false, message: 'Account ID not found' }
+  );
+  const rejected = await useContactsStore.getState().add({ name: 'Ghost', accountId: '9999999999' });
+  resolveThrows = null;
+  eq(rejected, null, 'add() returns null for an unknown Account ID');
+  eq(
+    useContactsStore.getState().mutationError,
+    'No Ulmara user has that Account ID. Check the digits and try again.',
+    'an unknown Account ID gets a friendly, specific message'
+  );
+  eq(
+    seq.some((s) => s === 'POST /api/contact'),
+    false,
+    'no contact is created when the Account ID does not exist'
+  );
+  eq(useContactsStore.getState().contacts.length, 0, 'the store is left unchanged');
+
+  // --- rename(): only the name travels, and the id survives --------------
+  seed([
+    { id: 'c-1', ownerId: 'u-1', accountId: '1234567890', name: 'Old', address: null, chain: null,
+      createdAt: '', updatedAt: '' },
+  ]);
+  seq.length = 0;
+  const renamed = await useContactsStore.getState().rename('c-1', 'New');
+  eq(seq.length, 1, 'a rename makes exactly one request');
+  eq(seq[0], 'PATCH /api/contact/c-1', 'the rename is a PATCH to the contact id');
+  eq(
+    seq.some((s) => s.startsWith('DELETE') || s.startsWith('POST')),
+    false,
+    'a rename issues no DELETE and no POST'
+  );
+  eq(renamed?.id, 'c-1', 'the renamed contact keeps its id');
+  eq(useContactsStore.getState().contacts[0]?.id, 'c-1', 'the stored contact keeps its id');
+  eq(useContactsStore.getState().contacts[0]?.name, 'New', 'the stored contact has the new name');
+  eq(
+    useContactsStore.getState().contacts[0]?.accountId,
+    '1234567890',
+    'a rename leaves the Account ID untouched'
+  );
+
+  // --- rename(): a 409 from the backend is surfaced, contact left intact --
+  seed([
+    { id: 'c-1', ownerId: 'u-1', accountId: '1234567890', name: 'Old', address: null, chain: null,
+      createdAt: '', updatedAt: '' },
+  ]);
+  const realPatch = client.apiClient.patch;
+  client.apiClient.patch = () =>
+    Promise.reject(
+      axiosLike(
+        409,
+        'ERR_BAD_REQUEST',
+        'Request failed with status code 409',
+        { success: false, message: 'You already have a contact with that name' }
+      )
+    );
+  seq.length = 0;
+  const conflicted = await useContactsStore.getState().rename('c-1', 'Taken');
+  client.apiClient.patch = realPatch;
+  eq(conflicted, null, 'a 409 makes the rename return null');
+  eq(
+    useContactsStore.getState().mutationError,
+    'You already have a contact with that name',
+    "the backend's 409 message reaches the user"
+  );
+  eq(useContactsStore.getState().contacts[0]?.name, 'Old', 'the original contact is untouched');
+  eq(
+    seq.some((s) => s.startsWith('DELETE')),
+    false,
+    'a 409 does not delete the original contact'
+  );
+
+  restore();
 }
 
 console.log(`\n  passed: ${pass}  failed: ${fail}`);

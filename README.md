@@ -391,9 +391,11 @@ is a change inside one file.
 - Path prefix is **`/api/contact`** (singular) — that is what the backend mounts.
   `lib/api/contacts.ts` also sends `findConflictingName` / `findDuplicateAccountId`
   pre-flight hints so a duplicate is blocked in the UI before a request is made.
-- There is **no `PATCH /api/contact/:id`** on the backend. `updateContact` tries
-  `PATCH` and, on `404`/`405`, falls back to `DELETE` + `POST`, both of which the
-  backend supports. If neither works the edit is reported as failed.
+- **`PATCH /api/contact/:id`** takes `{ name?, accountId? }` (at least one) and
+  returns the updated row under the **same id**. `updateContact` sends only the
+  fields it is given, so a rename leaves the contact's Account ID untouched.
+  There is no delete-and-recreate fallback: it orphaned the old id, and it
+  mistook a real 404 (contact gone, or not the caller's) for a missing route.
 - Screens: `app/contacts.tsx` (add / edit / remove / search / confirm / empty /
   error / loading), `components/contacts/ContactPicker.tsx` wired into
   `app/send/index.tsx`.
@@ -443,13 +445,15 @@ what can be verified and what a user can do today.
 2. **CORS only allows `GET,HEAD,POST`.** `@fastify/cors` is registered with
    `origin` alone (`src/server/app.ts`), so `DELETE` and `PATCH` are rejected
    by the browser. Native builds are unaffected (CORS does not exist there),
-   but **deleting a contact and the `updateContact` delete+create fallback
-   cannot work from any browser client**. Add `methods` to the CORS options.
+   but **deleting a contact and renaming one cannot work from any browser
+   client**. Add `GET, HEAD, POST, PATCH, DELETE, OPTIONS` to the CORS
+   `methods` option.
 3. **Duplicate contact name returns a bare `500`.** `contact.service.create`
    does not catch Prisma `P2002`. The client pre-blocks duplicates with a
    clear message, so users never see it, but the backend should map it to `409`.
-4. **No `PATCH /api/contact/:id`.** The client falls back to `DELETE` + `POST`
-   (both supported), which is blocked by gap 2 in a browser.
+4. ~~**No `PATCH /api/contact/:id`.**~~ Resolved: the route now exists and
+   `updateContact` calls it directly. It is still blocked by gap 2 (CORS) from
+   a browser until `PATCH` is added to the allowed methods.
 5. **`POST /api/auth/set-pin` overwrites an existing PIN.** It succeeds with
    `200` and no `409`, without requiring the current PIN. Anyone holding a
    stolen session token can replace the PIN and then authorise transfers.

@@ -12,6 +12,7 @@ import {
   type Contact,
 } from '../lib/api/contacts';
 import { friendlyError, toApiError } from '../lib/api/client';
+import { resolveAccountIdForTransfer } from '../lib/api/accountId';
 import { useUserStore } from './userStore';
 
 type Status = 'idle' | 'loading' | 'ready' | 'error';
@@ -87,6 +88,19 @@ export const useContactsStore = create<ContactsState>((set, get) => ({
 
     set({ isMutating: true });
     try {
+      // Check the Account ID belongs to somebody first, using the same resolve
+      // endpoint the Send flow uses. Ten well-formed digits are easy to mistype,
+      // and the backend's answer for an unowned one is a 404 whose generic copy
+      // does not say which of the two fields is wrong — so the user is left
+      // guessing whether to fix the name or the ID.
+      const resolved = await resolveAccountIdForTransfer(accountId);
+      if (!resolved) {
+        set({
+          mutationError: 'No Ulmara user has that Account ID. Check the digits and try again.',
+        });
+        return null;
+      }
+
       const created = await createContact({ accountId, name });
       set((state) => ({ contacts: [created, ...state.contacts] }));
       return created;
@@ -131,8 +145,11 @@ export const useContactsStore = create<ContactsState>((set, get) => ({
 
     set({ isMutating: true });
     try {
-      // A rename must never change which Account ID the contact resolves to.
-      const updated = await updateContact(id, { name: trimmed, accountId: target.accountId ?? '' });
+      // `accountId` is deliberately omitted. PATCH only touches the fields it is
+      // given, so a rename leaves the Account ID exactly as it was — which is
+      // what "rename" has to mean, and what the old delete-then-create path had
+      // to fake by passing the current value back in.
+      const updated = await updateContact(id, { name: trimmed });
       set((state) => ({
         contacts: state.contacts.map((contact) => (contact.id === updated.id ? updated : contact)),
       }));
