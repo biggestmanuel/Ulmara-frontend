@@ -203,7 +203,15 @@ export default function SendAmount() {
           label="Continue"
           onPress={() =>
             router.push({
-              pathname: '/send/confirm',
+              // The network has to be chosen before confirmation, because
+              // `/send/confirm` requires both `network` and `targetAddress` and
+              // rejects the transfer without them. Only `/send/network-select`
+              // produces those two: it prices each chain, resolves the
+              // recipient's address on the chosen one, and forwards both to
+              // confirm. Pushing straight to confirm from here left those params
+              // undefined, so the internal transfer always stopped at the
+              // "missing required details" guard and could never be submitted.
+              pathname: '/send/network-select',
               params: {
                 accountId: params.accountId,
                 recipientName: params.recipientName,

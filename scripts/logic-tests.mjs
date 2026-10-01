@@ -652,5 +652,90 @@ console.log('\n== lib/api/auth: verification bodies carry no userId (C1) ==');
   restore();
 }
 
+// The send screens are .tsx and this harness transpiles .ts only; there is no
+// component-test infrastructure in the project and adding one is out of scope.
+// So this is a structural test over the real screen sources: it pins the
+// navigation contract that made the internal transfer impossible, and fails if
+// any screen is pointed back at /send/confirm without the params confirm needs.
+console.log('\n== send flow: amount -> network-select -> confirm (F2) ==');
+{
+  const { readFileSync } = await import('node:fs');
+  const { join: pathJoin } = await import('node:path');
+  const root = process.argv[2] ?? '.';
+  const src = (rel) => readFileSync(pathJoin(root, rel), 'utf8');
+
+  const amount = src('app/send/amount.tsx');
+  const networkSelect = src('app/send/network-select.tsx');
+  const confirm = src('app/send/confirm.tsx');
+  const externalAmount = src('app/send/external-amount.tsx');
+
+  // 1. amount must NOT push confirm directly any more. This is the assertion
+  //    the whole item exists for: pushing confirm from here is what left
+  //    `network` and `targetAddress` undefined.
+  eq(
+    amount.includes("pathname: '/send/confirm'"),
+    false,
+    'amount.tsx no longer pushes /send/confirm directly'
+  );
+
+  // 2. amount pushes network-select, carrying everything that screen needs.
+  const amountPushesNetworkSelect = amount.includes("pathname: '/send/network-select'");
+  eq(amountPushesNetworkSelect, true, 'amount.tsx pushes /send/network-select');
+
+  // The params network-select destructures must all be supplied by amount.
+  for (const key of ['accountId', 'recipientName', 'asset', 'amount', 'wallets']) {
+    eq(
+      amount.includes(`${key},`) || amount.includes(`${key}:`),
+      true,
+      `amount.tsx forwards \`${key}\` to network-select`
+    );
+  }
+  // ...and network-select accepts all five in its params type.
+  for (const key of ['accountId', 'recipientName', 'asset', 'amount', 'wallets']) {
+    eq(
+      new RegExp(`^\\s+${key}[?]?:\\s`, 'm').test(networkSelect),
+      true,
+      `network-select.tsx declares \`${key}\` in its params type`
+    );
+  }
+  // It forwards them to confirm by spreading its own params, so `recipientName`
+  // is carried through without ever being read individually.
+  eq(
+    /params:\s*\{\s*\.\.\.params,/.test(networkSelect),
+    true,
+    'network-select.tsx forwards its params to confirm via `...params`'
+  );
+
+  // 3. network-select is the only producer of the two params confirm requires.
+  eq(
+    networkSelect.includes("pathname: '/send/confirm'"),
+    true,
+    'network-select.tsx pushes /send/confirm'
+  );
+  eq(networkSelect.includes('targetAddress,'), true,
+     'network-select.tsx supplies targetAddress');
+  eq(networkSelect.includes('network: selected.network'), true,
+     'network-select.tsx supplies network');
+
+  // 4. confirm still requires both, so the chain is load-bearing.
+  eq(
+    confirm.includes('!params.accountId || !params.asset || !params.amount || !params.network'),
+    true,
+    'confirm.tsx guards the internal path on params.network'
+  );
+  eq(confirm.includes('if (!params.targetAddress) {'), true,
+     'confirm.tsx guards the internal path on params.targetAddress');
+
+  // 5. The external path is untouched: it supplies `network` itself, so it
+  //    still goes straight to confirm.
+  eq(externalAmount.includes("pathname: '/send/confirm'"), true,
+     'external-amount.tsx still pushes /send/confirm directly');
+  eq(
+    confirm.includes('!params.externalAddress || !params.asset || !params.amount || !params.network'),
+    true,
+    'confirm.tsx guards the external path on params.network (supplied by external-wallet)'
+  );
+}
+
 console.log(`\n  passed: ${pass}  failed: ${fail}`);
 process.exit(fail ? 1 : 0);
