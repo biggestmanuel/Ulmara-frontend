@@ -51,8 +51,6 @@ Fill in `.env`:
 EXPO_PUBLIC_API_BASE_URL=
 EXPO_PUBLIC_RPC_ETH / BSC / BASE / POLYGON / SOL / TRON / TON=
 # TriVerify is called by the backend; do not put its key in the app.
-EXPO_PUBLIC_PAYSTACK_PUBLIC_KEY=    # fallback ramp
-EXPO_PUBLIC_FLUTTERWAVE_PUBLIC_KEY= # fallback ramp
 ```
 
 `GAS_SPONSOR_PRIVATE_KEY` is backend-only — never expose it as `EXPO_PUBLIC_*`.

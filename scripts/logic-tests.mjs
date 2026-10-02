@@ -1477,90 +1477,109 @@ console.log('\n== F5: the guard is in place, not just the observable behaviour =
 // that can be made about a file that no longer exists is that nothing in the
 // repository mentions it any more, so that is what is asserted - across source,
 // config, and documentation, in any casing.
-console.log('\n== F6: the client-side Bachs provider is gone entirely ==');
+console.log('\n== F6: no ramp provider credential is readable by the app bundle ==');
 {
   const { readdirSync, readFileSync: rf, statSync: st, existsSync } =
     await import('node:fs');
   const { join: pj } = await import('node:path');
   const root = process.argv[2] ?? '.';
   const skip = new Set(['node_modules', '.git', '.expo', 'dist', '.expo-shared']);
-
-  const found = [];
   const SELF = pj('scripts', 'logic-tests.mjs');
+
+  // The strong claim about a deleted module is that nothing can read it any more,
+  // so the scan is over the whole tree - source, config and docs, any casing.
+  const found = [];
   const walk = (dir) => {
     for (const entry of readdirSync(dir)) {
       if (skip.has(entry)) continue;
       const abs = pj(dir, entry);
       if (st(abs).isDirectory()) { walk(abs); continue; }
-      // This file names Bachs in order to assert it is gone, so it would
-      // otherwise match itself. The claim is about product code, config and
-      // documentation - not about the test that enforces it.
+      // This file names these providers in order to assert they are gone.
       if (abs.endsWith(SELF)) continue;
-      // The source file itself is gone; only text files can still name it.
       if (!/\.(ts|tsx|js|jsx|mjs|json|md|example|yml|yaml|txt)$/.test(entry)) continue;
       let text;
-      try {
-        text = rf(abs, 'utf8');
-      } catch {
-        continue;
-      }
+      try { text = rf(abs, 'utf8'); } catch { continue; }
       if (/bachs/i.test(text)) found.push(abs.slice(root.length + 1));
     }
   };
   walk(root);
-
   eq(found.length, 0, 'no source, config or documentation file mentions Bachs');
-  if (found.length) for (const f of found) console.log(`        still mentions it: ${f}`);
+  for (const f of found) console.log(`        still mentions it: ${f}`);
 
-  // The specific hazard: a provider credential readable by the bundle.
-  eq(
-    existsSync(pj(root, 'lib/ramp/bachs.ts')),
-    false,
-    'lib/ramp/bachs.ts does not exist'
-  );
+  eq(existsSync(pj(root, 'lib/ramp/bachs.ts')), false, 'lib/ramp/bachs.ts does not exist');
   eq(existsSync(pj(root, 'lib/ramp')), false, 'the empty lib/ramp/ directory is gone too');
 
-  // No client module may hold any ramp provider key. Bachs was the one that
-  // actually existed in code; this stops the same mistake being reintroduced
-  // with whichever provider is configured next.
-  const providerKeys = ['EXPO_PUBLIC_BACHS', 'api.bachs.io', 'api.paystack.com',
-                        'api.flutterwave.com'];
+  // Every ramp provider, not just the one that happened to be in code. This is
+  // the check that generalises: adding a new provider with a client-side key is
+  // the mistake being prevented, and it should fail here whatever it is called.
+  //
+  // A provider *mention* is fine - the deposit and withdraw screens say
+  // "unavailable until Paystack is configured" in user-facing copy. What must not
+  // exist is a module reading a provider host or key, because that is what puts
+  // a credential in the bundle and sends it off-device.
+  const providerHosts = [
+    'api.bachs.io', 'sandbox.bachs.io',
+    'api.paystack.co', 'api.flutterwave.com',
+  ];
+  const credentialVars = [
+    'EXPO_PUBLIC_BACHS', 'EXPO_PUBLIC_PAYSTACK', 'EXPO_PUBLIC_FLUTTERWAVE',
+  ];
   const holders = [];
   const walkSrc = (dir) => {
-    for (const entry of readdirSync(dir)) {
+    let entries;
+    try { entries = readdirSync(dir); } catch { return; }
+    for (const entry of entries) {
       if (skip.has(entry)) continue;
       const abs = pj(dir, entry);
       if (st(abs).isDirectory()) { walkSrc(abs); continue; }
       if (!/\.(ts|tsx)$/.test(entry)) continue;
       let text;
       try { text = rf(abs, 'utf8'); } catch { continue; }
-      for (const key of providerKeys) {
-        if (text.includes(key)) holders.push(`${abs.slice(root.length + 1)} -> ${key}`);
+      for (const host of providerHosts) {
+        if (text.includes(host)) holders.push(`${abs.slice(root.length + 1)} -> ${host}`);
+      }
+      // Only an actual env read counts; a variable named in a comment is not one.
+      for (const v of credentialVars) {
+        const read = new RegExp(`process\\s*\\.\\s*env\\s*[.\\[]\\s*['"]?[A-Z_]*${v}`);
+        if (read.test(text)) holders.push(`${abs.slice(root.length + 1)} -> ${v} (read)`);
       }
     }
   };
-  walkSrc(pj(root, 'lib'));
-  walkSrc(pj(root, 'app'));
-  walkSrc(pj(root, 'components'));
-  walkSrc(pj(root, 'stores'));
+  for (const area of ['lib', 'app', 'components', 'stores', 'constants', 'hooks']) {
+    walkSrc(pj(root, area));
+  }
+  eq(holders.length, 0,
+     'no module reads a ramp provider host or credential into the app bundle');
+  for (const h of holders) console.log(`        reads a provider credential: ${h}`);
 
-  eq(holders.length, 0, 'no module under lib/ app/ components/ stores/ holds a ramp provider key');
-  for (const h of holders) console.log(`        holds a key: ${h}`);
+  // And no EXPO_PUBLIC_* ramp key is even *declared*, so nobody is invited to
+  // paste a live one into env.example.
+  for (const file of ['env.example', 'README.md']) {
+    const abs = pj(root, file);
+    if (!existsSync(abs)) continue;
+    const text = rf(abs, 'utf8');
+    for (const v of credentialVars) {
+      eq(
+        text.includes(v),
+        false,
+        `${file} does not declare ${v}`
+      );
+    }
+  }
 
-  // The ramp screens must survive: this deletes a dead client, not the feature.
+  // The ramp screens must survive: this removes a dead client, not the feature.
   for (const screen of ['app/deposit-withdraw/deposit.tsx', 'app/deposit-withdraw/withdraw.tsx']) {
     eq(existsSync(pj(root, screen)), true, `${screen} still exists`);
   }
+  // ...and they must still read honestly about being unavailable.
+  const deposit = rf(pj(root, 'app/deposit-withdraw/deposit.tsx'), 'utf8');
+  eq(
+    /unavailable until Paystack is configured/.test(deposit),
+    true,
+    'the deposit screen still states plainly that the integration is not configured'
+  );
 }
 
-// F7. The bug this pins shut: `apiClient`'s 401 interceptor cleared the cached
-// session token on every 401, and the backend answers 401 for a wrong PIN as
-// well as for a dead session. So typing the wrong PIN threw away a session that
-// `requireAuth` had just accepted.
-//
-// These drive the real interceptor through the real axios instance, because the
-// interceptor is only reachable by an actual rejected request — there is no
-// exported function to call directly.
 console.log('\n== F7: a wrong PIN does not log the user out (401 vs session) ==');
 {
   const client = await load('lib/api/client.ts');
