@@ -51,8 +51,54 @@ export async function createAccountId(): Promise<{ id: string; accountId: string
   return data.data;
 }
 
-export async function getMe(): Promise<any> {
-  const { data } = await apiClient.get<ApiEnvelope<any>>('/api/account/me');
+/**
+ * The caller's own account, from `GET /api/account/me`.
+ *
+ * `accountId` is an **object**, not a string: `{ id, accountId, userId,
+ * createdAt }`. The 10-digit ID is at `.accountId.accountId`. Reading the
+ * property directly yields the object, so anything that stringifies it — a
+ * template literal, `String()`, a comparison against digits — gets
+ * `[object Object]`.
+ *
+ * It was `Promise<any>` before, which is why that shape was never checked by
+ * anything. `login.tsx` and `create-account-id.tsx` reach for
+ * `me?.accountId?.accountId`, and `userStore.hydrate()` never reads the field at
+ * all — it hydrates from SecureStore — so a change here would have degraded
+ * quietly rather than failing loudly. The interface is what makes the next
+ * change visible.
+ */
+export interface MeAccountId {
+  /** Row id of the AccountId record. Not the 10-digit public ID. */
+  id: string;
+  /** The 10-digit Ulmara Account ID. */
+  accountId: string;
+  userId: string;
+  createdAt: string;
+}
+
+export interface MeProfile {
+  id: string;
+  email: string;
+  phone: string | null;
+  name: string | null;
+  photoUrl: string | null;
+  emailVerified: boolean;
+  phoneVerified: boolean;
+  biometricEnabled: boolean;
+  twoFactorEnabled: boolean;
+  pinFailedAttempts: number;
+  pinLockedUntil: string | null;
+  defaultCurrency: string;
+  defaultLanguage: string;
+  defaultNetwork: string | null;
+  createdAt: string;
+  updatedAt: string;
+  /** An object, not a string. See `MeAccountId`. */
+  accountId: MeAccountId | null;
+}
+
+export async function getMe(): Promise<MeProfile> {
+  const { data } = await apiClient.get<ApiEnvelope<MeProfile>>('/api/account/me');
   return data.data;
 }
 

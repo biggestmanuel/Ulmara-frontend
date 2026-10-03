@@ -89,16 +89,46 @@ export async function sendPayment(payload: SendPayload): Promise<SendResult> {
   return { transaction: normalizeTransaction(data.data) };
 }
 
-// The key identifies the transfer attempt, so a broadcast retry after a lost
-// response returns the transaction instead of enqueueing a second broadcast.
+/**
+ * Hands the signed payload to the backend so it can actually queue the transfer.
+ *
+ * ## Why this is a separate call
+ *
+ * `sendPayment` returns 201 with the row in `PENDING` and queues nothing. That
+ * is the whole point of the split: the server holds the intent, the client signs
+ * it locally, and only a signed payload can be broadcast. A row sitting at
+ * `PENDING` means this has not happened yet - it is not a stalled transfer, and
+ * it is not something to poll into existence.
+ *
+ * ## Retry-safety comes from the server, not from a key
+ *
+ * This used to accept an `idempotencyKey` and send it alongside `signedTx`.
+ * That was wrong on both counts. The backend body is a strict object containing
+ * only `signedTx`, so the extra key was rejected outright:
+ *
+ *   POST .../broadcast {"signedTx":"0x...","idempotencyKey":"..."}
+ *     -> 400 "input: Unrecognized key: \"idempotencyKey\""
+ *
+ * A retry is safe because the server claims the row atomically - a conditional
+ * update that only moves `PENDING` -> `PROCESSING`, so exactly one caller can
+ * enqueue no matter how many arrive. Measured: three consecutive broadcasts of
+ * the same transaction all return 200 and the row stays `PROCESSING`, with the
+ * worker running one job.
+ *
+ * Once the worker has settled the row the answer becomes
+ * 409 "Transaction is no longer awaiting broadcast". That is not a failure to
+ * retry through: the transfer is already moving, and the transaction screen
+ * reads its real state from `GET /api/transaction/:id`.
+ *
+ * The idempotency key still matters, but on `sendPayment`, where it is required.
+ */
 export async function broadcastTransaction(
   transactionId: string,
-  signedTx: string,
-  idempotencyKey: string
+  signedTx: string
 ): Promise<Transaction> {
   const { data } = await apiClient.post<ApiEnvelope<BackendTransaction>>(
     `/api/transaction/${transactionId}/broadcast`,
-    { signedTx, idempotencyKey },
+    { signedTx },
   );
   return normalizeTransaction(data.data);
 }

@@ -297,7 +297,7 @@ export default function SendConfirm() {
         });
 
         setStage('submit');
-        const broadcast = await broadcastTransaction(created.transaction.id, signedTx, idempotencyKey);
+        const broadcast = await broadcastTransaction(created.transaction.id, signedTx);
         upsertTransaction(broadcast);
         setPinModal(false);
         setStage('done');

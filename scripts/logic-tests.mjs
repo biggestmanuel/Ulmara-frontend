@@ -49,6 +49,7 @@ const TARGETS = [
   'lib/tokens/erc20.ts',
   'lib/api/contacts.ts',
   'lib/api/auth.ts',
+  'lib/api/accountId.ts',
   'lib/api/transactions.ts',
   'stores/contactsStore.ts',
   'lib/gas/gasAbstraction.ts',
@@ -1915,6 +1916,109 @@ console.log('\n== F8: the store keeps native balances and invents no token rows 
     /set\(\{ balances: \[\.\.\.merged\.values\(\)\], warning: warnings\[0\] \?\? null \}\);/.test(src),
     true,
     'the store reports only the first token-layer warning'
+  );
+}
+
+console.log('\n== live contract: broadcast body carries only signedTx ==');
+{
+  const client = await load('lib/api/client.ts');
+  const tx = await load('lib/api/transactions.ts');
+
+  const calls = [];
+  const realPost = client.apiClient.post;
+  client.apiClient.post = (url, body) => {
+    calls.push({ url: String(url), body });
+    return Promise.resolve({ data: { success: true, data: { id: 't-1' } } });
+  };
+  const restore = () => { client.apiClient.post = realPost; };
+  const lastBody = () => (calls.length ? calls[calls.length - 1].body : undefined);
+  const has = (o, k) => Object.prototype.hasOwnProperty.call(o, k);
+
+  // --- the exact shape the backend accepts -------------------------------
+  calls.length = 0;
+  await tx.broadcastTransaction('t-1', '0x02f8720106');
+  eq(
+    calls[0].url,
+    '/api/transaction/t-1/broadcast',
+    'broadcast posts to /api/transaction/:id/broadcast'
+  );
+  eq(lastBody().signedTx, '0x02f8720106', 'the signed payload is sent');
+  eq(has(lastBody(), 'idempotencyKey'), false,
+     'the body has NO idempotencyKey - the backend rejects it outright');
+  eq(Object.keys(lastBody()).length, 1, 'the body has exactly one key');
+
+  // The key belongs on send, where it is required.
+  calls.length = 0;
+  await tx.sendPayment({
+    recipientAccountId: '1234567890',
+    amount: '0.01',
+    symbol: 'ETH',
+    network: 'ETH',
+    pin: '123456',
+    idempotencyKey: '11111111-1111-4111-8111-111111111111',
+  });
+  eq(calls[0].url, '/api/transaction/send', 'send posts to /api/transaction/send');
+  eq(lastBody().network, 'ETH', 'send uses `network`, not `chain`');
+  eq(has(lastBody(), 'chain'), false, 'send does not send a `chain` key');
+  eq(lastBody().idempotencyKey, '11111111-1111-4111-8111-111111111111',
+     'send carries the required idempotencyKey');
+  eq(has(lastBody(), 'recipientAddress'), false,
+     'send sends exactly one recipient field');
+
+  restore();
+}
+
+console.log('\n== live contract: getMe().accountId is an object ==');
+{
+  const { readFileSync } = await import('node:fs');
+  const { join: pathJoin } = await import('node:path');
+  const root = process.argv[2] ?? '.';
+  const src = readFileSync(pathJoin(root, 'lib/api/accountId.ts'), 'utf8');
+
+  // --- the shape is documented in the interface, not just in a comment ----
+  eq(
+    /export interface MeAccountId \{[\s\S]*?accountId: string;[\s\S]*?\}/.test(src),
+    true,
+    'MeAccountId declares the nested accountId string'
+  );
+  eq(
+    /accountId: MeAccountId \| null;/.test(src),
+    true,
+    'MeProfile.accountId is an object, not a string'
+  );
+  eq(
+    /getMe\(\): Promise<MeProfile>/.test(src),
+    true,
+    'getMe returns MeProfile rather than any'
+  );
+  eq(
+    /getMe\(\): Promise<any>/.test(src),
+    false,
+    'getMe no longer returns any'
+  );
+
+  // --- and the two call sites that read it are still correct -------------
+  for (const rel of ['app/(auth)/login.tsx', 'app/(auth)/create-account-id.tsx']) {
+    const screen = readFileSync(pathJoin(root, rel), 'utf8');
+    eq(
+      screen.includes('accountId?.accountId'),
+      true,
+      `${rel} reads accountId.accountId, not the object itself`
+    );
+    // The bug this guards: treating the object as the ID.
+    eq(
+      /getMe\(\)[\s\S]{0,120}accountId = me\?\.accountId;/.test(screen),
+      false,
+      `${rel} does not assign the object to accountId`
+    );
+  }
+
+  // userStore.hydrate must not have started reading it as a string.
+  const userStore = readFileSync(pathJoin(root, 'stores/userStore.ts'), 'utf8');
+  eq(
+    /me\?\.accountId/.test(userStore),
+    false,
+    'userStore does not read me.accountId at all (it hydrates from SecureStore)'
   );
 }
 
