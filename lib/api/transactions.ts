@@ -197,6 +197,13 @@ export interface PaymentLink {
   id: string;
   status: 'OPEN' | 'FULFILLED' | 'CANCELLED' | 'EXPIRED';
   amount?: string | null;
+  /**
+   * Chain the request is denominated on, e.g. "ETH". Live rows carry both
+   * `asset` and `symbol`, and the two hold the same value here - the field is
+   * declared because the response includes it, not because anything reads it.
+   * Treat `symbol` as the one to display.
+   */
+  asset?: string | null;
   symbol?: string | null;
   note?: string | null;
   requesterAccountId: string;

@@ -4,6 +4,7 @@ import { router } from 'expo-router';
 
 import { Keypad, PIN_LENGTH, PinDots, Typography } from '../../components/ui';
 import { setPin as setPinApi } from '../../lib/api/auth';
+import { toApiError } from '../../lib/api/client';
 import { friendlyError } from '../../lib/api/client';
 import { getSecureItem, SecureStorageKeys } from '../../lib/storage/secureStorage';
 import { useAuthGateStore } from '../../stores/authGateStore';
@@ -51,6 +52,21 @@ export default function CreatePin() {
         const existingAccountId = await getSecureItem(SecureStorageKeys.ACCOUNT_ID);
         router.replace(existingAccountId ? '/(tabs)/home' : '/(auth)/create-account-id');
       } catch (err) {
+        // `set-pin` is first-time only and answers 409 "A PIN is already set for
+        // this account" once one exists. This screen is still reachable in that
+        // state - most obviously on a second device, where the account was set up
+        // on one device and the same onboarding path runs on the other.
+        //
+        // Without this branch the user is stranded: the error is shown, the
+        // keypad re-arms, and every further attempt is another guaranteed 409,
+        // on a screen with no route to Settings > Security where `change-pin`
+        // lives. So a 409 means "your PIN already exists", not "try again" -
+        // send them to the screen that can actually replace it.
+        if (toApiError(err).status === 409) {
+          useAuthGateStore.getState().resetPinVerified();
+          router.replace('/(auth)/verify-pin');
+          return;
+        }
         console.error('Failed to persist PIN:', err);
         setError(friendlyError(err, 'Something went wrong saving your PIN. Try again.'));
         setConfirmPin('');

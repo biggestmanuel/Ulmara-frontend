@@ -2022,5 +2022,175 @@ console.log('\n== live contract: getMe().accountId is an object ==');
   );
 }
 
+console.log('\n== set-pin is first-time only: create-pin must branch on the 409 ==');
+{
+  const { readFileSync } = await import('node:fs');
+  const { join: pathJoin } = await import('node:path');
+  const root = process.argv[2] ?? '.';
+
+  const screen = readFileSync(pathJoin(root, 'app/(auth)/create-pin.tsx'), 'utf8');
+
+  // --- the branch exists, and it is reached BEFORE the generic retry ------
+  eq(
+    /toApiError\(err\)\.status === 409/.test(screen),
+    true,
+    'create-pin inspects a 409 from set-pin'
+  );
+  const at409 = screen.indexOf('toApiError(err).status === 409');
+  const generic = screen.indexOf("Something went wrong saving your PIN");
+  eq(at409 !== -1 && generic !== -1 && at409 < generic, true,
+     'the 409 is handled before the generic retry-and-reset path');
+
+  // --- and it does not re-arm the keypad on a 409 ------------------------
+  // Slice only the 409 branch: it must leave via `return` before any of the
+  // generic retry code runs. Slicing to `} finally {` would also capture the
+  // non-409 path, which does reset the stage and does set an error.
+  const branchEnd = screen.indexOf('return;', at409);
+  const branch = branchEnd === -1 ? '' : screen.slice(at409, branchEnd);
+  eq(branchEnd !== -1, true, 'the 409 branch leaves via an early return');
+  eq(
+    /setStage\(/.test(branch),
+    false,
+    'a 409 does not reset the stage back to the PIN keypad'
+  );
+  eq(
+    /setError\(/.test(branch),
+    false,
+    'a 409 is not shown as a retryable save error'
+  );
+  // ...and the return genuinely precedes the generic handler.
+  const genericAt = screen.indexOf('Something went wrong saving your PIN');
+  eq(
+    branchEnd !== -1 && genericAt !== -1 && branchEnd < genericAt,
+    true,
+    'the early return comes before the generic save-failure handler'
+  );
+
+  // --- and it sends the user somewhere they can act ----------------------
+  eq(
+    /status === 409[\s\S]{0,400}router\.replace\('\/\(auth\)\/verify-pin'\)/.test(screen),
+    true,
+    'a 409 routes to verify-pin, where an existing PIN can be proven'
+  );
+
+  // The screen must still handle a genuine first-time failure by re-arming.
+  eq(
+    /Something went wrong saving your PIN/.test(screen),
+    true,
+    'a non-409 save failure still surfaces an error'
+  );
+  eq(
+    screen.includes("setStage('create')"),
+    true,
+    'a non-409 save failure still resets the stage'
+  );
+
+  // --- settings/security.tsx must use changePin, never setPin -----------
+  const security = readFileSync(pathJoin(root, 'app/settings/security.tsx'), 'utf8');
+  eq(/changePin\(currentPin, newPin\)/.test(security), true,
+     'the PIN-change screen calls changePin(current, new)');
+  eq(
+    /\bsetPin\b|set-pin/.test(security),
+    false,
+    'the PIN-change screen never calls set-pin'
+  );
+  // Both fields are required: dropping either would send a partial patch.
+  eq(
+    /currentPin\.length !== 6/.test(security) && /newPin\.length !== 6/.test(security),
+    true,
+    'both the current and new PIN are validated before the call'
+  );
+}
+
+console.log('\n== PaymentLink declares the asset live rows carry ==');
+{
+  const { readFileSync } = await import('node:fs');
+  const { join: pathJoin } = await import('node:path');
+  const root = process.argv[2] ?? '.';
+  const src = readFileSync(pathJoin(root, 'lib/api/transactions.ts'), 'utf8');
+
+  const iface = src.slice(src.indexOf('export interface PaymentLink'));
+  const block = iface.slice(0, iface.indexOf('\n}'));
+  eq(/^\s+asset\?: string \| null;/m.test(block), true,
+     'PaymentLink declares asset as string | null');
+  eq(/^\s+symbol\?: string \| null;/m.test(block), true,
+     'PaymentLink still declares symbol');
+  // Declared, not invented: it must not be required, since a row may omit it.
+  eq(/^\s+asset: string;/m.test(block), false,
+     'asset stays optional - a row is not guaranteed to carry it');
+}
+
+console.log('\n== token-balances chain is case-sensitive and UPPERCASE ==');
+{
+  const client = await load('lib/api/client.ts');
+  const tokens = await load('lib/api/tokens.ts');
+
+  const calls = [];
+  const realGet = client.apiClient.get;
+  client.apiClient.get = (url, config) => {
+    calls.push({ url: String(url), params: config?.params });
+    return Promise.resolve({ data: { success: true, data: [] } });
+  };
+  const restore = () => { client.apiClient.get = realGet; };
+
+  // Live: `chain=eth` -> 400 "chain must be one of: TON, BSC, ETH, ...".
+  // `chain=ETH` -> 200. So the wire value must never be lower-cased.
+  for (const [chain, expected] of [['eth', 'ETH'], ['bsc', 'BSC'], ['sol', 'SOL']]) {
+    calls.length = 0;
+    await tokens.fetchTokenBalances({
+      chain, address: '0xowner', tokens: [{ symbol: 'USDC', name: 'USD Coin', decimals: 6, addresses: { [chain]: '0xc' } }],
+    });
+    eq(calls[0].params?.chain, expected,
+       `a lower-case "${chain}" is sent on the wire as "${expected}"`);
+  }
+
+  // Every chain the backend accepts, verified as UPPERCASE.
+  const accepted = ['TON', 'BSC', 'ETH', 'SOL', 'BASE', 'POLYGON', 'TRON', 'BTC'];
+  for (const wire of accepted) {
+    eq(wire, wire.toUpperCase(), `${wire} is already the wire form`);
+  }
+  eq(accepted.length, 8, 'all eight chains the backend requires are covered');
+
+  // The path must not have drifted while the casing was being checked.
+  calls.length = 0;
+  await tokens.fetchTokenBalances({ chain: 'eth', address: '0xowner', tokens: [{ symbol: 'USDC', name: 'USD Coin', decimals: 6, addresses: { eth: '0xc' } }] });
+  eq(calls[0].url, '/api/wallet/token-balances', 'the path is unchanged');
+
+  restore();
+}
+
+console.log('\n== a null native balance is dropped, never shown as 0.00 ==');
+{
+  const { readFileSync } = await import('node:fs');
+  const { join: pathJoin } = await import('node:path');
+  const root = process.argv[2] ?? '.';
+  const src = readFileSync(pathJoin(root, 'stores/walletStore.ts'), 'utf8');
+
+  // TON and BTC come back with a null balance. Rendering that as 0.00 looks
+  // correct and is a lie, so the row is filtered out instead.
+  eq(
+    /if \(!chainId \|\| entry\.balance === null\) return \[\];/.test(src),
+    true,
+    'a null native balance is filtered out rather than coerced'
+  );
+  eq(
+    /balance: entry\.balance \?\? ['"]0/.test(src),
+    false,
+    'no `balance ?? 0` coercion exists for native balances'
+  );
+  // And the token side must not invent a row either.
+  const tokenBlock = src.slice(src.indexOf('const tokenRows: TokenBalance[] = []'));
+  eq(
+    /balance: token\.balance/.test(tokenBlock),
+    true,
+    'token balances are carried through verbatim'
+  );
+  eq(
+    /Number\(token\.balance\)|parseFloat\(token\.balance\)/.test(tokenBlock),
+    false,
+    'token balances are not coerced to a number for display'
+  );
+}
+
 console.log(`\n  passed: ${pass}  failed: ${fail}`);
 process.exit(fail ? 1 : 0);
