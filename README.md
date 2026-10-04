@@ -60,14 +60,47 @@ credentials, so no provider key is set in the app.
 ## Scripts
 
 ```bash
-npm run start       # expo start
-npm run start:clean # expo start --clear (rebuilds the Metro cache)
+npm run start           # expo start
+npm run start:clean     # expo start --clear (rebuilds the Metro cache)
 npm run android
 npm run ios
 npm run web
-npm run lint
-npm run typecheck
+
+npm run typecheck       # tsc --noEmit
+npm run lint            # eslint .
+npm run test            # logic tests over the real modules
+npm run audit:design    # every screen is on the shared design system
+npm run audit:contrast  # rendered foreground/background pairs meet AA
+npm run verify:secp256k1 # the key-derivation dependency is a correct drop-in
+npm run verify          # typecheck + lint + test + both audits
 ```
+
+### Live contract check
+
+`npm run contract` drives the **real** API modules against a running backend and
+asserts the shapes the app depends on — `data.accountId` being an object,
+`send` taking `network` and a required `idempotencyKey`, the broadcast body
+carrying `signedTx` alone, `PATCH /api/contact/:id` preserving the id,
+token-balances rows, and the routes the client must never call.
+
+It needs credentials, which are deliberately not committed:
+
+```bash
+UL_MARA_API=http://localhost:4100 \
+UL_MARA_TEST_EMAIL=you@example.test \
+UL_MARA_TEST_PASSWORD=... \
+UL_MARA_RECIPIENT_EMAIL=their@example.test \
+UL_MARA_RECIPIENT_PASSWORD=... \
+npm run contract
+```
+
+The recipient's Account ID is resolved by logging in as them rather than taken
+from a constant — an id only ever matches the row that minted it, so a
+hard-coded one goes stale the moment the database is re-seeded.
+
+Writes are confined to the account named by `UL_MARA_TEST_EMAIL`: one PENDING
+transfer, one payment request, and one contact that is deleted again. It never
+deletes an account and never touches the database directly.
 
 ### When to use `start:clean`
 

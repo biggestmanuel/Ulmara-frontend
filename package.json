@@ -16,6 +16,7 @@
     "verify:secp256k1": "node scripts/verify-secp256k1.mjs",
     "postinstall": "patch-package",
     "test": "node scripts/logic-tests.mjs .",
+    "contract": "node scripts/contract-check.mjs .",
     "audit:contrast": "node --experimental-strip-types --no-warnings scripts/audit-contrast.mjs",
     "audit:deps": "npm audit --omit=dev",
     "verify": "npm run typecheck && npm run lint && npm run test && npm run audit:design && npm run audit:contrast"
