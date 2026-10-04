@@ -2192,5 +2192,74 @@ console.log('\n== a null native balance is dropped, never shown as 0.00 ==');
   );
 }
 
+console.log('\n== settings: omit leaves alone, explicit null clears ==');
+{
+  const { readFileSync } = await import('node:fs');
+  const { join: pathJoin } = await import('node:path');
+  const root = process.argv[2] ?? '.';
+  const src = readFileSync(pathJoin(root, 'lib/api/accountId.ts'), 'utf8');
+
+  const patchIface = src.slice(src.indexOf('export interface SettingsPatch'));
+  const block = patchIface.slice(0, patchIface.indexOf('\n}'));
+
+  // Nullable columns must accept an explicit null — that is how they are cleared.
+  eq(/^\s+name\?: string \| null;/m.test(block), true, 'name accepts null');
+  eq(/^\s+photoUrl\?: string \| null;/m.test(block), true, 'photoUrl accepts null');
+  eq(/^\s+defaultNetwork\?: string \| null;/m.test(block), true, 'defaultNetwork accepts null');
+
+  // NOT NULL columns must not, or the type would promise something the backend
+  // rejects with a 400.
+  eq(/^\s+defaultCurrency\?: string;/m.test(block), true,
+     'defaultCurrency does not accept null');
+  eq(/^\s+defaultLanguage\?: string;/m.test(block), true,
+     'defaultLanguage does not accept null');
+
+  // The trap this replaces: `Partial<>` permits `{ name: undefined }`, and
+  // undefined is dropped in serialisation, so "clear this" would silently mean
+  // "leave alone".
+  eq(/updateSettings\(\s*patch: Partial</.test(src), false,
+     'updateSettings does not take Partial<>');
+  eq(/export async function updateSettings\(patch: SettingsPatch\)/.test(src), true,
+     'updateSettings takes SettingsPatch');
+
+  // Returns the user row rather than `any` — the hole that hid the accountId
+  // shape change.
+  eq(/updateSettings\(patch: SettingsPatch\): Promise<MeProfile>/.test(src), true,
+     'updateSettings returns MeProfile, not any');
+  // Match the declaration, not the prose: `Promise<any>` also appears in a
+  // comment explaining that getMe *used* to be untyped, and a whole-file grep
+  // cannot tell that from a signature.
+  eq(
+    /export async function \w+\([^)]*\): Promise<any>/.test(src),
+    false,
+    'no exported function in this module returns Promise<any>'
+  );
+}
+
+console.log('\n== getMe().accountId: assert the hazard, not its absence ==');
+{
+  const { readFileSync } = await import('node:fs');
+  const { join: pathJoin } = await import('node:path');
+  const root = process.argv[2] ?? '.';
+  const src = readFileSync(pathJoin(root, 'lib/api/accountId.ts'), 'utf8');
+
+  eq(/accountId: MeAccountId \| null;/.test(src), true,
+     'MeProfile.accountId is typed as the object');
+
+  // `String(anyPlainObject)` is always "[object Object]". An assertion that it
+  // is NOT is unsatisfiable, and would either fail forever or be deleted without
+  // anyone noticing it proved nothing.
+  const absent = /!String\([^)]*accountId[^)]*\)\.startsWith\(\s*'\[object'/.test(src);
+  eq(absent, false,
+     'no assertion claims stringifying accountId avoids [object Object]');
+
+  // The read sites must go through .accountId.
+  for (const rel of ['app/(auth)/login.tsx', 'app/(auth)/create-account-id.tsx']) {
+    const screen = readFileSync(pathJoin(root, rel), 'utf8');
+    eq(/accountId\?\.accountId/.test(screen), true,
+       `${rel} reads through to the 10-digit string`);
+  }
+}
+
 console.log(`\n  passed: ${pass}  failed: ${fail}`);
 process.exit(fail ? 1 : 0);

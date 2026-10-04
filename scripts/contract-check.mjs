@@ -49,6 +49,9 @@
  *
  * No credentials are committed to this repository, and none should be. Exits
  * non-zero if any expectation fails.
+ *
+ * The contract this asserts is written up in ../CONTRACT-NOTES.md, along with
+ * the failure modes that are easy to mistake for backend bugs.
  */
 
 import { mkdtempSync, writeFileSync, readFileSync, mkdirSync, symlinkSync, existsSync } from 'node:fs';

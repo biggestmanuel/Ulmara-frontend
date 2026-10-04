@@ -57,6 +57,13 @@ EXPO_PUBLIC_RPC_ETH / BSC / BASE / POLYGON / SOL / TRON / TON=
 Fiat on/off-ramp goes through `/api/ramp/*`; the backend holds the provider
 credentials, so no provider key is set in the app.
 
+> **Working on this codebase?** Read [`CONTRACT-NOTES.md`](./CONTRACT-NOTES.md)
+> first. It documents the API contract details that have each caused a real
+> defect — `data.accountId` being an object, `send` taking `network` where
+> everything else takes `chain`, the two-phase transfer, `set-pin` being
+> first-time only, and how omit-vs-explicit-`null` differs on settings — plus the
+> rate limits and how to verify a fix actually fails when reverted.
+
 ## Scripts
 
 ```bash

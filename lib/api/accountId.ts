@@ -102,15 +102,41 @@ export async function getMe(): Promise<MeProfile> {
   return data.data;
 }
 
-export async function updateSettings(
-  patch: Partial<{
-    name: string;
-    photoUrl: string;
-    defaultCurrency: string;
-    defaultLanguage: string;
-    defaultNetwork: string | null;
-  }>
-): Promise<any> {
-  const { data } = await apiClient.patch<ApiEnvelope<any>>('/api/account/settings', patch);
+/**
+ * A settings patch.
+ *
+ * Three states per field, and they are not interchangeable:
+ *
+ *  - **key absent** — leave the value alone;
+ *  - **`string`** — set it;
+ *  - **`null`** — clear it, and only where the column is nullable.
+ *
+ * Verified against the live backend. `{"defaultNetwork": null}` clears it;
+ * omitting `defaultNetwork` does not; and `{"name": ""}` is rejected, so a blank
+ * string is never the way to clear anything. `defaultCurrency` and
+ * `defaultLanguage` refuse `null` outright — they are `NOT NULL` with defaults,
+ * so they have no unset state.
+ *
+ * This is why the fields are `?: string | null` rather than wrapped in
+ * `Partial<>`: `Partial` permits `{ name: undefined }`, and `undefined` is
+ * dropped during serialisation, so a caller meaning "clear this" would silently
+ * leave the value alone instead. The distinction has to be in the type.
+ */
+export interface SettingsPatch {
+  /** Nullable. `null` clears it. */
+  name?: string | null;
+  /** Nullable. `null` clears it. */
+  photoUrl?: string | null;
+  /** `NOT NULL` with a default — `null` is refused, omit to leave alone. */
+  defaultCurrency?: string;
+  /** `NOT NULL` with a default — `null` is refused, omit to leave alone. */
+  defaultLanguage?: string;
+  /** Nullable, and UPPERCASE from the backend's CHAIN_NAMES enum. `null` clears it. */
+  defaultNetwork?: string | null;
+}
+
+/** PATCH /api/account/settings — answers with the updated user row. */
+export async function updateSettings(patch: SettingsPatch): Promise<MeProfile> {
+  const { data } = await apiClient.patch<ApiEnvelope<MeProfile>>('/api/account/settings', patch);
   return data.data;
 }
