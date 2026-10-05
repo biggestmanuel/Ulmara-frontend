@@ -54,7 +54,7 @@
  * the failure modes that are easy to mistake for backend bugs.
  */
 
-import { mkdtempSync, writeFileSync, readFileSync, mkdirSync, symlinkSync, existsSync } from 'node:fs';
+import { mkdtempSync, writeFileSync, readFileSync, mkdirSync, symlinkSync, existsSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, dirname, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
@@ -80,6 +80,26 @@ if (!EMAIL || !PASSWORD) {
 // Transpile the real modules, mirroring scripts/logic-tests.mjs
 // --------------------------------------------------------------------------
 const work = mkdtempSync(join(tmpdir(), 'ulmara-contract-'));
+
+// This scratch tree holds a `node_modules` symlink and every transpiled module.
+// Leaving it behind leaks both disk and inode entries on every run — 111 of
+// these had accumulated. Removed on a clean exit and on a failure, because a
+// throw part-way through is exactly when the directory gets abandoned.
+const removeScratch = () => {
+  try {
+    rmSync(work, { recursive: true, force: true });
+  } catch (err) {
+    // Must never fail a run over a scratch dir, but it is logged: a silent
+    // catch is indistinguishable from a cleanup that works.
+    console.warn(`[cleanup] could not remove ${work}:`, err?.message ?? err);
+  }
+};
+process.on('exit', removeScratch);
+process.on('uncaughtException', (err) => {
+  removeScratch();
+  console.error(err);
+  process.exit(1);
+});
 const out = join(work, 'out');
 mkdirSync(out, { recursive: true });
 symlinkSync(join(ROOT, 'node_modules'), join(work, 'node_modules'), 'junction');

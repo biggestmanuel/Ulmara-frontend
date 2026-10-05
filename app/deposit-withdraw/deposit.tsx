@@ -15,13 +15,13 @@ const MIN_DEPOSIT_NGN = 1000;
  *
  * ## The honest version of this screen
  *
- * Fiat deposits depend on a Paystack integration that is **not configured** in
- * this environment. The previous version hid that: it presented a complete form
- * — asset chips, an amount field, quick-amount chips, a "Get Transfer Details"
- * button — and only told the user the feature was unavailable *after* they had
- * filled the form in and pressed the button. It also had a `try/catch` whose
- * two branches set the identical error string, around a body with no real work
- * in it, so the `loading` state flickered on and off in a single tick.
+ * Fiat deposits are not available in this build. The previous version hid that:
+ * it presented a complete form — asset chips, an amount field, quick-amount
+ * chips, a "Get Transfer Details" button — and only told the user the feature
+ * was unavailable *after* they had filled the form in and pressed the button. It
+ * also had a `try/catch` whose two branches set the identical error string,
+ * around a body with no real work in it, so the `loading` state flickered on and
+ * off in a single tick.
  *
  * Two things changed, and neither removes functionality:
  *
@@ -32,7 +32,19 @@ const MIN_DEPOSIT_NGN = 1000;
  * 2. **The dead `try/catch` is gone.** The handler now validates, then reports
  *    the actual state, with no simulated work and no spinner that means nothing.
  *
- * When Paystack is configured, `handleGenerate` becomes the real call and the
+ * ## Why no provider is named
+ *
+ * An earlier version of this comment and banner told the user the feature was
+ * unavailable "until Paystack is configured". There is no Paystack integration
+ * in this codebase — no client module reads a Paystack credential, and the
+ * client never calls `/api/ramp` at all. The backend holds the provider
+ * credentials and its `/api/ramp/*` routes answer 503 until they exist.
+ *
+ * Naming a provider the app has no relationship with told the user a change was
+ * imminent that nothing here was waiting on. Which provider will be used, and
+ * when, is a product decision; this copy asserts neither.
+ *
+ * When the ramp is wired up, `handleGenerate` becomes the real call and the
  * banner goes away. Nothing else on this screen needs to change.
  */
 export default function Deposit() {
@@ -41,7 +53,7 @@ export default function Deposit() {
   const [asset, setAsset] = useState<NativeAssetSymbol>('ETH');
   const [error, setError] = useState<string | null>(null);
 
-  const unavailable = 'Fiat deposits are unavailable until Paystack is configured.';
+  const unavailable = 'Fiat deposits are not available yet.';
 
   const handleGenerate = () => {
     const naira = Number(amount);

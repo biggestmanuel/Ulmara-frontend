@@ -9,7 +9,7 @@
 //   - lib/api/contacts.ts    contact validation
 //   - lib/push/pushNotifications.ts  push payload validation + dedupe keys
 //   - lib/security/biometrics.ts     outcome classification
-import { mkdtempSync, writeFileSync, mkdirSync, existsSync, readFileSync, symlinkSync } from 'node:fs';
+import { mkdtempSync, writeFileSync, mkdirSync, existsSync, readFileSync, symlinkSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, dirname, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
@@ -22,6 +22,28 @@ const ROOT = resolve(process.argv[2] ?? '.');
 // overwrite input file"), and full type-checking is already covered by
 // `npm run typecheck`.
 const work = mkdtempSync(join(tmpdir(), 'ulmara-verify-'));
+
+// This scratch tree holds a `node_modules` symlink and every transpiled module.
+// Leaving it behind leaks both disk and inode entries on every run — 111 of
+// these had accumulated. Removed on a clean exit and on a failure, because a
+// throw part-way through is exactly when the directory gets abandoned.
+const removeScratch = () => {
+  try {
+    rmSync(work, { recursive: true, force: true });
+  } catch (err) {
+    // Must never fail a run over a scratch dir. But it is *logged*, because a
+    // silent catch here is indistinguishable from a cleanup that works — and
+    // when this was first added, the catch swallowed an undefined `rmSync` and
+    // leaked a directory on every single run while appearing to do nothing.
+    console.warn(`[cleanup] could not remove ${work}:`, err?.message ?? err);
+  }
+};
+process.on('exit', removeScratch);
+process.on('uncaughtException', (err) => {
+  removeScratch();
+  console.error(err);
+  process.exit(1);
+});
 const out = join(work, 'out');
 mkdirSync(out, { recursive: true });
 
@@ -1572,13 +1594,28 @@ console.log('\n== F6: no ramp provider credential is readable by the app bundle 
   for (const screen of ['app/deposit-withdraw/deposit.tsx', 'app/deposit-withdraw/withdraw.tsx']) {
     eq(existsSync(pj(root, screen)), true, `${screen} still exists`);
   }
-  // ...and they must still read honestly about being unavailable.
+  // ...and they must still read honestly about being unavailable. The intent is
+  // "does not pretend to work", not any particular wording — an earlier version
+  // of this assertion matched the literal string "unavailable until Paystack is
+  // configured", which broke the moment that false claim was corrected.
   const deposit = rf(pj(root, 'app/deposit-withdraw/deposit.tsx'), 'utf8');
-  eq(
-    /unavailable until Paystack is configured/.test(deposit),
-    true,
-    'the deposit screen still states plainly that the integration is not configured'
-  );
+  const withdraw = rf(pj(root, 'app/deposit-withdraw/withdraw.tsx'), 'utf8');
+  for (const [name, src, what] of [
+    ['deposit', deposit, 'deposits'],
+    ['withdraw', withdraw, 'withdrawals'],
+  ]) {
+    // States that it is unavailable...
+    const banner = new RegExp(`Fiat ${what} are not available`, 'i');
+    eq(banner.test(src), true, `the ${name} screen says fiat ${what} are unavailable`);
+    // ...without naming a provider the app has no integration with. The ramp is
+    // backend-only through /api/ramp/*, so naming one told the user a change was
+    // imminent that nothing in this repository was waiting on.
+    eq(
+      /are not available until /.test(src),
+      false,
+      `the ${name} screen does not defer to a named provider`
+    );
+  }
 }
 
 console.log('\n== F7: a wrong PIN does not log the user out (401 vs session) ==');

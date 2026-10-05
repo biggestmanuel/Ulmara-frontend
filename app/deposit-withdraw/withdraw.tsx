@@ -20,18 +20,21 @@ const CHAIN_LABELS: Record<string, string> = {
   btc: 'Bitcoin',
 };
 
-const UNAVAILABLE = 'Fiat withdrawals are unavailable until Paystack is configured.';
+const UNAVAILABLE = 'Fiat withdrawals are not available yet.';
 
 /**
  * Fiat withdrawal.
  *
  * ## The honest version of this screen
  *
- * Like `deposit`, the Paystack integration this depends on is **not configured**
- * here. The old version collected a full set of bank details and only then
- * reported that it could not do anything with them. The unavailability is now a
- * banner above the form, and the form itself is kept — the route and the flow
- * are real.
+ * Like `deposit`, fiat withdrawals are not available in this build. The old
+ * version collected a full set of bank details and only then reported that it
+ * could not do anything with them. The unavailability is now a banner above the
+ * form, and the form itself is kept — the route and the flow are real.
+ *
+ * The copy deliberately names no provider. See the note in `deposit.tsx`: the
+ * ramp is backend-only through `/api/ramp/*`, and the earlier wording named a
+ * provider this codebase has no integration with.
  *
  * Two further defects fixed here:
  *
