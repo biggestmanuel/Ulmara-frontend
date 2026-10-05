@@ -17,7 +17,7 @@ import {
 } from '../../components/ui';
 import { ContactPicker } from '../../components/contacts/ContactPicker';
 import { getTokensForChain } from '../../lib/api/tokens';
-import { resolveAccountIdForTransfer, type AccountIdProfile } from '../../lib/api/accountId';
+import { resolveAccountIdForTransfer, type AccountIdProfileWithAddresses } from '../../lib/api/accountId';
 import { friendlyError } from '../../lib/api/client';
 import { useContactsStore } from '../../stores/contactsStore';
 import type { Contact } from '../../lib/api/contacts';
@@ -59,7 +59,10 @@ export default function SendIndex() {
   const [transferMode, setTransferMode] = useState<TransferMode>('ulmara');
   const [accountId, setAccountId] = useState(params.accountId ?? '');
   const [asset, setAsset] = useState(params.asset ?? 'ETH');
-  const [profile, setProfile] = useState<AccountIdProfile | null>(null);
+  // Populated by `resolveAccountIdForTransfer`, the one endpoint of the two that
+  // returns an address per wallet. `network-select.tsx` depends on that address
+  // being present, and filters the array down to the entries that have one.
+  const [profile, setProfile] = useState<AccountIdProfileWithAddresses | null>(null);
   const [resolving, setResolving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [pickerOpen, setPickerOpen] = useState(false);

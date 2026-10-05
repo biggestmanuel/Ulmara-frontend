@@ -175,6 +175,57 @@ treated as a session rejection, which is the behaviour that existed before.
 
 **423 is only ever a lockout** and never implied an invalid session.
 
+### 12. Two account endpoints, two different wallet shapes
+
+`GET /api/account/{accountId}` and `GET /api/account/resolve/{accountId}` look
+interchangeable and are not:
+
+```
+GET /api/account/{id}          profile.wallets: [{ chain }]           ← no address key
+GET /api/account/resolve/{id}  profile.wallets: [{ chain, address }]
+```
+
+Both are stable — same key set on every call, across different accounts, eight
+wallets each, and the two agree on the *count*. So these are two shapes, not one
+shape that varies.
+
+That is why `resolveAccountId` and `resolveAccountIdForTransfer` return different
+types. They previously shared one, so `.address` on the first was `undefined`
+under a type promising `string`.
+
+**Nothing noticed.** The only caller of the address-less function is
+`useAccountId`, which is unused, and the one place `wallets` is consumed —
+`app/send/network-select.tsx` — filters its input down to entries where
+`address` is a string. A regression here therefore yields an empty list, not a
+crash, which is exactly the shape of change that passes every test.
+
+Only `resolveAccountIdForTransfer` works for a transfer. Resolving your own
+Account ID is a `400` ("Cannot resolve your own Account ID for transfer").
+
+### 13. The settings PATCH answers with a narrower row than `/me`
+
+```
+GET  /api/account/me         17 keys
+PATCH /api/account/settings  14 keys
+missing: accountId, pinFailedAttempts, pinLockedUntil
+```
+
+Measured across four different patches (name set, name cleared,
+`defaultCurrency` set, `photoUrl` cleared) — always 14, always those three
+absent, and never a key the patch did not touch. It is a narrower *row*, not an
+echo of the request.
+
+`updateSettings` therefore returns
+`MeProfileAfterSettingsPatch = Omit<MeProfile, 'accountId' | 'pinFailedAttempts' | 'pinLockedUntil'>`.
+It used to claim `Promise<MeProfile>`, promising three fields that arrive as
+`undefined`. Harmless today only because the single call site discards the result.
+
+Declared as an `Omit` deliberately: a field `MeProfile` gains that the PATCH does
+return flows through, and one it gains that the PATCH does *not* return points the
+compiler at the `Omit`, rather than letting a `undefined` reach a screen.
+
+If you need a whole profile after saving settings, call `getMe()`.
+
 ---
 
 ## Environment notes

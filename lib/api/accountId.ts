@@ -1,24 +1,95 @@
 import { apiClient } from './client';
 
+/**
+ * One wallet as `GET /api/account/resolve/{accountId}` returns it.
+ *
+ * `address` is guaranteed on this one. `/api/account/{accountId}` omits it
+ * entirely — see `ProfileWalletChain`.
+ */
+export interface ProfileWallet {
+  chain: string;
+  address: string;
+}
+
+/**
+ * One wallet as `GET /api/account/{accountId}` returns it: **chain only**.
+ *
+ * There is no `address` key on these objects, at all. That is not a case where
+ * the value happens to be absent — reading `.address` yields `undefined`, under
+ * a type that used to promise `string`. Measured on the live backend across two
+ * accounts: eight wallets each, and the key set is exactly `('chain',)` every
+ * time, versus `('address', 'chain')` on the `/resolve/` variant.
+ *
+ * The two shapes are stable, so they are two types rather than one optional
+ * field. Making `address` optional on a shared type would have been the wrong
+ * fix: it would also weaken `resolveAccountIdForTransfer`, whose callers
+ * genuinely rely on `address` being there.
+ */
+export interface ProfileWalletChain {
+  chain: string;
+}
+
+/** The public half of a profile, common to both endpoints. */
 export interface AccountIdProfile {
   accountId: string;
   name?: string;
   photoUrl?: string;
-  wallets?: { chain: string; address: string }[];
 }
+
+/**
+ * What `GET /api/account/{accountId}` answers with: a profile whose wallets
+ * carry a chain and nothing else.
+ *
+ * Use `AccountIdProfileWithWallets` instead if you need addresses — this
+ * endpoint will not give them to you, and pretending otherwise is what the old
+ * single `AccountIdProfile` type did.
+ */
+export type AccountIdProfileWithWallets = AccountIdProfile & {
+  wallets?: ProfileWalletChain[];
+};
+
+/**
+ * What `GET /api/account/resolve/{accountId}` answers with: a profile whose
+ * wallets carry a chain **and** an address.
+ *
+ * This is the one the send flow needs, and the only one that has addresses.
+ */
+export type AccountIdProfileWithAddresses = AccountIdProfile & {
+  wallets?: ProfileWallet[];
+};
 
 interface ApiEnvelope<T> {
   success: boolean;
   data: T;
 }
 
+/**
+ * Shared envelope for both profile endpoints. The wallet shape is the only thing
+ * that differs between them, so it is a parameter rather than a second
+ * hand-written envelope that could drift.
+ */
+interface ProfileEnvelope<W> {
+  accountId: string;
+  profile: {
+    id: string;
+    name: string | null;
+    photoUrl: string | null;
+    wallets?: W[];
+  };
+}
+
 // Resolve a 10-digit Account ID to its public profile.
+//
+// Note the endpoint difference from `resolveAccountIdForTransfer` below: this one
+// returns `wallets` with a chain and **no address**. The return type says so, so
+// a caller that needs an address cannot reach for it here and find `undefined`.
+//
 // Returns null if no account exists with that ID (not an error state).
-export async function resolveAccountId(accountId: string): Promise<AccountIdProfile | null> {
+export async function resolveAccountId(accountId: string): Promise<AccountIdProfileWithWallets | null> {
   try {
-    const { data } = await apiClient.get<
-      ApiEnvelope<{ accountId: string; profile: { id: string; name: string | null; photoUrl: string | null; wallets?: { chain: string; address: string }[] } }>
-    >(`/api/account/${accountId}`);
+    const { data } = await apiClient.get<ApiEnvelope<ProfileEnvelope<ProfileWalletChain>>>(
+      `/api/account/${accountId}`
+    );
     const { accountId: id, profile } = data.data;
     return { accountId: id, name: profile?.name ?? undefined, photoUrl: profile?.photoUrl ?? undefined, wallets: profile?.wallets };
   } catch (err: any) {
@@ -28,11 +99,20 @@ export async function resolveAccountId(accountId: string): Promise<AccountIdProf
 
 }
 
-export async function resolveAccountIdForTransfer(accountId: string): Promise<AccountIdProfile | null> {
+/**
+ * Resolve a 10-digit Account ID for a transfer: the profile plus each of the
+ * recipient's wallets with a chain **and** an address.
+ *
+ * This is the only one of the two that has addresses, which is why the send
+ * flow uses it and `resolveAccountId` does not. Resolving your own Account ID is
+ * refused with a 400 ("Cannot resolve your own Account ID for transfer"); a 404
+ * is mapped to `null`.
+ */
+export async function resolveAccountIdForTransfer(accountId: string): Promise<AccountIdProfileWithAddresses | null> {
   try {
-    const { data } = await apiClient.get<
-      ApiEnvelope<{ accountId: string; profile: { id: string; name: string | null; photoUrl: string | null; wallets?: { chain: string; address: string }[] } }>
-    >(`/api/account/resolve/${accountId}`);
+    const { data } = await apiClient.get<ApiEnvelope<ProfileEnvelope<ProfileWallet>>>(
+      `/api/account/resolve/${accountId}`
+    );
     const { accountId: id, profile } = data.data;
     return { accountId: id, name: profile?.name ?? undefined, photoUrl: profile?.photoUrl ?? undefined, wallets: profile?.wallets };
   } catch (err: any) {
@@ -135,8 +215,34 @@ export interface SettingsPatch {
   defaultNetwork?: string | null;
 }
 
-/** PATCH /api/account/settings — answers with the updated user row. */
-export async function updateSettings(patch: SettingsPatch): Promise<MeProfile> {
-  const { data } = await apiClient.patch<ApiEnvelope<MeProfile>>('/api/account/settings', patch);
+/**
+ * The user row as `PATCH /api/account/settings` returns it.
+ *
+ * Three fields `GET /api/account/me` carries are **absent** here:
+ * `accountId`, `pinFailedAttempts` and `pinLockedUntil`. Measured live across
+ * four different patches (`name` set, `name` cleared, `defaultCurrency` set,
+ * `photoUrl` cleared): always 14 keys, always those three missing, and never a
+ * key the patch did not touch. So this is a narrower *row*, not a
+ * patch-shaped echo — nothing here depends on which fields were sent.
+ *
+ * Declared as an `Omit` rather than spelled out, deliberately: if `MeProfile`
+ * later gains a field the PATCH does return, it flows through automatically,
+ * and if it gains one the PATCH does *not* return, the compiler points at this
+ * line instead of letting a `undefined` reach a screen.
+ *
+ * If you need a complete profile after saving settings, call `getMe()` — do not
+ * assume the patch response carries the Account ID.
+ */
+export type MeProfileAfterSettingsPatch = Omit<
+  MeProfile,
+  'accountId' | 'pinFailedAttempts' | 'pinLockedUntil'
+>;
+
+/**
+ * PATCH /api/account/settings — answers with the updated user row, **narrower
+ * than `getMe()`**. See `MeProfileAfterSettingsPatch`.
+ */
+export async function updateSettings(patch: SettingsPatch): Promise<MeProfileAfterSettingsPatch> {
+  const { data } = await apiClient.patch<ApiEnvelope<MeProfileAfterSettingsPatch>>('/api/account/settings', patch);
   return data.data;
 }

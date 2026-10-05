@@ -638,6 +638,122 @@ group('settings nullability, read-only');
   ok('settings values are observable through getMe');
 }
 
+group('the two account endpoints return different wallet shapes');
+if (!recipientId) {
+  bad('a recipient Account ID is available',
+    'supply UL_MARA_RECIPIENT_EMAIL and UL_MARA_RECIPIENT_PASSWORD');
+} else {
+  // `GET /api/account/{id}` answers `wallets: [{ chain }]` — no `address` key at
+  // all. `GET /api/account/resolve/{id}` answers `[{ chain, address }]`. Both are
+  // stable, across accounts as well as across calls, so they are two shapes and
+  // not one shape that happens to vary.
+  //
+  // This is why `resolveAccountId` and `resolveAccountIdForTransfer` have
+  // different return types. Pinned here because nothing else would notice: the
+  // only caller of the address-less one is `useAccountId`, which is unused, and
+  // `network-select.tsx` filters its input down to entries that *do* have an
+  // address. So a regression here degrades to an empty list rather than throwing
+  // — the exact kind of change that would otherwise pass every test.
+  //
+  // Uses `recipientId`, resolved above by logging in, rather than a constant.
+  const raw = async (path) => {
+    const res = await fetch(`${BASE}${path}`, {
+      headers: { Authorization: `Bearer ${callerToken}` },
+    });
+    const json = await res.json().catch(() => ({}));
+    return { status: res.status, body: json };
+  };
+
+  const plain = await raw(`/api/account/${recipientId}`);
+  eq(plain.status, 200, 'GET /api/account/{id} responds');
+  const plainWallets = plain.body?.data?.profile?.wallets ?? [];
+  ok(`/api/account/{id} returns wallets (${plainWallets.length})`);
+  eq(plainWallets.length > 0, true, 'the recipient has at least one wallet');
+  eq(
+    plainWallets.every((w) => typeof w.chain === 'string' && w.chain.length > 0),
+    true,
+    'every wallet has a chain'
+  );
+  eq(
+    plainWallets.some((w) => 'address' in w),
+    false,
+    'no wallet carries an address -- this endpoint omits the key entirely'
+  );
+
+  const resolved = await raw(`/api/account/resolve/${recipientId}`);
+  eq(resolved.status, 200, 'GET /api/account/resolve/{id} responds');
+  const resolvedWallets = resolved.body?.data?.profile?.wallets ?? [];
+  ok(`/api/account/resolve/{id} returns wallets (${resolvedWallets.length})`);
+  eq(
+    resolvedWallets.every((w) => typeof w.chain === 'string' && typeof w.address === 'string'),
+    true,
+    'every wallet has BOTH a chain and an address'
+  );
+
+  eq(
+    plainWallets.length === resolvedWallets.length,
+    true,
+    'the two endpoints agree on how many wallets there are -- only the fields differ'
+  );
+}
+
+group('the settings PATCH answers with a narrower row than /me');
+{
+  // `PATCH /api/account/settings` returns 14 keys. `GET /api/account/me` returns
+  // 17. The three it never returns are `accountId`, `pinFailedAttempts` and
+  // `pinLockedUntil` — measured across four different patches, so it is a
+  // narrower row rather than an echo of whatever was sent.
+  //
+  // Written non-destructively: the patch is read back through `getMe()` and the
+  // exact same value is restored, so a failure part-way through cannot leave the
+  // shared account altered.
+  const raw = async (patch) => {
+    const res = await fetch(`${BASE}/api/account/settings`, {
+      method: 'PATCH',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${callerToken}`,
+      },
+      body: JSON.stringify(patch),
+    });
+    const json = await res.json().catch(() => ({}));
+    return { status: res.status, body: json };
+  };
+
+  const meBefore = await account.getMe();
+  const originalName = meBefore.name ?? null;
+
+  try {
+    const patched = await raw({ name: originalName ?? 'contract-check' });
+    eq(patched.status, 200, 'the settings PATCH responds');
+    const row = patched.body?.data ?? {};
+    const keys = Object.keys(row).sort();
+    console.log(`       PATCH row: ${keys.length} keys`);
+
+    for (const absent of ['accountId', 'pinFailedAttempts', 'pinLockedUntil']) {
+      eq(
+        absent in row,
+        false,
+        `the PATCH row omits ${absent}, which /me does carry`
+      );
+    }
+    eq('accountId' in meBefore, true, '/me does carry accountId');
+    eq('pinFailedAttempts' in meBefore, true, '/me does carry pinFailedAttempts');
+    eq('pinLockedUntil' in meBefore, true, '/me does carry pinLockedUntil');
+
+    // The row is the user, not the patch: fields the patch never mentioned are
+    // still present and still correct.
+    eq(row.id, meBefore.id, 'the row is the same user');
+    eq('defaultCurrency' in row, true, 'the row carries a field the patch never sent');
+    eq(row.defaultCurrency, meBefore.defaultCurrency, 'and its value is unchanged');
+  } finally {
+    const restore = await raw({ name: originalName });
+    const after = await account.getMe();
+    eq(after.name, originalName, 'the account name is restored');
+    if (restore.status !== 200) ok(`(restore reported ${restore.status})`);
+  }
+}
+
 group('backend strictness, over raw HTTP');
 {
   // These two rules cannot be reached through the client, because the client

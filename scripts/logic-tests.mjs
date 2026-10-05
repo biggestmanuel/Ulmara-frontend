@@ -2260,9 +2260,32 @@ console.log('\n== settings: omit leaves alone, explicit null clears ==');
      'updateSettings takes SettingsPatch');
 
   // Returns the user row rather than `any` — the hole that hid the accountId
-  // shape change.
-  eq(/updateSettings\(patch: SettingsPatch\): Promise<MeProfile>/.test(src), true,
-     'updateSettings returns MeProfile, not any');
+  // shape change. The row is *narrower* than `getMe()`'s, and the return type
+  // has to say so: the PATCH never returns `accountId`, `pinFailedAttempts` or
+  // `pinLockedUntil`, so claiming `Promise<MeProfile>` promises three fields that
+  // arrive as `undefined`.
+  eq(/updateSettings\(patch: SettingsPatch\): Promise<MeProfile>/.test(src), false,
+     'updateSettings does not claim the full MeProfile it never receives');
+  eq(/export async function updateSettings\(\s*patch: SettingsPatch,?\s*\): Promise<MeProfileAfterSettingsPatch>/.test(src), true,
+     'updateSettings returns MeProfileAfterSettingsPatch, not any');
+
+  // The three omissions, named. Measured live across four different patches.
+  const omitBlock = /MeProfileAfterSettingsPatch\s*=\s*Omit<\s*MeProfile,([\s\S]*?)>/.exec(src);
+  eq(omitBlock !== null, true, 'MeProfileAfterSettingsPatch is an explicit Omit of MeProfile');
+  if (omitBlock) {
+    // Split on either separator: the union inside `Omit<>` may be written with
+    // commas or pipes, and an assertion that only understood one of them would
+    // quietly stop checking anything after a reformat.
+    const omitted = (omitBlock[1].match(/['"]([A-Za-z][A-Za-z0-9]*)['"]/g) ?? [])
+      .map((s) => s.replace(/['"]/g, ''))
+      .sort();
+    eq(
+      JSON.stringify(omitted),
+      JSON.stringify(['accountId', 'pinFailedAttempts', 'pinLockedUntil']),
+      'the Omit names exactly the three fields the PATCH omits'
+    );
+  }
+
   // Match the declaration, not the prose: `Promise<any>` also appears in a
   // comment explaining that getMe *used* to be untyped, and a whole-file grep
   // cannot tell that from a signature.
@@ -2270,6 +2293,116 @@ console.log('\n== settings: omit leaves alone, explicit null clears ==');
     /export async function \w+\([^)]*\): Promise<any>/.test(src),
     false,
     'no exported function in this module returns Promise<any>'
+  );
+}
+
+console.log('\n== the two account endpoints: assert the wallet shapes are not the same ==');
+{
+  const { readFileSync } = await import('node:fs');
+  const { join: pathJoin } = await import('node:path');
+  const root = process.argv[2] ?? '.';
+  const src = readFileSync(pathJoin(root, 'lib/api/accountId.ts'), 'utf8');
+
+  // `GET /api/account/{id}` returns `wallets: [{ chain }]` with no address key.
+  // `GET /api/account/resolve/{id}` returns `[{ chain, address }]`. These were
+  // typed as one shape, so `.address` on the first was `undefined` under a type
+  // promising `string`. No test caught it: the only caller of the address-less
+  // function is unused, and the consumer filters its input down to entries that
+  // have an address, so a regression degrades to an empty list rather than
+  // throwing.
+  //
+  // The live facts are pinned in scripts/contract-check.mjs. These pin the types
+  // so the two cannot collapse back into one.
+  eq(
+    /export interface ProfileWallet\s*\{[^}]*chain: string;[^}]*address: string;/s.test(src),
+    true,
+    'ProfileWallet declares both a chain and an address'
+  );
+  eq(
+    /export interface ProfileWalletChain\s*\{\s*chain: string;\s*\}/s.test(src),
+    true,
+    'ProfileWalletChain declares a chain and nothing else'
+  );
+
+  // The whole point: the chain-only type must NOT have an address. Asserted as a
+  // positive shape match above, and negatively here so a future "just make it
+  // optional" edit cannot pass.
+  const chainOnly = /export interface ProfileWalletChain\s*\{([^}]*)\}/s.exec(src);
+  eq(chainOnly !== null, true, 'ProfileWalletChain is declared');
+  if (chainOnly) {
+    eq(
+      /\baddress\b/.test(chainOnly[1]),
+      false,
+      'ProfileWalletChain does not mention address at all'
+    );
+  }
+
+  eq(
+    /export type AccountIdProfileWithWallets\s*=\s*AccountIdProfile\s*&\s*\{\s*wallets\?: ProfileWalletChain\[\];/s.test(src),
+    true,
+    'AccountIdProfileWithWallets carries the chain-only wallets'
+  );
+  eq(
+    /export type AccountIdProfileWithAddresses\s*=\s*AccountIdProfile\s*&\s*\{\s*wallets\?: ProfileWallet\[\];/s.test(src),
+    true,
+    'AccountIdProfileWithAddresses carries the address-bearing wallets'
+  );
+
+  // Each function must return the shape its own endpoint produces.
+  eq(
+    /export async function resolveAccountId\(accountId: string\): Promise<AccountIdProfileWithWallets \| null>/.test(src),
+    true,
+    'resolveAccountId returns the chain-only shape'
+  );
+  eq(
+    /export async function resolveAccountIdForTransfer\(accountId: string\): Promise<AccountIdProfileWithAddresses \| null>/.test(src),
+    true,
+    'resolveAccountIdForTransfer returns the address-bearing shape'
+  );
+
+  // The envelope is parameterised, so neither call site can drift back to a
+  // hand-written inline type that claims a shape the endpoint does not send.
+  eq(
+    /apiClient\.get<ApiEnvelope<ProfileEnvelope<ProfileWalletChain>>>/.test(src),
+    true,
+    'resolveAccountId reads through a chain-only envelope'
+  );
+  eq(
+    /apiClient\.get<ApiEnvelope<ProfileEnvelope<ProfileWallet>>>/.test(src),
+    true,
+    'resolveAccountIdForTransfer reads through an address-bearing envelope'
+  );
+
+  // The bare shared profile must not carry wallets at all. If it did, a caller
+  // holding an `AccountIdProfile` could reach for `.address` without knowing
+  // which endpoint produced it — which is the original defect.
+  const bare = /export interface AccountIdProfile\s*\{([^}]*)\}/s.exec(src);
+  eq(bare !== null, true, 'AccountIdProfile is declared');
+  if (bare) {
+    eq(
+      /\bwallets\b/.test(bare[1]),
+      false,
+      'AccountIdProfile itself no longer declares wallets'
+    );
+  }
+
+  // The consumers must name the shape they actually receive.
+  const send = readFileSync(pathJoin(root, 'app/send/index.tsx'), 'utf8');
+  eq(
+    /useState<AccountIdProfileWithAddresses \| null>/.test(send),
+    true,
+    'the send screen holds the address-bearing shape, since it resolves for transfer'
+  );
+  const hook = readFileSync(pathJoin(root, 'hooks/useAccountId.ts'), 'utf8');
+  eq(
+    /export type ResolvedProfile = AccountIdProfileWithWallets;/.test(hook),
+    true,
+    'useAccountId holds the chain-only shape, matching the endpoint it calls'
+  );
+  eq(
+    /type ResolvedProfile = AccountIdProfileWithAddresses/.test(hook),
+    false,
+    'useAccountId does not claim an address it cannot receive'
   );
 }
 

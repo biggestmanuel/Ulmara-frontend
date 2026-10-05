@@ -1,6 +1,6 @@
 import { useCallback, useState } from 'react';
 import { useUserStore } from '../stores/userStore';
-import { resolveAccountId, type AccountIdProfile } from '../lib/api/accountId';
+import { resolveAccountId, type AccountIdProfileWithWallets } from '../lib/api/accountId';
 import { friendlyError } from '../lib/api/client';
 
 /**
@@ -17,7 +17,14 @@ import { friendlyError } from '../lib/api/client';
  * delegating to that module rather than deleted, so that wiring it up later
  * cannot reintroduce the bug.
  */
-export type ResolvedProfile = AccountIdProfile;
+/**
+ * Not `AccountIdProfileWithAddresses`, which is what
+ * `resolveAccountIdForTransfer` returns: this hook goes through
+ * `resolveAccountId`, and *that* endpoint answers with `{ chain }` per wallet and
+ * no address. Typing it as the address-bearing shape is what let a caller reach
+ * for `.address` and get `undefined`.
+ */
+export type ResolvedProfile = AccountIdProfileWithWallets;
 
 export function useAccountId() {
   const { accountId, profile } = useUserStore();
