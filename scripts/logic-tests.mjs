@@ -2406,6 +2406,129 @@ console.log('\n== the two account endpoints: assert the wallet shapes are not th
   );
 }
 
+console.log('\n== sign-out ends the session on the server, in the right order ==');
+{
+  const { readFileSync } = await import('node:fs');
+  const { join: pathJoin } = await import('node:path');
+  const root = process.argv[2] ?? '.';
+  // Normalised before matching. These patterns are anchored on `\n`, so on a
+  // CRLF checkout the body could not be located and every ordering assertion
+  // below was skipped without reporting anything -- the failure mode where a
+  // test quietly checks nothing. Which line endings a file has is not a fact
+  // this behaviour should depend on.
+  const lf = (p) => readFileSync(p, 'utf8').replace(/\r\n/g, '\n');
+  const auth = lf(pathJoin(root, 'lib/api/auth.ts'));
+  const store = lf(pathJoin(root, 'stores/userStore.ts'));
+
+  // `POST /api/auth/logout` was added to the backend because signing out was
+  // purely local: the Session row survived, `requireAuth` kept honouring it, and
+  // the discarded token worked for the full JWT_EXPIRES_IN (7 days) after the
+  // user believed they had signed out. The route's own OpenAPI description says
+  // "Clients MUST call this on sign-out".
+  eq(
+    /export async function logout\(\): Promise<\{ success: boolean \}>/.test(auth),
+    true,
+    'auth exposes logout()'
+  );
+  // `[^>]*` cannot work here: the generic is `ApiEnvelope<{ success: boolean }>`,
+  // so the pattern stops at the `>` that closes the inner object literal. Match
+  // non-greedily up to the argument list instead.
+  eq(
+    /apiClient\.post<[\s\S]*?>\('\/api\/auth\/logout'\)/.test(auth),
+    true,
+    'logout() POSTs /api/auth/logout'
+  );
+  eq(
+    /apiClient\.delete[^']*'\/api\/auth\/logout'/.test(auth),
+    false,
+    'logout() is a POST, not a DELETE'
+  );
+  // No body: the bearer identifies the session, and the backend rejects unknown
+  // keys, so sending one would 400 rather than harmlessly be ignored.
+  eq(
+    /apiClient\.post<[\s\S]*?>\('\/api\/auth\/logout',\s*\{/.test(auth),
+    false,
+    'logout() sends no request body'
+  );
+
+  // The store must actually call it. A correct helper nothing calls is the same
+  // defect with an extra file.
+  eq(
+    /logout: async \(\) => \{/.test(store),
+    true,
+    'the user store still has a logout action'
+  );
+  eq(
+    /import\('\.\.\/lib\/api\/auth'\)/.test(store),
+    true,
+    'the store dynamically imports the auth module'
+  );
+  eq(
+    /await endSessionOnServer\(\)/.test(store),
+    true,
+    'the store calls the server-side logout and awaits it'
+  );
+
+  // Ordering is the part most likely to regress, and it is the part that turns a
+  // fix into a no-op: once the token is cleared there is nothing left to
+  // authenticate with, so a correctly-shaped call placed after the wipe always
+  // fails. Asserted as an index comparison rather than a regex, because order is
+  // the property that matters and a pattern match cannot see it.
+  // Two spaces, not four: the object properties of the store sit at two, so a
+  // four-space pattern matches nothing. Because every line *inside* logout is at
+  // four or deeper, `\n  },\n` is unambiguous -- a four-space closer cannot match
+  // it, because the character after the two spaces would be a space, not `}`.
+  const body = /logout: async \(\) => \{([\s\S]*?)\n {2}\},\n/.exec(store);
+  eq(body !== null, true, 'the logout body can be located');
+  if (body) {
+    const src = body[1];
+    const at = {
+      push: src.indexOf('unregisterPushToken()'),
+      endSession: src.indexOf('endSessionOnServer()'),
+      wipe: src.indexOf('clearAllSecureItems()'),
+      dropCache: src.indexOf('clearCachedSessionToken()'),
+    };
+    eq(at.push >= 0 && at.endSession >= 0 && at.wipe >= 0 && at.dropCache >= 0, true,
+       'all four teardown steps are present');
+    eq(at.endSession < at.wipe, true,
+       'the server-side logout happens BEFORE the secure items are wiped');
+    eq(at.endSession < at.dropCache, true,
+       'the server-side logout happens BEFORE the cached bearer is dropped');
+    eq(at.push < at.endSession, true,
+       'the push token is unregistered first -- ending the session first would 401 it');
+    eq(at.wipe < at.dropCache, true,
+       'secure items are still cleared before the cached token is dropped');
+  }
+
+  // A failure here must not strand the user on a signed-in screen. Best-effort,
+  // and that has to be enforced rather than assumed: the call is inside a try.
+  eq(
+    /try \{[\s\S]*?endSessionOnServer\(\)[\s\S]*?\} catch/.test(store),
+    true,
+    'the server-side logout cannot reject sign-out'
+  );
+  // A 401 on a repeat sign-out means the session is already gone, which is the
+  // desired end state -- so it is not worth a scary log line.
+  eq(
+    /status !== 401/.test(store),
+    true,
+    'a 401 is tolerated quietly rather than logged as a failure'
+  );
+
+  // `deleteAccount` kills the account, so the session is already dead by the time
+  // logout runs on that path. It must not throw and block the local teardown --
+  // the same try/catch covers it, but the ordering in profile.tsx is what makes
+  // it reachable, so it is worth pinning.
+  const profile = lf(pathJoin(root, 'app/(tabs)/profile.tsx'));
+  const delAt = profile.indexOf('deleteAccountApi()');
+  const logoutAt = profile.indexOf('await logout()', delAt);
+  eq(delAt >= 0, true, 'the profile screen has a delete-account path');
+  eq(logoutAt > delAt, true,
+     'account deletion completes before local teardown, so a dead session cannot strand it');
+}
+
+console.log('\n== getMe().accountId: assert the hazard, not its absence ==');
+
 console.log('\n== getMe().accountId: assert the hazard, not its absence ==');
 {
   const { readFileSync } = await import('node:fs');

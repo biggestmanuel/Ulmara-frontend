@@ -73,15 +73,44 @@ export const useUserStore = create<UserState>((set, get) => ({
   },
 
   logout: async () => {
-    // Release the server-side push token before the session token is wiped —
-    // unregistering needs an authenticated request, so it has to happen first
-    // (best-effort: a failure here must not block sign-out). Dynamic import
-    // avoids a static cycle (push -> client -> storage, userStore -> push).
+    // Every server-side call has to happen BEFORE the token is wiped below,
+    // because the bearer is the only thing identifying the session. Two of
+    // them, in this order:
+    //
+    //  1. the push token, so notifications for this user stop immediately;
+    //  2. POST /api/auth/logout, which deletes the Session row server-side.
+    //
+    // (2) is not a nicety. Without it this function is purely local: the row
+    // survives, `requireAuth` still honours it, and the discarded token keeps
+    // working for the full JWT_EXPIRES_IN — 7 days by default — after the user
+    // believes they have signed out. That is the window a lost or wiped phone
+    // leaves behind. It goes after (1) because ending the session first would
+    // 401 the push-token removal and leak a registered token.
+    //
+    // Both are best-effort. The user is signing out regardless, and blocking
+    // sign-out on a network failure would be worse than finishing the local
+    // teardown — so a failure is logged and the session is left to expire. That
+    // is a deliberate, bounded trade: the worst case is the pre-existing
+    // behaviour, not a broken sign-out.
     try {
       const { unregisterPushToken } = await import('../lib/push/pushNotifications');
       await unregisterPushToken();
     } catch (err) {
       console.error('Push token cleanup failed during logout:', err);
+    }
+
+    try {
+      const { logout: endSessionOnServer } = await import('../lib/api/auth');
+      await endSessionOnServer();
+    } catch (err) {
+      // A 401 is the expected shape of a repeat sign-out: the session is already
+      // gone, which is the state we wanted. Anything else is a real failure and
+      // worth a line in the log — the token is still good on the server until it
+      // expires, so this is the difference between a 7-day and a 7-second window.
+      const status = (err as { status?: number } | null)?.status;
+      if (status !== 401) {
+        console.error('Server-side sign-out failed; this token stays valid until it expires:', err);
+      }
     }
 
     await clearAllSecureItems();

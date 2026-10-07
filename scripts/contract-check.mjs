@@ -754,6 +754,79 @@ group('the settings PATCH answers with a narrower row than /me');
   }
 }
 
+group('sign-out ends the session, and only that one');
+await attempt('logout group', async () => {
+// This route exists because signing out used to be purely local: the Session row
+// survived, `requireAuth` kept honouring it, and the discarded token worked for
+// the full JWT_EXPIRES_IN. The route's own description says clients MUST call it.
+//
+// Uses a SECOND login and raw fetch throughout, never the shared apiClient. That
+// is deliberate: the point is to prove one session can be ended without touching
+// the token every other assertion in this run depends on, and the client's cached
+// bearer is global state that a mistake here would poison for the whole file.
+// Logging out `callerToken` would 401 every subsequent group.
+const fresh = await loginWithRetry(() => auth.login({ email: EMAIL, password: PASSWORD }));
+const spare = fresh.token;
+ok('a second session was obtained for this group');
+
+const asSpare = async (method, path, body) => {
+  const res = await fetch(`${BASE}${path}`, {
+    method,
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${spare}` },
+    ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+  });
+  const json = await res.json().catch(() => ({}));
+  return { status: res.status, body: json };
+};
+
+// The spare token has to be a working session before "it stopped working" means
+// anything, so prove it is live first.
+eq((await asSpare('GET', '/api/account/me')).status, 200,
+   'the spare token works before signing out');
+
+const out = await asSpare('POST', '/api/auth/logout');
+eq(out.status, 200, 'POST /api/auth/logout answers 200');
+eq(out.body?.success, true, 'it reports success');
+eq(out.body?.data?.success, true, 'the envelope carries the same success flag');
+
+// The whole point. A local-only sign-out left this exact request answering 200.
+const after = await asSpare('GET', '/api/account/me');
+eq(after.status, 401, 'the signed-out token is refused immediately, not at expiry');
+
+// Scoped to one session: signing out on a phone must not sign out every device.
+const stillWorks = await fetch(`${BASE}/api/account/me`, {
+  headers: { Authorization: `Bearer ${callerToken}` },
+});
+eq(stillWorks.status, 200, 'the other session is untouched by this sign-out');
+
+// End to end a second call is a 401, because requireAuth rejects the dead token
+// before the handler runs. Idempotent at the service level, NOT 200-every-time.
+eq((await asSpare('POST', '/api/auth/logout')).status, 401,
+   'a repeat sign-out is a 401 -- idempotent at the service, not end to end');
+
+// revokeSession cannot end the session you are holding, and now points at the
+// route that can. Pinned because the message is the client's only sign that the
+// two are distinct operations.
+const sessions = await fetch(`${BASE}/api/auth/sessions`, {
+  headers: { Authorization: `Bearer ${callerToken}` },
+}).then((r) => r.json()).catch(() => ({}));
+const current = (sessions?.data ?? []).find((s) => s.current);
+ok(`the current session is identifiable (${current ? current.id.slice(0, 8) : 'none'})`);
+if (current) {
+  const revoke = await fetch(`${BASE}/api/auth/sessions/${current.id}`, {
+    method: 'DELETE',
+    headers: { Authorization: `Bearer ${callerToken}` },
+  });
+  const json = await revoke.json().catch(() => ({}));
+  eq(revoke.status, 400, 'revoking the current session is refused');
+  eq(/POST \/api\/auth\/logout/.test(json?.message ?? ''), true,
+     'and the refusal points at POST /api/auth/logout');
+  eq((await fetch(`${BASE}/api/account/me`, {
+    headers: { Authorization: `Bearer ${callerToken}` },
+  })).status, 200, 'the caller is still signed in after that refusal');
+}
+});
+
 group('backend strictness, over raw HTTP');
 {
   // These two rules cannot be reached through the client, because the client
@@ -813,6 +886,12 @@ group('the live spec still advertises what the client calls');
     const ops = paths.reduce((n, p) => n + Object.keys(spec.paths[p]).filter((m) =>
       ['get', 'post', 'patch', 'put', 'delete'].includes(m)).length, 0);
     ok(`the spec lists ${paths.length} paths / ${ops} operations`);
+    // `sendPayment` is the one call that needs the PIN, and it is also the one
+    // most likely to hit a limiter. On 2026-10-07 a send assertion failed with a
+    // bare `HTTP 400` and no prose, which is what a *rate-limited* bucket can look
+    // like when the limiter's shape has moved. A failed contract assertion is
+    // therefore never conclusive on its own: re-run after the window, and if it
+    // passes the first failure was the limiter, not the contract.
     const mustHave = [
       ['/api/contact/{id}', 'patch'],
       ['/api/transaction/{id}/broadcast', 'post'],
@@ -822,6 +901,10 @@ group('the live spec still advertises what the client calls');
       ['/api/payment/request/{id}', 'get'],
       ['/api/auth/set-pin', 'post'],
       ['/api/auth/change-pin', 'post'],
+      // Added by the backend on 2026-10-05. The client began calling it in the
+      // change that made sign-out end the session server-side rather than only
+      // on the device, so the two land together.
+      ['/api/auth/logout', 'post'],
       ['/api/account/me', 'get'],
     ];
     for (const [p, method] of mustHave) {

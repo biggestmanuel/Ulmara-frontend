@@ -247,6 +247,38 @@ with `--no-verify`.
 
 ---
 
+### 14. Signing out must reach the server
+
+`POST /api/auth/logout` — `requireAuth`, no request body, returns
+`{ success: true }`. Added by the backend on 2026-10-05.
+
+Before it existed, `logout()` in `stores/userStore.ts` was **entirely local**: it
+wiped the token from the keystore and never told the server. Because `requireAuth`
+treats the `Session` row as the source of truth, that row survived and the
+discarded token kept authorising requests for the full `JWT_EXPIRES_IN` — 7 days
+by default — after the user believed they had signed out. Measured on the live
+server: after a local-only logout the same token still answered 200 on
+`/api/account/me`, `/api/transaction` and `/api/contact`, and still created a
+payment request. Transfers were *not* reachable — the PIN gate is independent of
+the session — but balances, contacts and payment requests were all live for a
+week. That is the window a lost or wiped phone leaves behind.
+
+`DELETE /api/auth/me` was the only server-side way to end a session, and it
+deletes the account, so signing out used to cost the user their account.
+
+Three things about it that are easy to get wrong:
+
+- **It deletes by bearer token, never by user id.** One session only — signing out
+  on a phone must not sign out every device. Revoking *other* devices is
+  `revokeSession`, which now refuses the current session with *"use
+  `POST /api/auth/logout` to sign out"*.
+- **Idempotent at the service level, not end to end.** A second call is a **401**,
+  because `requireAuth` rejects the dead token before the handler runs. Callers
+  must tolerate that; "idempotent" does not mean 200 every time.
+- **It must be called before the token is wiped.** Once `clearAllSecureItems()` and
+  `clearCachedSessionToken()` have run there is nothing left to authenticate with,
+  so a correctly-shaped call placed after them always fails and always has.
+
 ## Verifying your own work
 
 Revert your change and confirm the tests fail. Every fix in this repo has that
