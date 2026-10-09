@@ -2447,6 +2447,93 @@ console.log('\n== verification screens: never claim a delivery we cannot prove =
   );
 }
 
+console.log('\n== register echoes what it stored, it does not fabricate success ==');
+{
+  const { readFileSync } = await import('node:fs');
+  const { join: pathJoin } = await import('node:path');
+  const root = process.argv[2] ?? '.';
+  const lf = (p) => readFileSync(p, 'utf8').replace(/\r\n/g, '\n');
+  const src = lf(pathJoin(root, 'lib/registerWallets.ts'));
+
+  // `POST /api/wallet/register` answers with the eight {chain,address} rows it
+  // stored -- verified live. The client discarded that body and returned
+  // `{ success: true }` as a literal: a claim about the server it never checked,
+  // and one that stayed true even if the server had stored something else.
+  eq(
+    /await apiClient\.post\('\/api\/wallet\/register'/.test(src),
+    false,
+    'the register response body is no longer discarded'
+  );
+  eq(
+    /apiClient\.post<[^>]*>\(\s*'\/api\/wallet\/register'/.test(src),
+    true,
+    'the response is typed and read'
+  );
+  eq(
+    /registered = Array\.isArray\(data\?\.data\) \? data\.data : \[\];/.test(src),
+    true,
+    'the echoed rows are captured, tolerating a missing body'
+  );
+
+  // The result must carry what the server said, so a caller can check it.
+  eq(
+    /registered: RegisteredWallet\[\];/.test(src),
+    true,
+    'the result exposes the rows the server confirmed'
+  );
+  eq(
+    /interface RegisteredWallet \{/.test(src),
+    true,
+    'the confirmed row is a named type rather than an inline shape'
+  );
+
+  // `addresses` is now derived from the confirmation, not from the request, so
+  // it cannot claim a chain was stored that the server never echoed.
+  eq(
+    /return \{ success: true, registered, addresses: confirmed \};/.test(src),
+    true,
+    'addresses is built from the confirmed rows'
+  );
+  eq(
+    /for \(const \{ chain, address \} of confirmed\)/.test(src),
+    true,
+    'the wallet store is hydrated from what the server confirmed'
+  );
+  eq(
+    /for \(const \{ chain, address \} of addresses\)/.test(src),
+    false,
+    'the store is no longer hydrated from the unconfirmed request'
+  );
+
+  // A partial acknowledgement is a real failure. Silently returning fewer rows
+  // would leave the account with a wallet the server does not have.
+  eq(
+    /the server acknowledged only/.test(src),
+    true,
+    'a partial acknowledgement fails loudly, naming what is missing'
+  );
+  eq(
+    /missing \$\{missing\.map\(\(m\) => m\.chain\)\.join\(', '\)\}/.test(src),
+    true,
+    'the failure names the chains the server did not confirm'
+  );
+
+  // The wire chain is UPPERCASE and the frontend id is not, so something has to
+  // translate -- and an unknown wire value must not be invented into a ChainId.
+  eq(
+    /function toFrontendChain\(wire: string\): ChainId \| null/.test(src),
+    true,
+    'the wire chain is translated, and can fail'
+  );
+  eq(
+    /if \(!chainId\) continue;/.test(src),
+    true,
+    'an unmappable chain is skipped rather than coerced'
+  );
+}
+
+console.log('\n== one source for chain display names ==');
+
 console.log('\n== one source for chain display names ==');
 {
   const { readFileSync } = await import('node:fs');
