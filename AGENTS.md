@@ -1,3 +1,50 @@
+# AGENTS.md
+
+## Git: commit and push after every file change
+
+**After every file change, commit and push.**
+
+Do not batch several changes into one commit waiting for a natural stopping
+point, and do not leave a change uncommitted "until the work is finished". One
+change, one commit, pushed, then move on.
+
+### What "one change" means
+
+A commit is one coherent change that leaves the repository consistent — not one
+file, and not one keystroke. Committing a half-finished refactor is the failure
+this rule exists to prevent.
+
+- Fix one defect, or add one feature, or add one test. That is a commit.
+- Refactoring the surrounding code while fixing a bug is usually *not* part of
+  it. Separate commits.
+- Two unrelated fixes discovered in the same pass: two commits, pushed in order.
+
+### The gates run before the commit lands
+
+`pre-commit` runs typecheck, lint and the design audit. A commit that fails them
+does not happen. If a gate fails, either fix it or explain in the commit message
+why the exception is correct — do not reach for `--no-verify`, and do not weaken
+a gate to make a commit go through.
+
+### Reverting is a commit, not an edit
+
+Undoing something is itself a file change: commit the revert and push it. History
+is append-only. If a pushed commit was wrong, add a commit that undoes it and
+say in the message what was wrong and why.
+
+### When this rule and a pending question collide
+
+If a change depends on an answer only the owner has — which provider to use,
+whether a screen should ship at all — stop and ask rather than guessing and
+committing. One question, then continue. This rule is about not leaving work
+uncommitted; it is not a reason to commit something you know is provisional.
+
+`npm run verify` and `npm run contract` remain worth running before a handoff.
+`contract` needs the backend up; when it is down, say so in the commit message
+rather than implying it passed.
+
+---
+
 # React Native Animation Performance Guide
 *Reference this file before writing or reviewing any animation, gesture, or transition code.*
 
