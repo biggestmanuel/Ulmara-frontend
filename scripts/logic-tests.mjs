@@ -1948,11 +1948,19 @@ console.log('\n== F8: the store keeps native balances and invents no token rows 
     'token rows are spread only from a value fetchTokenBalances guaranteed is an array'
   );
 
-  // The warning the store surfaces comes from the token layer alone.
+  // This used to assert `warning: warnings[0] ?? null`, treating "only the first
+  // warning renders" as correct. It was pinning the bug: with an unreadable
+  // native chain AND an unreadable token, the user was told about one and never
+  // learned the other existed. Now pinned as a join instead.
   eq(
-    /set\(\{ balances: \[\.\.\.merged\.values\(\)\], warning: warnings\[0\] \?\? null \}\);/.test(src),
+    /warning: warnings\[0\] \?\? null/.test(src),
+    false,
+    'the store no longer surfaces only the first warning'
+  );
+  eq(
+    /warnings\.join\(' '\)/.test(src),
     true,
-    'the store reports only the first token-layer warning'
+    'warnings are joined so every problem is visible'
   );
 }
 
@@ -2204,11 +2212,20 @@ console.log('\n== a null native balance is dropped, never shown as 0.00 ==');
   const src = readFileSync(pathJoin(root, 'stores/walletStore.ts'), 'utf8');
 
   // TON and BTC come back with a null balance. Rendering that as 0.00 looks
-  // correct and is a lie, so the row is filtered out instead.
+  // a lie, so the row is not rendered. Naming it is handled above.
+  // This used to assert that a null balance was "filtered out rather than
+  // coerced", treating the dropped row as correct. It was pinning the item-3 bug.
+  // Filtering was worse than coercing: an unreadable chain became invisible
+  // rather than visibly wrong. The row is now dropped *and named*.
   eq(
     /if \(!chainId \|\| entry\.balance === null\) return \[\];/.test(src),
+    false,
+    'a null balance is no longer dropped silently'
+  );
+  eq(
+    /unreadable\.push/.test(src),
     true,
-    'a null native balance is filtered out rather than coerced'
+    'the chain whose balance could not be read is named in a warning'
   );
   eq(
     /balance: entry\.balance \?\? ['"]0/.test(src),
@@ -2429,6 +2446,160 @@ console.log('\n== verification screens: never claim a delivery we cannot prove =
     'no control is disabled based on a dev code'
   );
 }
+
+console.log('\n== the NGN estimate must never be a fabricated zero either ==');
+{
+  const { readFileSync } = await import('node:fs');
+  const { join: pathJoin } = await import('node:path');
+  const root = process.argv[2] ?? '.';
+  const lf = (p) => readFileSync(p, 'utf8').replace(/\r\n/g, '\n');
+  const coingecko = lf(pathJoin(root, 'lib/prices/coingecko.ts'));
+  const portfolio = lf(pathJoin(root, 'hooks/usePortfolioValue.ts'));
+  const withdraw = lf(pathJoin(root, 'app/deposit-withdraw/withdraw.tsx'));
+
+  // `usdToNng` had the same `?? 0` as `pickFromCache`, one function over: an
+  // unreadable fiat rate became a rate of exactly zero.
+  eq(
+    /export async function usdToNgn\(usdAmount: number\): Promise<number \| null>/.test(coingecko),
+    true,
+    'usdToNgn returns number | null'
+  );
+  eq(
+    /if \(rate === undefined \|\| rate === null\) return null;/.test(coingecko),
+    true,
+    'an unreadable rate returns null rather than 0'
+  );
+
+  // The caller has to carry that null all the way to the screen, or the fix
+  // stops at the type boundary.
+  eq(
+    /useState<number \| null>\(null\)/.test(withdraw),
+    true,
+    'the withdraw screen holds the estimate as number | null'
+  );
+  eq(
+    /estimatedNgn === null \?/.test(withdraw),
+    true,
+    'a null estimate has its own render branch'
+  );
+  // The defect: `estimatedNgn.toLocaleString(...)` on a null would throw, and
+  // guarding only the failure path while leaving the initial state at 0 would
+  // show a real zero before any rate arrives.
+  eq(
+    /useState\(0\)/.test(withdraw.replace(/\/\/[^\n]*/g, '')),
+    false,
+    'the estimate is not initialised to a real 0'
+  );
+  // Only the FAILURE path may not fabricate a zero. `setEstimatedNgn(0)` is still
+  // correct for `usdValue <= 0`, which is a genuine zero amount, so the check is
+  // scoped to the catch block rather than the whole file.
+  const catchBlock = /\.catch\(\(\) => \{[^}]*\}\);/.exec(withdraw);
+  eq(catchBlock !== null, true, 'the failure path is locatable');
+  if (catchBlock) {
+    eq(
+      /setEstimatedNgn\(0\)/.test(catchBlock[0]),
+      false,
+      'a failure does not set the estimate to a fabricated 0'
+    );
+    eq(
+      /setEstimatedNgn\(null\)/.test(catchBlock[0]),
+      true,
+      'a failure leaves the estimate unknown instead'
+    );
+  }
+  // The zero that legitimately remains: a zero USD amount converts to zero naira.
+  eq(
+    /if \(usdValue <= 0\) \{\s*setEstimatedNgn\(0\)/.test(withdraw),
+    true,
+    'a genuine zero USD amount still yields a real zero, which is correct'
+  );
+
+  // usePortfolioValue already nulled an unusable rate; make sure the null is
+  // handled rather than compared as if it were a number.
+  eq(
+    /rate !== null && rate > 0 \? rate : null/.test(portfolio),
+    true,
+    'usePortfolioValue handles the null rate explicitly'
+  );
+}
+
+console.log('\n== a missing price is absent, never zero ==');
+
+console.log('\n== a missing price is absent, never zero ==');
+{
+  const { readFileSync } = await import('node:fs');
+  const { join: pathJoin } = await import('node:path');
+  const root = process.argv[2] ?? '.';
+  const lf = (p) => readFileSync(p, 'utf8').replace(/\r\n/g, '\n');
+  const src = lf(pathJoin(root, 'lib/prices/coingecko.ts'));
+
+  // `result[s] = data[s] ?? 0` turned a failed lookup into a real zero. Every
+  // consumer already treats `undefined` as unknown, so the zero was silently
+  // defeating code written to handle exactly this case.
+  // Scoped to CODE lines. A whole-file grep matched the doc comment above, which
+  // quotes the old expression verbatim to explain what it replaced -- the same
+  // false positive CONTRACT-NOTES already records for `Promise<any>`. This bit
+  // twice on my own comment before it was scoped, which is why it is scoped.
+  const priceCode = src
+    .split('\n')
+    .filter((line) => !line.trim().startsWith('*') && !line.trim().startsWith('//') && !line.trim().startsWith('/*'))
+    .join('\n');
+  eq(
+    /result\[s\] = data\[s\] \?\? 0/.test(priceCode),
+    false,
+    'pickFromCache no longer substitutes 0 for an unpriced symbol'
+  );
+  eq(
+    /\?\? 0/.test(priceCode),
+    false,
+    'no `?? 0` fallback remains in executable code'
+  );
+  eq(
+    /if \(price !== undefined\) result\[s\] = price;/.test(src),
+    true,
+    'an unpriced symbol is left absent instead of written as zero'
+  );
+
+  // The record type has to admit absence, or the compiler fights the fix.
+  eq(
+    /Partial<Record<PriceSymbol, number>>/.test(src),
+    true,
+    'the price record is Partial, so absence is representable'
+  );
+
+  // `toUsd` had the same defect one call away: `amount * (prices[symbol] ?? 0)`.
+  eq(
+    /toUsd[\s\S]*?Promise<number \| null>/.test(src),
+    true,
+    'toUsd returns number | null rather than a fabricated number'
+  );
+  eq(
+    /export async function toUsd[\s\S]*?if \(price === undefined\) return null;/.test(src),
+    true,
+    'toUsd returns null when the price is unknown'
+  );
+  eq(
+    /export async function toUsd[\s\S]{0,400}?\?\? 0/.test(src),
+    false,
+    'toUsd has no zero fallback left'
+  );
+
+  // A genuine zero must still survive: the API can really answer 0, and that is
+  // a price, not an absence. So the guard tests `undefined`, never falsiness --
+  // `if (!price)` would drop a real zero.
+  eq(
+    /if \(price === undefined\) return null;/.test(src),
+    true,
+    'the check is for undefined specifically, so a real 0 still prices'
+  );
+  eq(
+    /if \(!price\)/.test(src),
+    false,
+    'no falsy check that would discard a genuine zero price'
+  );
+}
+
+console.log('\n== a null balance is not a zero balance: name the chains, do not drop them ==');
 
 console.log('\n== a null balance is not a zero balance: name the chains, do not drop them ==');
 {

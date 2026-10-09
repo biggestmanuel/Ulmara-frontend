@@ -61,7 +61,10 @@ export default function Withdraw() {
   const [prices, setPrices] = useState<Partial<Record<PriceSymbol, number>>>({});
   const [rateError, setRateError] = useState<string | null>(null);
   const [loadingRate, setLoadingRate] = useState(false);
-  const [estimatedNgn, setEstimatedNgn] = useState(0);
+  // `null` means the rate could not be read, which is NOT the same as ₦0 and must
+  // not render as one. Initialised to null rather than 0 so the estimate is
+  // absent until a rate is actually known.
+  const [estimatedNgn, setEstimatedNgn] = useState<number | null>(null);
 
   useEffect(() => {
     if (!selectedId && balances.length > 0) setSelectedId(balances[0].id);
@@ -108,10 +111,12 @@ export default function Withdraw() {
     let cancelled = false;
     usdToNgn(usdValue)
       .then((naira) => {
+        // null means the rate could not be read. Showing ₦0 would be a real
+        // number that is not a real one, which is the whole point of this change.
         if (!cancelled) setEstimatedNgn(naira);
       })
       .catch(() => {
-        if (!cancelled) setEstimatedNgn(0);
+        if (!cancelled) setEstimatedNgn(null);
       });
     return () => {
       cancelled = true;
@@ -259,6 +264,12 @@ export default function Withdraw() {
                         accessibilityLiveRegion="polite"
                       >
                         {rateError}
+                      </Typography>
+                    ) : estimatedNgn === null ? (
+                      // The rate is genuinely unknown. "≈ ₦0" would be a real
+                      // number that is not a real number.
+                      <Typography variant="label" color={colors.textSecondary}>
+                        ≈ ₦—
                       </Typography>
                     ) : (
                       <Typography variant="label" color={colors.textSecondary} numeric>

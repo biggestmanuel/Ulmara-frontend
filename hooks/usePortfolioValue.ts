@@ -62,7 +62,10 @@ export function usePortfolioValue(): PortfolioValue {
       .then(([usd, rate]) => {
         if (cancelled || !mounted.current) return;
         setPrices(usd);
-        setNgnRate(rate > 0 ? rate : null);
+        // `usdToNgn` already answers null for an unreadable rate. The `> 0`
+        // guard is kept because a rate of exactly 0 is not a usable rate either,
+        // but null now arrives as null rather than being papered over downstream.
+        setNgnRate(rate !== null && rate > 0 ? rate : null);
         setError(null);
       })
       .catch(() => {

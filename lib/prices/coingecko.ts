@@ -35,7 +35,17 @@ const CACHE_TTL_MS = 45_000; // 45s — frequent enough to feel live, gentle on 
 
 // Fetches USD prices for the given symbols, using a short-lived cache so
 // rapid re-renders (e.g. typing an amount) don't hammer the API.
-export async function getUsdPrices(symbols: PriceSymbol[]): Promise<Record<PriceSymbol, number>> {
+/**
+ * USD prices for the requested symbols.
+ *
+ * **Partial on purpose.** A symbol that could not be priced is absent from the
+ * record rather than present with a `0`, because "no price" and "worth nothing"
+ * are different facts and only one of them is a safe thing to render. Every
+ * consumer here treats absence as unknown already; see `pickFromCache`.
+ */
+export async function getUsdPrices(
+  symbols: PriceSymbol[]
+): Promise<Partial<Record<PriceSymbol, number>>> {
   const now = Date.now();
   if (cache && now - cache.fetchedAt < CACHE_TTL_MS) {
     return pickFromCache(symbols, cache.data);
@@ -55,28 +65,59 @@ export async function getUsdPrices(symbols: PriceSymbol[]): Promise<Record<Price
   return pickFromCache(symbols, flat);
 }
 
+/**
+ * A symbol we asked about but could not price is **absent from the record**,
+ * not present-and-zero.
+ *
+ * This used to be `result[s] = data[s] ?? 0`, which turned a failed lookup into a
+ * real zero. Every consumer already treats `undefined` as "unknown" and renders
+ * something honest — `usePortfolioValue` counts it as missing and reports `null`
+ * rather than a total, and `usdValueOf` returns `null` — so the zero was
+ * silently defeating code that was written to handle exactly this case. The
+ * caller could never tell "priced at zero" from "we have no idea", and a genuine
+ * zero does not need special handling because it arrives as `0` from the API.
+ *
+ * Note the ordering effect this has on the cache: a symbol that fails is simply
+ * not written, so the next read through the same cache misses it again rather
+ * than being pinned to a fabricated value.
+ */
 function pickFromCache(
   symbols: PriceSymbol[],
   data: Record<string, number>
-): Record<PriceSymbol, number> {
-  const result = {} as Record<PriceSymbol, number>;
-  for (const s of symbols) result[s] = data[s] ?? 0;
+): Partial<Record<PriceSymbol, number>> {
+  const result: Partial<Record<PriceSymbol, number>> = {};
+  for (const s of symbols) {
+    const price = data[s];
+    if (price !== undefined) result[s] = price;
+  }
   return result;
 }
 
-// Convenience: convert a native-asset amount to USD.
-export async function toUsd(symbol: PriceSymbol, amount: number): Promise<number> {
+/**
+ * Convert a native-asset amount to USD.
+ *
+ * Returns `null` when the price is unknown. It used to return `amount * 0`,
+ * which reported a holding as worth exactly nothing — the same fabricated zero,
+ * one function call further from the source.
+ */
+export async function toUsd(symbol: PriceSymbol, amount: number): Promise<number | null> {
   const prices = await getUsdPrices([symbol]);
-  return amount * (prices[symbol] ?? 0);
+  const price = prices[symbol];
+  if (price === undefined) return null;
+  return amount * price;
 }
 
 // Convenience: convert a USD amount to NGN using a live USD->NGN rate.
 // CoinGecko doesn't do fiat-to-fiat directly, so we piggyback on a
 // stablecoin (USDT) priced in NGN as a practical USD proxy.
-export async function usdToNgn(usdAmount: number): Promise<number> {
+export async function usdToNgn(usdAmount: number): Promise<number | null> {
   const { data } = await client.get('/simple/price', {
     params: { ids: 'tether', vs_currencies: 'ngn', x_cg_demo_api_key: API_KEY },
   });
-  const rate = data?.tether?.ngn ?? 0;
+  // The same fabricated zero as `pickFromCache`, one function over. A rate we
+  // could not read is not a rate of zero, and returning one would put a genuine
+  // ₦0 on the withdraw screen.
+  const rate = data?.tether?.ngn;
+  if (rate === undefined || rate === null) return null;
   return usdAmount * rate;
 }
