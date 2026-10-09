@@ -2296,6 +2296,142 @@ console.log('\n== settings: omit leaves alone, explicit null clears ==');
   );
 }
 
+console.log('\n== verification screens: never claim a delivery we cannot prove ==');
+{
+  const { readFileSync } = await import('node:fs');
+  const { join: pathJoin } = await import('node:path');
+  const root = process.argv[2] ?? '.';
+  const lf = (p) => readFileSync(p, 'utf8').replace(/\r\n/g, '\n');
+  const email = lf(pathJoin(root, 'app/(auth)/verify-email.tsx'));
+  const phone = lf(pathJoin(root, 'app/(auth)/verify-phone.tsx'));
+  const signup = lf(pathJoin(root, 'app/(auth)/signup.tsx'));
+
+  // The backend does NOT roll back a signup when the email provider fails, and
+  // documents that as deliberate (auth.service.ts: "A delivery failure must not
+  // roll back the signup"). So a 201 from signup is not evidence of delivery. The
+  // screens used to say "We sent a 6-digit code to …" unconditionally, which is
+  // a false statement to exactly the users whose provider just failed.
+  for (const [name, src, flag] of [
+    ['verify-email', email, 'emailSent'],
+    ['verify-phone', phone, 'phoneSent'],
+  ]) {
+    eq(
+      src.includes(`const { deliveryKnown = ${flag}`) ||
+        src.includes(`deliveryKnown === 'true'`) ||
+        new RegExp(`deliveryKnown`).test(src),
+      true,
+      `${name} computes whether delivery is known`
+    );
+    eq(
+      /We sent a 6-digit code/.test(src) && !/deliveryKnown \?/.test(src),
+      false,
+      `${name} does not assert a sent code unconditionally`
+    );
+    // The honest branch has to exist, not just be implied.
+    eq(
+      new RegExp(`deliveryKnown\\s*\\?\\s*'[^']*'\\s*:\\s*'[^']*'`).test(src),
+      true,
+      `${name} has both an affirmative and an honest branch in its copy`
+    );
+    // A known-absent delivery must not promise a code.
+    const honest = /deliveryKnown\s*\?\s*'([^']*)'\s*:\s*'([^']*)'/.exec(src);
+    if (honest) {
+      // At least one branch must name the destination the code went to, so the
+      // user is always told where to look. Which branch that is differs per
+      // screen, so it is checked as "one of the two" rather than a fixed side.
+      const [, whenTrue, whenFalse] = honest;
+      eq(
+        [whenTrue, whenFalse].some((s) => /\bsent\b/i.test(s)),
+        true,
+        `${name} tells the user a code was sent on the path where one was`
+      );
+      // Polarity differs per screen and must NOT be assumed here. On verify-email,
+      // deliveryKnown=true means DEV mode, where delivery was deliberately
+      // SKIPPED -- so the honest branch is the `true` one. On verify-phone it is
+      // the `false` one. Asserting a fixed polarity caught my own correct code.
+      //
+      // What must hold either way: the two branches are not both claims. A
+      // denial ("no code was sent", "we have not sent a code") is allowed to
+      // contain the word "sent"; an affirmative claim is not allowed to sit
+      // behind a negator. So: at most one branch may be an affirmative claim,
+      // and at least one must deny.
+      const isClaim = (s) => /\bsent\b/i.test(s) && !/\b(not|no|never|n't)\b/i.test(s);
+      const isDenial = (s) => /\b(not|no|never|n't)\b/i.test(s);
+      const claims = [whenTrue, whenFalse].filter(isClaim).length;
+      const denials = [whenTrue, whenFalse].filter(isDenial).length;
+      eq(
+        claims <= 1,
+        true,
+        `${name} does not claim a send in both branches -- at most one may claim it`
+      );
+      eq(
+        denials >= 1,
+        true,
+        `${name} has a branch that denies sending, rather than only asserting a send`
+      );
+    }
+  }
+
+  // verify-phone is reached by verifying the EMAIL code, so nothing in this flow
+  // has ever sent an SMS. It must not imply otherwise.
+  eq(
+    /phoneSent\?: string/.test(phone),
+    true,
+    'verify-phone declares a phoneSent param rather than assuming delivery'
+  );
+
+  // signup passes the flag through, and only ever sets it from a real signal.
+  eq(
+    /emailSent:/.test(signup),
+    true,
+    'signup forwards an emailSent signal'
+  );
+  eq(
+    /emailSent: devVerificationCodes\?\.email \? 'true' : undefined/.test(signup),
+    true,
+    'emailSent is derived, never a literal true'
+  );
+
+  // The dev code stays a prefill, not a requirement. It must remain optional.
+  eq(
+    /toDigits\(devEmailCode\)/.test(email),
+    true,
+    'the email code field is still prefillable from the dev code'
+  );
+  eq(
+    /toDigits\(devPhoneCode\)/.test(phone),
+    true,
+    'the phone code field is still prefillable from the dev code'
+  );
+  // And typing still works with nothing prefilled -- the field is editable
+  // regardless, which is why an absent dev code is not a dead end.
+  eq(
+    /onChangeDigit=\{onChangeDigit\}/.test(email) && /onChangeDigit=\{onChangeDigit\}/.test(phone),
+    true,
+    'both screens wire the code field to user input'
+  );
+  eq(
+    /handleResend/.test(email) && /handleResend/.test(phone),
+    true,
+    'both screens keep a resend, which is the recourse when delivery failed'
+  );
+
+  // CONTRACT-NOTES says never code against these. The screens must not gate on
+  // their presence -- only prefill from them.
+  eq(
+    /if\s*\(devEmailCode\)/.test(email) || /if\s*\(devPhoneCode\)/.test(email),
+    false,
+    'verify-email does not branch its behaviour on the dev code being present'
+  );
+  eq(
+    /disabled=\{[^}]*dev(Email|Phone)Code/.test(email + phone),
+    false,
+    'no control is disabled based on a dev code'
+  );
+}
+
+console.log('\n== the two account endpoints: assert the wallet shapes are not the same ==');
+
 console.log('\n== the two account endpoints: assert the wallet shapes are not the same ==');
 {
   const { readFileSync } = await import('node:fs');

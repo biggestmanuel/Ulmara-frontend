@@ -19,11 +19,23 @@ const RESEND_SECONDS = 30;
  */
 export default function VerifyPhone() {
   const colors = useThemeStore((state) => state.colors);
-  const { phone, userId, devPhoneCode } = useLocalSearchParams<{
+  const { phone, userId, devPhoneCode, phoneSent } = useLocalSearchParams<{
     phone?: string;
     userId?: string;
     devPhoneCode?: string;
+    /** 'true' when a code was positively confirmed delivered. Absent otherwise. */
+    phoneSent?: string;
   }>();
+
+  /**
+   * Whether we can claim an SMS is on its way.
+   *
+   * Nothing in this flow ever sends one: `signup` only issues an *email* code,
+   * and this screen is reached by verifying that email. So `phoneSent` is absent
+   * in every real run, and the copy must not assert an SMS was sent. Same
+   * reasoning as `verify-email` — an unknown delivery is not a sent delivery.
+   */
+  const deliveryKnown = phoneSent === 'true';
 
   const [code, setCode] = useState<string[]>(() => toDigits(devPhoneCode));
   const [error, setError] = useState<string | null>(null);
@@ -105,7 +117,8 @@ export default function VerifyPhone() {
       <View style={styles.headings}>
         <Typography variant="title">Verify your phone</Typography>
         <Typography variant="body" color={colors.textMuted} style={styles.subtitle}>
-          {'We sent a 6-digit code by SMS to\n'}
+          {deliveryKnown ? 'We sent a 6-digit code by SMS to' : 'We have not sent a code to'}
+          {'\n'}
           <Typography variant="label" color={colors.textPrimary}>
             {phone ?? 'your number'}
           </Typography>

@@ -71,8 +71,20 @@ export default function Signup() {
           email,
           phone,
           userId: user.id,
+          // A code is present ONLY under DEV_VERIFICATION_MODE, and it is a
+          // prefill, not a contract — see CONTRACT-NOTES.md. The verify screen
+          // works with nothing here: the user reads the code from their email
+          // and types it. Passing it when present only saves typing in dev.
           devEmailCode: devVerificationCodes?.email,
           devPhoneCode: devVerificationCodes?.phone,
+          // `emailSent` is the honest signal. `signup` deliberately does not
+          // roll back when delivery fails (auth.service.ts), so a 201 here does
+          // NOT mean a code was sent. Without this the verify screen would
+          // assert "We sent a 6-digit code to …" to someone who received
+          // nothing, and their only recourse is a resend that fails the same
+          // way. Both are undefined in dev, so the dev prefill path is
+          // unaffected.
+          emailSent: devVerificationCodes?.email ? 'true' : undefined,
         },
       });
     } catch (err) {

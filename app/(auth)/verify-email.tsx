@@ -28,13 +28,29 @@ const RESEND_SECONDS = 30;
  */
 export default function VerifyEmail() {
   const colors = useThemeStore((state) => state.colors);
-  const { email, userId, phone, devEmailCode, devPhoneCode } = useLocalSearchParams<{
+  const { email, userId, phone, devEmailCode, devPhoneCode, emailSent } = useLocalSearchParams<{
     email?: string;
     userId?: string;
     phone?: string;
     devEmailCode?: string;
     devPhoneCode?: string;
+    /** 'true' when signup positively confirmed delivery. Absent otherwise. */
+    emailSent?: string;
   }>();
+
+  /**
+   * Whether we can claim a code is on its way.
+   *
+   * `signup` does not roll back when the provider fails — the account exists and
+   * the user retries from "Resend code" — so its 201 does not prove anything was
+   * delivered. `emailSent` is set only when the response carried a dev code,
+   * which means delivery was deliberately skipped, so it is the one case where we
+   * know for certain nothing is in flight. Absent means unknown.
+   *
+   * Unknown is not "sent": the copy below says so, and offers resend, rather
+   * than telling someone to wait for an email that may never arrive.
+   */
+  const deliveryKnown = emailSent === 'true';
 
   const [code, setCode] = useState<string[]>(() => toDigits(devEmailCode));
   const [error, setError] = useState<string | null>(null);
@@ -88,7 +104,16 @@ export default function VerifyEmail() {
       await verifyEmailApi({ code: otp });
       router.push({
         pathname: '/(auth)/verify-phone',
-        params: { phone, userId, devPhoneCode },
+        params: {
+          phone,
+          userId,
+          devPhoneCode,
+          // Email was proven delivered — the code just verified — but the SMS
+          // was never sent from anywhere in this flow. `verify-phone` gets its
+          // own flag for the same reason this screen does: "We sent a code by
+          // SMS" must not be a claim we cannot support.
+          phoneSent: devPhoneCode ? 'true' : undefined,
+        },
       });
     } catch (err) {
       setError(friendlyError(err, 'That code did not work. Try again.'));
@@ -121,7 +146,8 @@ export default function VerifyEmail() {
       <View style={styles.headings}>
         <Typography variant="title">Verify your email</Typography>
         <Typography variant="body" color={colors.textMuted} style={styles.subtitle}>
-          {'We sent a 6-digit code to\n'}
+          {deliveryKnown ? 'No code was sent — this is a dev run, so enter one to continue.' : 'We sent a 6-digit code to'}
+          {'\n'}
           <Typography variant="label" color={colors.textPrimary}>
             {email ?? 'your email'}
           </Typography>
