@@ -3068,17 +3068,9 @@ console.log('\n== the two account endpoints: assert the wallet shapes are not th
     true,
     'the send screen holds the address-bearing shape, since it resolves for transfer'
   );
-  const hook = readFileSync(pathJoin(root, 'hooks/useAccountId.ts'), 'utf8');
-  eq(
-    /export type ResolvedProfile = AccountIdProfileWithWallets;/.test(hook),
-    true,
-    'useAccountId holds the chain-only shape, matching the endpoint it calls'
-  );
-  eq(
-    /type ResolvedProfile = AccountIdProfileWithAddresses/.test(hook),
-    false,
-    'useAccountId does not claim an address it cannot receive'
-  );
+  // `hooks/useAccountId.ts` used to be asserted here too, as the other consumer
+  // of the address-less resolve. It had no importer and was deleted; the shape
+  // difference it exercised is pinned live in scripts/contract-check.mjs.
 }
 
 console.log('\n== sign-out ends the session on the server, in the right order ==');

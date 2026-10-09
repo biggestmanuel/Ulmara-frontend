@@ -713,11 +713,14 @@ if (!recipientId) {
   // not one shape that happens to vary.
   //
   // This is why `resolveAccountId` and `resolveAccountIdForTransfer` have
-  // different return types. Pinned here because nothing else would notice: the
-  // only caller of the address-less one is `useAccountId`, which is unused, and
+  // different return types. Pinned here because nothing else would notice:
   // `network-select.tsx` filters its input down to entries that *do* have an
-  // address. So a regression here degrades to an empty list rather than throwing
+  // address, so a regression here degrades to an empty list rather than throwing
   // — the exact kind of change that would otherwise pass every test.
+  //
+  // The only other consumer of the address-less resolve, `useAccountId`, had no
+  // importer and has been deleted. That makes this group the sole place the
+  // difference is pinned at all, which is a good reason for it to exist.
   //
   // Uses `recipientId`, resolved above by logging in, rather than a constant.
   const raw = async (path) => {

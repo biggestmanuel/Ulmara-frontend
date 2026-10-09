@@ -155,11 +155,6 @@ export async function getTokensForChain(chain: ChainId): Promise<TokenDefinition
   return getConfiguredTokens(chain);
 }
 
-/** Synchronous best-effort view, for code that cannot await the registry. */
-export function getConfiguredTokensSync(chain: ChainId): TokenDefinition[] {
-  return getConfiguredTokens(chain);
-}
-
 /* -------------------------------------------------------------------------- */
 /* Balances                                                                    */
 /* -------------------------------------------------------------------------- */
