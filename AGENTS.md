@@ -1,12 +1,28 @@
 # AGENTS.md
 
-## Git: commit and push after every file change
+## Git: branch, and commit and push after every file change
+
+**Never push to `main`. `main` is Manuel's to merge.**
+
+Work on a branch, push the branch, and open a pull request. This mirrors the
+backend repo's rule, and it is the only thing that makes branch protection on
+`main` (a launch-ops item) possible to turn on without breaking someone's
+workflow. Pushing straight to `main` is what branch protection exists to prevent,
+so doing it by default quietly removes the reason to add it.
+
+```
+git switch -c <short-descriptive-name>     # from an up-to-date main
+git push -u origin <branch>
+```
 
 **After every file change, commit and push.**
 
 Do not batch several changes into one commit waiting for a natural stopping
 point, and do not leave a change uncommitted "until the work is finished". One
 change, one commit, pushed, then move on.
+
+A commit lands on `main` when Manuel merges it, not when you push it. That is
+the point: one reviewer, one merge point, one place the history is judged.
 
 ### What "one change" means
 
