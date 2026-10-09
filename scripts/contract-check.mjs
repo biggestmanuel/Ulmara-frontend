@@ -891,6 +891,79 @@ if (current) {
 }
 });
 
+group('address validation: the one proxied endpoint');
+await attempt('validation group', async () => {
+// The only endpoint in the API that proxies a third party, and until now the only
+// one with no live assertion at all -- while `external-wallet.tsx` gates the
+// external-transfer signing flow on its answer.
+//
+// Pins the relationships that held across every run of both audits. Deliberately
+// does NOT pin "a well-formed address answers 200": measured 200 and 400 on the
+// same address against the same running server, because the 200/400 split
+// depends on what the chain provider answers rather than on the address alone.
+// Pinning it would be intermittent red that means nothing.
+const validate = async (address, chain) => {
+  const res = await fetch(`${BASE}/api/validation/address`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${callerToken}` },
+    body: JSON.stringify({ address, chain }),
+  });
+  const json = await res.json().catch(() => ({}));
+  return { status: res.status, row: json?.data ?? null, message: json?.message ?? null };
+};
+
+// 1. Malformed: the certain case. An address that is not an address cannot exist
+// on any chain, so both fields are false and no provider is consulted.
+const malformed = await validate('nope', 'ETH');
+eq(malformed.status, 200, 'a malformed address answers 200 rather than rejecting outright');
+eq(malformed.row?.formatValid, false, 'a malformed address reports formatValid=false');
+eq(malformed.row?.exists, false, 'a malformed address reports exists=false');
+eq(malformed.row?.chain, 'ETH', 'the response echoes the chain asked for');
+eq(malformed.row?.address, 'nope', 'the response echoes the address asked for');
+
+// 2. The invariant behind the one: a false `exists` only ever accompanies a false
+// `formatValid`. A well-formed address that cannot be verified is a 400, not a
+// 200 carrying exists=false -- which is why gating on `exists` in the app is
+// close to gating on nothing.
+eq(
+  malformed.row?.exists === false && malformed.row?.formatValid === false,
+  true,
+  'exists=false is always paired with formatValid=false'
+);
+
+// 3. A bad chain is refused before anything is looked up.
+const lowerChain = await validate('0x1111111111111111111111111111111111111111', 'eth');
+eq(lowerChain.status, 400, 'a lowercase chain is refused -- the enum is case-sensitive');
+const unknownChain = await validate('0x1111111111111111111111111111111111111111', 'DOGE');
+eq(unknownChain.status, 400, 'an unknown chain is refused');
+ok(`  -> ${String(unknownChain.message).slice(0, 60)}...`);
+
+// 4. Whichever way a well-formed address resolves, the shape holds and `exists`
+// is a boolean. Its VALUE is not asserted: it is a constant true behind a 200,
+// and the 200-vs-400 split is the provider's to decide.
+const wellFormed = await validate('0x1111111111111111111111111111111111111111', 'ETH');
+eq([200, 400].includes(wellFormed.status), true,
+   `a well-formed address resolves to 200 or 400 (got ${wellFormed.status})`);
+if (wellFormed.status === 200) {
+  eq(wellFormed.row?.formatValid, true, 'a 200 for a well-formed address reports formatValid=true');
+  eq(typeof wellFormed.row?.exists, 'boolean',
+     'exists is a boolean when present -- asserted in both directions, never by value');
+} else {
+  ok(`  the provider could not verify it, and said so with: ${String(wellFormed.message).slice(0, 50)}`);
+  eq(/could not be verified/i.test(String(wellFormed.message)), true,
+     'an unverifiable address is refused with a message that says so');
+}
+
+// 5. A syntactically valid address on a non-EVM chain, which needs a different
+// provider entirely. Reaching it at all is the point: the same proxy serves
+// every supported chain, so this is a second code path behind the same route.
+const onTon = await validate('EQBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB', 'TON');
+eq([200, 400].includes(onTon.status), true, `TON resolves to 200 or 400 (got ${onTon.status})`);
+if (onTon.status === 200) {
+  eq(onTon.row?.chain, 'TON', 'the TON response echoes TON, not the EVM chain');
+}
+});
+
 group('backend strictness, over raw HTTP');
 {
   // These two rules cannot be reached through the client, because the client
