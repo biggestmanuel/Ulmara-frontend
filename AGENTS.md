@@ -45,6 +45,31 @@ rather than implying it passed.
 
 ---
 
+## Deleted: gas sponsorship (`lib/gas/gasAbstraction.ts`)
+
+Removed, and **not** to be restored by flipping a flag.
+
+Gas sponsorship is gasless transfers: the backend holds a sponsor wallet, pays
+the network fee, and deducts the equivalent **in-kind** from the user's balance,
+so someone holding only USDC can move it without ever buying ETH. The module was
+a finished client for that — `getGasSponsorQuote` and `submitSponsoredTransaction`,
+gated on `EXPO_PUBLIC_GAS_SPONSOR`, off by default.
+
+It was deleted because the backend defines no `/gas/quote` and no `/gas/submit`,
+its own comment recorded that neither was being added, and nothing imported it.
+A complete implementation behind a flag for routes that cannot exist is worse
+than no code: it reads like a shipped feature, and flipping the flag produces a
+crash rather than a transfer.
+
+**If gasless ever comes up, it is a fresh decision that needs the backend half
+first.** `scripts/contract-check.mjs` still asserts the spec has neither route,
+and that assertion is now a tripwire — if someone adds one, the correct response
+is to build both halves deliberately. Do not treat it as a regression to silence.
+The push-notification half of the same test group (F5) is unrelated and still
+live.
+
+---
+
 # React Native Animation Performance Guide
 *Reference this file before writing or reviewing any animation, gesture, or transition code.*
 

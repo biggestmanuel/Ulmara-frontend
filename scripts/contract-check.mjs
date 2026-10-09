@@ -1050,7 +1050,20 @@ group('the live spec still advertises what the client calls');
     for (const [p, method] of mustHave) {
       eq(spec.paths?.[p]?.[method] !== undefined, true, `the spec has ${method.toUpperCase()} ${p}`);
     }
-    // A route the client must never call: C6 removed the backend routes.
+    // Routes the client must never call. C6 removed the backend routes.
+    //
+    // `/api/push/token` still has live client code behind
+    // `EXPO_PUBLIC_PUSH_REGISTRATION`, so this pins the backend against the
+    // feature being half-built.
+    //
+    // `/gas/quote` and `/gas/submit` had a client module too — a complete gas
+    // sponsorship implementation behind `EXPO_PUBLIC_GAS_SPONSOR`. It was
+    // deleted, because the backend declined to build its half and a finished
+    // client for routes that cannot exist reads like a working feature to the
+    // next person. These two assertions outlive the code on purpose: they are
+    // now a **tripwire**. If someone adds either route to the backend, this
+    // fires, and the correct response is to rebuild both halves deliberately —
+    // not to flip the old flag and hope.
     for (const [p, method] of [['/api/push/token', 'post'], ['/gas/quote', 'post'], ['/gas/submit', 'post']]) {
       eq(spec.paths?.[p]?.[method] === undefined, true, `the spec has no ${method.toUpperCase()} ${p}`);
     }

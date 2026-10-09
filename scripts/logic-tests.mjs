@@ -74,7 +74,6 @@ const TARGETS = [
   'lib/api/accountId.ts',
   'lib/api/transactions.ts',
   'stores/contactsStore.ts',
-  'lib/gas/gasAbstraction.ts',
   'lib/push/pushNotifications.ts',
   'lib/security/biometrics.ts',
   'lib/chains/evmConfig.ts',
@@ -1305,11 +1304,10 @@ console.log('\n== contactsStore: real add / rename behaviour ==');
   restore();
 }
 
-console.log('\n== F5: no call to /api/push/token, /gas/quote or /gas/submit ==');
+console.log('\n== F5: no call to /api/push/token while the switch is off ==');
 {
   const client = await load('lib/api/client.ts');
   const push = await load('lib/push/pushNotifications.ts');
-  const gas = await load('lib/gas/gasAbstraction.ts');
   const storage = await load('lib/storage/secureStorage.ts');
   const { SecureStorageKeys } = storage;
 
@@ -1329,19 +1327,13 @@ console.log('\n== F5: no call to /api/push/token, /gas/quote or /gas/submit ==')
   client.apiClient.get = record('GET');
   client.apiClient.patch = record('PATCH');
   const restore = () => Object.assign(client.apiClient, real);
-  const forbidden = (what) =>
-    requests.filter((r) => r.includes('/api/push/token') || r.startsWith('POST /gas/'));
+  const forbidden = (what) => requests.filter((r) => r.includes('/api/push/token'));
 
   // --- the off-switch is off with no environment at all ------------------
   eq(
     process.env.EXPO_PUBLIC_PUSH_REGISTRATION,
     undefined,
     'no EXPO_PUBLIC_PUSH_REGISTRATION is set in the test environment'
-  );
-  eq(
-    process.env.EXPO_PUBLIC_GAS_SPONSOR,
-    undefined,
-    'no EXPO_PUBLIC_GAS_SPONSOR is set in the test environment'
   );
 
   // --- syncRegisteredToken: runs on every app foreground ------------------
@@ -1374,34 +1366,11 @@ console.log('\n== F5: no call to /api/push/token, /gas/quote or /gas/submit ==')
   eq(state.support, 'backend-pending', 'registerPushToken reports backend-pending, not a failure');
   eq(state.detail, null, 'registerPushToken reports no error detail');
 
-  // --- gas: both entry points refuse rather than invent a quote ----------
-  requests.length = 0;
-  let quoteThrew = null;
-  try {
-    await gas.getGasSponsorQuote({
-      network: 'ETH', fromAddress: '0x1', toAddress: '0x2', amount: '1', asset: 'ETH',
-    });
-  } catch (err) {
-    quoteThrew = err;
-  }
-  eq(quoteThrew !== null, true, 'getGasSponsorQuote throws instead of returning a fake quote');
-  eq(requests.length, 0, 'getGasSponsorQuote makes no request while the flag is off');
-
-  requests.length = 0;
-  let submitThrew = null;
-  try {
-    await gas.submitSponsoredTransaction({ network: 'ETH', signedPayload: '0xdeadbeef' });
-  } catch (err) {
-    submitThrew = err;
-  }
-  eq(submitThrew !== null, true, 'submitSponsoredTransaction throws instead of faking a result');
-  eq(requests.length, 0, 'submitSponsoredTransaction makes no request while the flag is off');
-
   // ------------------------------------------------------------------------
   // Causality. Everything above would also pass if the requests were being
   // swallowed somewhere else entirely, or if the stub simply never fired. So
-  // load fresh copies with the switches ON and show the requests really do
-  // happen then — the guard is the only thing stopping them.
+  // load a fresh copy with the switch ON and show the request really does
+  // happen then — the guard is the only thing stopping it.
   // ------------------------------------------------------------------------
   const pushOn = await loadFresh('lib/push/pushNotifications.ts', {
     EXPO_PUBLIC_PUSH_REGISTRATION: 'true',
@@ -1423,28 +1392,6 @@ console.log('\n== F5: no call to /api/push/token, /gas/quote or /gas/submit ==')
     requests.filter((r) => r === 'DELETE /api/push/token').length,
     1,
     'with the switch ON, unregisterPushToken does DELETE /api/push token'
-  );
-
-  const gasOn = await loadFresh('lib/gas/gasAbstraction.ts', {
-    EXPO_PUBLIC_GAS_SPONSOR: 'true',
-  });
-  requests.length = 0;
-  await gasOn
-    .getGasSponsorQuote({ network: 'ETH', fromAddress: '0x1', toAddress: '0x2', amount: '1', asset: 'ETH' })
-    .catch(() => null);
-  eq(
-    requests.filter((r) => r === 'POST /gas/quote').length,
-    1,
-    'with the switch ON, getGasSponsorQuote does POST /gas/quote'
-  );
-  requests.length = 0;
-  await gasOn
-    .submitSponsoredTransaction({ network: 'ETH', signedPayload: '0xdeadbeef' })
-    .catch(() => null);
-  eq(
-    requests.filter((r) => r === 'POST /gas/submit').length,
-    1,
-    'with the switch ON, submitSponsoredTransaction does POST /gas/submit'
   );
 
   // And the default really is off, not merely unset in this process.
