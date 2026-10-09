@@ -186,7 +186,13 @@ export const useWalletStore = create<WalletState>((set, get) => ({
             // Hydrate the registry from the backend first, so the contract
             // addresses read below are the ones the backend says exist on this
             // network (Sepolia USDC, not a mainnet address that names nothing).
-            const tokens = await getTokensForChain(chainId);
+            //
+            // A registry that could not be reached is reported rather than
+            // thrown: this chain may still hold a readable native balance, and
+            // the token list beside it would otherwise be an empty answer to a
+            // question nobody successfully asked.
+            const { tokens, error } = await getTokensForChain(chainId);
+            if (error) warnings.push(error);
             const result = await fetchTokenBalances({
               chain: chainId,
               address: addresses[chainId]!,

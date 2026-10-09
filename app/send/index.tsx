@@ -102,7 +102,11 @@ export default function SendIndex() {
       const seen = new Map<string, { symbol: string; name: string }>();
       for (const result of lists) {
         if (result.status !== 'fulfilled') continue;
-        for (const token of result.value) {
+        // `result.value` is `{ tokens, error }`. An unreachable registry leaves
+        // `tokens` empty and `error` set; this screen has no warning surface of
+        // its own, so it falls back to the native symbol rather than offering a
+        // token list that is missing entries for a reason the user cannot see.
+        for (const token of result.value.tokens) {
           if (!seen.has(token.symbol)) {
             seen.set(token.symbol, { symbol: token.symbol, name: token.name });
           }

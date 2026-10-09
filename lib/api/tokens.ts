@@ -6,6 +6,7 @@ import {
   type TokenDefinition,
 } from '../../constants/tokens';
 import type { ChainId } from '../chains';
+import { chainLabel } from '../../constants/chains';
 import { readTokenBalance, isTokenContract } from '../tokens/erc20';
 
 /**
@@ -99,12 +100,38 @@ function isHexAddress(value: unknown): value is string {
  * configuration, and `source` says which happened so the UI can be honest about
  * where a token's address came from.
  */
+export interface TokenRegistryResult {
+  tokens: TokenRegistryEntry[];
+  source: 'backend' | 'config';
+  /**
+   * Non-null only when the registry could not be consulted for an unexpected
+   * reason — a 500, a timeout, a dropped connection.
+   *
+   * This is the distinction that was missing. Every failure used to fall through
+   * to `{ tokens: [], source: 'config' }`, which is byte-identical to the answer
+   * for "the backend has no registry route". On the pilot network the two are
+   * indistinguishable *downstream* too, because `isSeedUsable` already filters
+   * the local mainnet seeds out of a testnet — so `getConfiguredTokens` returns
+   * an empty list for Sepolia whether the backend said "no tokens" or the
+   * request never came back. A transient 500 rendered as a claim about the
+   * chain that the failing request was in no position to make.
+   *
+   * A 404 or 405 is deliberately **not** an error. The route being absent is a
+   * known state, memoised in `registrySupported`, and falling back to local
+   * configuration is the documented behaviour rather than a surprise. The
+   * token-balances path below makes the same trade, for the same reason, and
+   * writes down why.
+   */
+  error: string | null;
+}
+
 export async function fetchTokenRegistry(
   chain: ChainId
-): Promise<{ tokens: TokenRegistryEntry[]; source: 'backend' | 'config' }> {
+): Promise<TokenRegistryResult> {
   const cached = registryCache.get(chain);
-  if (cached) return { tokens: cached, source: 'backend' };
+  if (cached) return { tokens: cached, source: 'backend', error: null };
 
+  let failure: string | null = null;
   if (registrySupported !== false) {
     try {
       const { data } = await apiClient.get<ApiEnvelope<TokenRegistryEntry[]>>(
@@ -123,7 +150,7 @@ export async function fetchTokenRegistry(
       hydrateTokenRegistry(chain, tokens);
       registryCache.set(chain, tokens);
       registrySupported = true;
-      return { tokens, source: 'backend' };
+      return { tokens, source: 'backend', error: null };
     } catch (err) {
       const status = toApiError(err).status;
       if (status === 404 || status === 405) {
@@ -134,25 +161,43 @@ export async function fetchTokenRegistry(
         // result so we do not re-ask on every render of the asset picker.
         registryCache.set(chain, []);
         registrySupported = true;
-        return { tokens: [], source: 'backend' };
+        return { tokens: [], source: 'backend', error: null };
+      } else {
+        // 500, 502, 503, a timeout, a dropped connection, DNS. Anything the
+        // server never got round to answering. `registrySupported` is left
+        // alone so the next refresh retries.
+        failure = 'The token list could not be checked.';
       }
     }
   }
 
-  return { tokens: [], source: 'config' };
+  return { tokens: [], source: 'config', error: failure };
 }
 
 /**
- * The tokens to offer on a chain.
+ * The tokens to offer on a chain, and whether that list is trustworthy.
  *
  * Fetches the backend registry first, then reads the effective list back out of
  * `constants/tokens.ts` so that local configuration and any
  * `EXPO_PUBLIC_TOKEN_ADDRESSES` override are applied in exactly one place — the
  * same place the signing paths read from.
+ *
+ * `error` is non-null when the registry could not be consulted at all. It is
+ * returned alongside the list rather than thrown, because a chain whose token
+ * list is unknown is still a chain the user can hold a native balance on: the
+ * caller can show an honest partial asset list, and cannot do that if the whole
+ * refresh rejects.
  */
-export async function getTokensForChain(chain: ChainId): Promise<TokenDefinition[]> {
-  await fetchTokenRegistry(chain);
-  return getConfiguredTokens(chain);
+export async function getTokensForChain(
+  chain: ChainId
+): Promise<{ tokens: TokenDefinition[]; error: string | null }> {
+  const registry = await fetchTokenRegistry(chain);
+  return {
+    tokens: getConfiguredTokens(chain),
+    error: registry.error
+      ? `${chainLabel(chain)}: ${registry.error} Tokens on this chain may be missing from your assets.`
+      : null,
+  };
 }
 
 /* -------------------------------------------------------------------------- */

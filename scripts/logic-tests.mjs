@@ -1906,6 +1906,185 @@ console.log('\n== F8: token balances are optional and must never break the store
   tokens.resetTokenBackendProbes();
 }
 
+console.log('\n== F9: an unreachable token registry must not read as "no tokens" ==');
+{
+  const client = await load('lib/api/client.ts');
+  const tokens = await load('lib/api/tokens.ts');
+  const chains = await load('constants/chains.ts');
+
+  const axiosLike = (status, message) => ({
+    isAxiosError: true,
+    name: 'AxiosError',
+    message: `Request failed with status code ${status}`,
+    status,
+    code: 'ERR_BAD_REQUEST',
+    config: {},
+    response: { status, data: { success: false, message }, headers: {}, config: {} },
+    toJSON: () => ({}),
+  });
+
+  const real = { get: client.apiClient.get };
+  let payload = [];
+  let reject = null;
+  client.apiClient.get = (url) => {
+    if (reject) return Promise.reject(reject);
+    return Promise.resolve({ data: { success: true, data: payload } });
+  };
+  const restore = () => Object.assign(client.apiClient, real);
+
+  // Every scenario needs a fresh instance: `registrySupported` is per-session
+  // module state and a 404 in one scenario would silence the route for the next.
+  const ask = async (fresh) => (fresh ?? tokens).getTokensForChain('eth');
+
+  const label = chains.chainLabel('eth');
+
+  // --- the backend answered, and the answer was "here are the tokens" -------
+  {
+    const fresh = await loadFresh('lib/api/tokens.ts', {});
+    reject = null;
+    payload = [{ symbol: 'USDC', name: 'USD Coin', decimals: 6, address: '0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238' }];
+    const out = await ask(fresh);
+    eq(out.error, null, 'a registry the backend answered carries no error');
+    eq(out.tokens.length, 1, 'the registry token is offered');
+    eq(out.tokens[0].symbol, 'USDC', 'the hydrated symbol survives into the effective list');
+    eq(out.tokens[0].decimals, 6, 'the hydrated decimals survive — a mainnet seed would say 6 too, so this is the registry path');
+  }
+
+  // --- 400 "unsupported chain": a real answer, not a failure ---------------
+  // The pilot backend 400s for every chain except Ethereum. That is the
+  // registry working, so it must not be dressed up as an outage.
+  {
+    const fresh = await loadFresh('lib/api/tokens.ts', {});
+    // The scenario above hydrated USDC into the shared registry. That state
+    // outlives a fresh copy of `lib/api/tokens.ts`, so clear it before asserting
+    // that this answer is genuinely empty.
+    fresh.resetTokenBackendProbes();
+    reject = axiosLike(400, 'Unsupported chain: ETH');
+    const out = await ask(fresh);
+    eq(out.error, null, 'a 400 unsupported-chain is an answer, and produces no error');
+    eq(out.tokens.length, 0, 'a 400 unsupported-chain genuinely yields no tokens');
+  }
+
+  // --- 404 / 405: the route is absent, which is a known state -------------
+  for (const status of [404, 405]) {
+    const fresh = await loadFresh('lib/api/tokens.ts', {});
+    reject = axiosLike(status, 'Route not found');
+    const out = await ask(fresh);
+    eq(out.error, null, `a ${status} route-absent is a documented fallback, not an error`);
+  }
+
+  // A 404 is remembered, so the route is not probed again this session.
+  {
+    const fresh = await loadFresh('lib/api/tokens.ts', {});
+    let attempts = 0;
+    reject = axiosLike(404, 'Route not found');
+    client.apiClient.get = (url) => {
+      attempts += 1;
+      if (url.includes('token-balances')) return Promise.resolve({ data: { success: true, data: [] } });
+      return Promise.reject(reject);
+    };
+    await ask(fresh);
+    await ask(fresh);
+    eq(attempts, 1, 'after a 404 the registry route is not probed again this session');
+    client.apiClient.get = (url) => {
+      if (url.includes('token-balances')) return Promise.resolve({ data: { success: true, data: [] } });
+      return Promise.reject(reject);
+    };
+  }
+
+  // --- the defect: 5xx and friends produced the same object as a 400 -------
+  // Before the fix every one of these returned `{ tokens: [], source: 'config' }`
+  // and `getTokensForChain` returned a bare `[]`, byte-identical to the 400
+  // case above. On Sepolia that empty list is what the user saw as "no tokens".
+  const unexpected = [];
+  for (const status of [401, 403, 429, 500, 502, 503]) {
+    const fresh = await loadFresh('lib/api/tokens.ts', {});
+    reject = axiosLike(status, 'upstream is unwell');
+    const out = await ask(fresh);
+    eq(typeof out.error, 'string', `a ${status} reports an error rather than an empty answer`);
+    eq(out.error.length > 0, true, `the ${status} error is a usable message`);
+    eq(out.error.includes(label), true, `the ${status} error names the chain (${label})`);
+    unexpected.push(out.error);
+  }
+
+  // The load-bearing assertion: every unexpected failure carries a message, and
+  // none of them is the empty string that means "we have an answer".
+  eq(unexpected.every((e) => typeof e === 'string' && e.length > 0), true,
+     'an unreachable registry is never indistinguishable from an empty answer');
+
+  // A transport failure with no HTTP status is the common case on a phone.
+  {
+    const fresh = await loadFresh('lib/api/tokens.ts', {});
+    reject = new Error('Network Error');
+    const out = await ask(fresh);
+    eq(typeof out.error, 'string', 'a transport failure reports an error too');
+    eq(out.error.includes(label), true, 'a transport failure names the chain');
+  }
+
+  // A 5xx must not be remembered as route-absent — it is transient.
+  {
+    const fresh = await loadFresh('lib/api/tokens.ts', {});
+    let attempts = 0;
+    client.apiClient.get = (url) => {
+      if (url.includes('token-balances')) return Promise.resolve({ data: { success: true, data: [] } });
+      attempts += 1;
+      return Promise.reject(axiosLike(500, 'boom'));
+    };
+    await ask(fresh);
+    await ask(fresh);
+    eq(attempts, 2, 'a 500 is retried on the next refresh (not remembered as absent)');
+  }
+
+  // --- the shape is part of the contract ----------------------------------
+  eq(Array.isArray(unexpected), true, 'the unexpected-failure scenarios all produced a message');
+  eq(Array.isArray(payload), true, 'sanity: the stub payload is still an array');
+
+  restore();
+  reject = null;
+  tokens.resetTokenBackendProbes();
+}
+
+console.log('\n== F9b: the store surfaces a registry failure instead of hiding it ==');
+{
+  // The store cannot be loaded here — it imports `../lib/chains`, reached only
+  // through dynamic import(), which the harness does not follow. Asserting on
+  // the source is the honest option, and is what the F8 store group does.
+  const { readFileSync: rf } = await import('node:fs');
+  const { join: pj } = await import('node:path');
+  const root = process.argv[2] ?? '.';
+  const store = rf(pj(root, 'stores/walletStore.ts'), 'utf8');
+  const send = rf(pj(root, 'app/send/index.tsx'), 'utf8');
+
+  // The unwrap, and the push. Without the push the error is computed and dropped.
+  eq(
+    /const \{ tokens, error \} = await getTokensForChain\(/.test(store),
+    true,
+    'the store unwraps the registry result rather than assuming an array'
+  );
+  eq(
+    /if \(error\) warnings\.push\(error\);/.test(store),
+    true,
+    'the store pushes a registry failure into the same warnings array as every other partial failure'
+  );
+  eq(
+    /warnings\.push\(error\)/.test(store),
+    true,
+    'the registry error is reported, not swallowed'
+  );
+
+  // The send screen consumes the same shape and must not iterate the wrapper.
+  eq(
+    /for \(const token of result\.value\.tokens\)/.test(send),
+    true,
+    'the send screen reads .tokens off the result, not the wrapper object'
+  );
+  eq(
+    /for \(const token of result\.value\)/.test(send),
+    false,
+    'the send screen does not iterate the wrapper as if it were the token list'
+  );
+}
+
 console.log('\n== F8: the store keeps native balances and invents no token rows ==');
 {
   // `stores/walletStore.ts` cannot be loaded here: it imports `../lib/chains`,
