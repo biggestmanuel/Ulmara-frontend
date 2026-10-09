@@ -10,23 +10,14 @@
 // never mnemonics or private keys (WalletGenerationStepError is constructed
 // to carry nothing else).
 
+import { chainLabel } from '../constants/chains';
+
 export interface WalletErrorDisplay {
   /** One-line, user-facing summary, e.g. "Wallet setup failed at TON key derivation". */
   headline: string;
   /** Technical detail (underlying error message / HTTP status), or null. */
   detail: string | null;
 }
-
-const CHAIN_LABELS: Record<string, string> = {
-  eth: 'Ethereum',
-  bsc: 'BNB Smart Chain',
-  base: 'Base',
-  polygon: 'Polygon',
-  btc: 'Bitcoin',
-  tron: 'Tron',
-  sol: 'Solana',
-  ton: 'TON',
-};
 
 const STEP_LABELS: Record<string, string> = {
   'generate-mnemonic': 'mnemonic generation',
@@ -40,7 +31,7 @@ const STEP_LABELS: Record<string, string> = {
 };
 
 function labelChain(chain: string): string {
-  return CHAIN_LABELS[chain] ?? chain.toUpperCase();
+  return chainLabel(chain);
 }
 
 function labelStep(step: string): string {

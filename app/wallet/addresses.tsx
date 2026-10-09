@@ -15,17 +15,7 @@ import {
 } from '../../components/ui';
 import { useWalletStore } from '../../stores/walletStore';
 import { gutter, radius, space, useThemeStore } from '../../lib/theme';
-
-const CHAIN_LABELS: Record<string, string> = {
-  eth: 'Ethereum',
-  bsc: 'BSC',
-  base: 'Base',
-  polygon: 'Polygon',
-  sol: 'Solana',
-  tron: 'TRON',
-  ton: 'TON',
-  btc: 'Bitcoin',
-};
+import { chainLabel } from '../../constants/chains';
 
 /**
  * Receiving addresses.
@@ -103,7 +93,7 @@ export default function WalletAddresses() {
         ) : (
           <View style={styles.list}>
             {entries.map(([chainId, address], index) => {
-              const label = CHAIN_LABELS[chainId] ?? chainId.toUpperCase();
+              const label = chainLabel(chainId);
               return (
                 <ListRow
                   key={chainId}

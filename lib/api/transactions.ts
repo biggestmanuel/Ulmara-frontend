@@ -42,8 +42,12 @@ interface ApiEnvelope<T> {
   data: T;
 }
 
-// Shared with externalTransfers.ts, which maps the submit response into the
-// app-wide Transaction shape without importing the normalizer.
+// The wire row, shared by every transaction endpoint: the create paths
+// (`send`, `external/{id}/submit`) and both read paths (`/`, `/{id}`).
+//
+// Exported because `externalTransfers.ts` maps the submit response through the
+// same normalizer rather than keeping a hand-written copy of it, which is what
+// this interface's `direction` and `counterpartyAccountId` used to drift from.
 export interface BackendTransaction {
   id: string;
   recipientAccountId: string;
@@ -54,14 +58,33 @@ export interface BackendTransaction {
   status: 'PENDING' | 'PROCESSING' | 'COMPLETED' | 'FAILED';
   txHash: string | null;
   createdAt: string;
-  direction?: TransactionDirection;
-  counterpartyAccountId?: string;
+  /**
+   * Required, not optional. All four endpoints send it.
+   *
+   * These two fields were `?:` with `?? 'sent'` and `?? recipientAccountId`
+   * fallbacks, because `POST /api/transaction/send` did not answer with them
+   * while the two read paths did. The backend now sends both on the create path
+   * too (commit 679b536), so the fallback only masked a regression: if the field
+   * ever went missing again, the client would quietly invent a `sent` direction
+   * and the row would read as if it were verified against reality.
+   *
+   * Verified live after the change, on all three shapes: create answers
+   * `direction: "sent"` and `counterpartyAccountId: "9259531853"`, and the read
+   * paths agree.
+   */
+  direction: TransactionDirection;
+  /** Present on every endpoint. See `direction`. */
+  counterpartyAccountId: string;
 }
 
-function normalizeTransaction(transaction: BackendTransaction): Transaction {
+/**
+ * Wire status -> app status. `PENDING` and `PROCESSING` both render as
+ * `processing`; the row is not done until it carries a hash.
+ */
+export function normalizeTransaction(transaction: BackendTransaction): Transaction {
   return {
     id: transaction.id,
-    direction: transaction.direction ?? 'sent',
+    direction: transaction.direction,
     status: transaction.status === 'COMPLETED'
       ? 'complete'
       : transaction.status === 'FAILED'
@@ -70,7 +93,7 @@ function normalizeTransaction(transaction: BackendTransaction): Transaction {
     amount: transaction.amount,
     symbol: transaction.asset,
     network: transaction.network,
-    counterpartyAccountId: transaction.counterpartyAccountId ?? transaction.recipientAccountId,
+    counterpartyAccountId: transaction.counterpartyAccountId,
     fee: transaction.feeAmount ?? '0',
     txHash: transaction.txHash,
     createdAt: transaction.createdAt,

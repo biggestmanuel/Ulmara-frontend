@@ -2447,6 +2447,171 @@ console.log('\n== verification screens: never claim a delivery we cannot prove =
   );
 }
 
+console.log('\n== one source for chain display names ==');
+{
+  const { readFileSync } = await import('node:fs');
+  const { join: pathJoin } = await import('node:path');
+  const root = process.argv[2] ?? '.';
+  const lf = (p) => readFileSync(p, 'utf8').replace(/\r\n/g, '\n');
+
+  const chains = lf(pathJoin(root, 'constants/chains.ts'));
+  const files = {
+    'walletSetupErrors': lf(pathJoin(root, 'lib/walletSetupErrors.ts')),
+    'addresses': lf(pathJoin(root, 'app/wallet/addresses.tsx')),
+    'withdraw': lf(pathJoin(root, 'app/deposit-withdraw/withdraw.tsx')),
+  };
+
+  // Three private copies had drifted: BSC was "BNB Smart Chain" in one and "BSC"
+  // in two, TRON was "Tron" in one and "TRON" in two. The same chain named two
+  // ways on two screens a user could compare side by side.
+  for (const [name, src] of Object.entries(files)) {
+    eq(
+      /const CHAIN_LABELS\s*[:=]/.test(src),
+      false,
+      `${name} no longer carries its own copy of the labels`
+    );
+  }
+
+  // All three read from the one helper.
+  eq(/export function chainLabel\(chain: string\): string/.test(chains), true,
+     'chainLabel is exported from constants/chains');
+  eq(/CHAINS\[chain as ChainId\]/.test(chains), true,
+     'chainLabel reads CHAINS rather than repeating the strings');
+  for (const [name, src] of Object.entries(files)) {
+    eq(
+      new RegExp(`import \\{ chainLabel \\} from '\\.\\.?/(\\.\\./)?constants/chains'`).test(src),
+      true,
+      `${name} imports the shared helper`
+    );
+    eq(
+      /chainLabel\(/.test(src),
+      true,
+      `${name} calls it rather than indexing a local table`
+    );
+  }
+
+  // The canonical names live in CHAINS, which already existed. The drift was the
+  // copies, not the source of truth, so this pins that the values are read and
+  // not duplicated anywhere else.
+  eq(
+    /bsc: \{ id: 'bsc', name: 'BNB Smart Chain'/.test(chains),
+    true,
+    'CHAINS remains the canonical home of the names'
+  );
+  const otherDefinitions = Object.entries(files).filter(([, src]) =>
+    /name: '(BNB Smart Chain|BSC|Ethereum|Tron|TRON)'/.test(src)
+  );
+  eq(
+    otherDefinitions.length,
+    0,
+    'no other file restates a chain display name inline'
+  );
+
+  // The fallback matters: `error.chain` comes off the wire, so an unknown chain
+  // must still render rather than crash or render blank.
+  eq(
+    /return known\?\.name \?\? chain\.toUpperCase\(\);/.test(chains),
+    true,
+    'an unrecognised chain falls back to its uppercased id'
+  );
+}
+
+console.log('\n== one normalizer, and no fallback masking a missing field ==');
+
+console.log('\n== one normalizer, and no fallback masking a missing field ==');
+{
+  const { readFileSync } = await import('node:fs');
+  const { join: pathJoin } = await import('node:path');
+  const root = process.argv[2] ?? '.';
+  const lf = (p) => readFileSync(p, 'utf8').replace(/\r\n/g, '\n');
+  const tx = lf(pathJoin(root, 'lib/api/transactions.ts'));
+  const ext = lf(pathJoin(root, 'lib/api/externalTransfers.ts'));
+
+  // Item 5. The backend sends direction and counterpartyAccountId on ALL FOUR
+  // transaction endpoints now (create + both reads, plus external submit).
+  // Verified live before making them required: create answered direction="sent"
+  // and counterpartyAccountId="9259531853".
+  //
+  // The `?? 'sent'` fallback is the dangerous kind. It is harmless today because
+  // a just-sent transaction IS sent -- and that is exactly why it is bad: if the
+  // field ever stopped arriving, the client would invent a plausible value
+  // rather than show a hole, so the regression would be invisible.
+  eq(
+    /direction: transaction\.direction \?\? 'sent'/.test(tx),
+    false,
+    'normalizeTransaction no longer invents a direction when the field is absent'
+  );
+  eq(
+    /counterpartyAccountId: transaction\.counterpartyAccountId \?\? transaction\.recipientAccountId/.test(tx),
+    false,
+    'normalizeTransaction no longer substitutes recipientAccountId for a missing counterparty'
+  );
+  // Required in the type, so a missing field is a compile error rather than a
+  // silent default.
+  eq(
+    /direction: TransactionDirection;/.test(tx),
+    true,
+    'direction is required on BackendTransaction'
+  );
+  eq(
+    /counterpartyAccountId: string;/.test(tx),
+    true,
+    'counterpartyAccountId is required on BackendTransaction'
+  );
+  eq(
+    /direction\?: TransactionDirection;/.test(tx),
+    false,
+    'direction is no longer optional'
+  );
+  eq(
+    /counterpartyAccountId\?: string;/.test(tx),
+    false,
+    'counterpartyAccountId is no longer optional'
+  );
+
+  // Item 8. The normalizer was duplicated by hand, and the copy had already
+  // drifted: it kept the fallbacks after transactions.ts moved on.
+  eq(
+    /export function normalizeTransaction\(/.test(tx),
+    true,
+    'normalizeTransaction is exported'
+  );
+  eq(
+    /import \{ normalizeTransaction, type BackendTransaction, type Transaction \} from '\.\/transactions';/.test(ext),
+    true,
+    'externalTransfers imports the shared normalizer'
+  );
+  eq(
+    /return normalizeTransaction\(data\.data\);/.test(ext),
+    true,
+    'the submit response goes through the shared normalizer'
+  );
+  // The hand-written copy must be gone: no status mapping, no asset->symbol
+  // rename, no field list of its own.
+  eq(
+    /id: backend\.id/.test(ext),
+    false,
+    'the hand-written field-by-field copy is gone'
+  );
+  eq(
+    /symbol: backend\.asset/.test(ext),
+    false,
+    'no local asset->symbol rename remains'
+  );
+  eq(
+    /status === 'COMPLETED' \? 'complete'/.test(ext),
+    false,
+    'no local status mapping remains'
+  );
+  eq(
+    /interface BackendSubmitResponse/.test(ext),
+    false,
+    'the extending interface that redeclared the two fields is gone'
+  );
+}
+
+console.log('\n== the NGN estimate must never be a fabricated zero either ==');
+
 console.log('\n== the NGN estimate must never be a fabricated zero either ==');
 {
   const { readFileSync } = await import('node:fs');

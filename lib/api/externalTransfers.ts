@@ -1,5 +1,5 @@
 import { apiClient } from './client';
-import type { BackendTransaction, Transaction } from './transactions';
+import { normalizeTransaction, type BackendTransaction, type Transaction } from './transactions';
 
 interface ApiEnvelope<T> { success: boolean; data: T }
 
@@ -15,12 +15,11 @@ export interface ExternalTransferIntent {
   status: ExternalIntentStatus;
 }
 
-// The submit endpoint returns the created ledger row in the same "sent"
-// shape as transactionService.list/getById.
-interface BackendSubmitResponse extends BackendTransaction {
-  direction?: 'sent' | 'received';
-  counterpartyAccountId?: string;
-}
+// The submit endpoint returns the created ledger row in the same shape as
+// `send` and both read paths, so `BackendTransaction` describes it exactly and
+// nothing needs extending. This used to redeclare `direction` and
+// `counterpartyAccountId` as optional and carry a hand-written copy of the
+// normalizer, which is how the two drifted apart in the first place.
 
 export async function prepareExternalTransfer(input: {
   /** UPPERCASE wire identifier exactly as listed by the backend's CHAIN_NAMES
@@ -44,21 +43,13 @@ export async function submitExternalTransfer(
   signedTransaction: string,
   idempotencyKey: string
 ): Promise<Transaction> {
-  const { data } = await apiClient.post<ApiEnvelope<BackendSubmitResponse>>(
+  const { data } = await apiClient.post<ApiEnvelope<BackendTransaction>>(
     `/api/transaction/external/${intentId}/submit`,
     { signedTransaction, idempotencyKey },
   );
-  const backend = data.data;
-  return {
-    id: backend.id,
-    direction: backend.direction ?? 'sent',
-    status: backend.status === 'COMPLETED' ? 'complete' : backend.status === 'FAILED' ? 'failed' : 'processing',
-    amount: backend.amount,
-    symbol: backend.asset,
-    network: backend.network,
-    counterpartyAccountId: backend.counterpartyAccountId ?? backend.recipientAccountId,
-    fee: backend.feeAmount ?? '0',
-    txHash: backend.txHash,
-    createdAt: backend.createdAt,
-  };
+  // The shared normalizer, not a copy of it. The copy had already drifted: it
+  // kept the `?? 'sent'` and `?? recipientAccountId` fallbacks after
+  // `transactions.ts` had moved on, so the two endpoints disagreed about what a
+  // missing field meant.
+  return normalizeTransaction(data.data);
 }

@@ -427,6 +427,9 @@ let myAccountId = null;
 // The ids in any task brief go stale the moment the database is re-seeded, and
 // a stale id reads as a contract failure rather than as a missing fixture.
 let recipientId = RECIPIENT;
+// The row `send` creates, shared with the shape-comparison group below so that
+// group does not need a second transfer -- `send` is rate limited to 10/min.
+let sentTransactionId = null;
 if (!recipientId) {
   const RECIPIENT_EMAIL = process.env.UL_MARA_RECIPIENT_EMAIL;
   const RECIPIENT_PASSWORD = process.env.UL_MARA_RECIPIENT_PASSWORD;
@@ -471,7 +474,18 @@ if (!recipientId) {
     { label: 'send' }
   );
   const tx = created.transaction;
+  sentTransactionId = tx.id;
   ok('send succeeds with network + idempotencyKey');
+  // Read straight off the wire, before normalizeTransaction. This group is about
+  // what the backend sends, and the normalizer now trusts both fields rather
+  // than defaulting them -- so what reaches the client is not evidence of what
+  // the server sent.
+  eq(created.transaction.direction, 'sent', 'send normalises to a sent direction');
+  eq(
+    created.transaction.counterpartyAccountId,
+    recipientId,
+    'send resolves the counterparty to the recipient'
+  );
   eq(tx.status, 'processing', 'a fresh transfer is PENDING (normalised to "processing")');
   eq(tx.txHash ?? null, null, 'a fresh transfer has no txHash before broadcast');
   eq(tx.amount, '0.001', 'the amount round-trips as a string');
@@ -486,7 +500,57 @@ if (!recipientId) {
   await expectStatus('the same idempotencyKey with different params is a 409',
     () => transactions.sendPayment(payload({ amount: '0.002', idempotencyKey: key })), 409);
 
-  group('broadcast: signedTx only, and the body is strict');
+  group('the read paths describe a transfer the same way');
+if (!sentTransactionId) {
+  bad('a transfer exists to compare shapes against', 'the send group produced no row');
+} else {
+  // `direction` and `counterpartyAccountId` were optional on BackendTransaction,
+  // with `?? 'sent'` and `?? recipientAccountId` behind them, because the create
+  // path did not send them while the two read paths did. They are now required
+  // and the fallbacks are gone.
+  //
+  // Dropping a fallback is only safe while the field really arrives, so this
+  // asserts it on the wire rather than trusting the static type. The direction
+  // that matters: if the backend regressed to omitting the field, the client now
+  // shows a hole rather than inventing `sent` -- the correct failure, but it
+  // should be noticed rather than discovered.
+  const raw = await fetch(`${BASE}/api/transaction/${sentTransactionId}`, {
+    headers: { Authorization: `Bearer ${callerToken}` },
+  }).then((r) => r.json().catch(() => ({})));
+  const wire = raw?.data ?? {};
+
+  eq(wire.direction, 'sent', 'GET /:id answers with a direction');
+  eq(wire.counterpartyAccountId, recipientId, 'GET /:id answers with a counterparty');
+
+  const mapped = await transactions.fetchTransactionById(sentTransactionId);
+  eq(mapped.direction, wire.direction, 'the client passes direction through unchanged');
+  eq(
+    mapped.counterpartyAccountId,
+    wire.counterpartyAccountId,
+    'the client passes the counterparty through unchanged'
+  );
+
+  // The case the old fallback actively concealed: a RECEIVED row. With
+  // `?? 'sent'` behind it, any row missing the field read as outgoing, so an
+  // incoming transfer could be shown as one the user sent. There are received
+  // rows on this account, so this is checked rather than assumed.
+  const all = (await (await fetch(`${BASE}/api/transaction?page=1&limit=100`, {
+    headers: { Authorization: `Bearer ${callerToken}` },
+  })).json())?.data?.items ?? [];
+  const incoming = all.filter((t) => t.direction === 'received');
+  ok(`the account holds ${incoming.length} received row(s) to check`);
+  for (const row of incoming.slice(0, 3)) {
+    const r = await transactions.fetchTransactionById(row.id);
+    eq(r.direction, 'received', `row ${row.id.slice(0, 8)} stays received, not defaulted to sent`);
+    eq(
+      r.counterpartyAccountId,
+      row.counterpartyAccountId,
+      `row ${row.id.slice(0, 8)} keeps its own counterparty, not the sender's recipient`
+    );
+  }
+}
+
+group('broadcast: signedTx only, and the body is strict');
   {
     const captured = [];
     const realPost = clientMod.apiClient.post;

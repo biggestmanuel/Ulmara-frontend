@@ -8,17 +8,7 @@ import { useWalletStore } from '../../stores/walletStore';
 import { getUsdPrices, usdToNgn, type PriceSymbol } from '../../lib/prices/coingecko';
 import { friendlyError } from '../../lib/api/client';
 import { radius, space, useThemeStore } from '../../lib/theme';
-
-const CHAIN_LABELS: Record<string, string> = {
-  eth: 'Ethereum',
-  bsc: 'BSC',
-  base: 'Base',
-  polygon: 'Polygon',
-  sol: 'Solana',
-  tron: 'TRON',
-  ton: 'TON',
-  btc: 'Bitcoin',
-};
+import { chainLabel } from '../../constants/chains';
 
 const UNAVAILABLE = 'Fiat withdrawals are not available yet.';
 
@@ -188,7 +178,7 @@ export default function Withdraw() {
               <View style={styles.chipRow}>
                 {balances.map((entry) => {
                   const active = selectedId === entry.id;
-                  const network = CHAIN_LABELS[entry.chainId] ?? entry.chainId;
+                  const network = chainLabel(entry.chainId);
                   return (
                     <Touchable
                       key={entry.id}
