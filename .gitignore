@@ -24,9 +24,21 @@ yarn-debug.*
 yarn-error.*
 
 # env
+# Broad on purpose. The live credential file for this project is
+# `ulmara-fe-backend.env` -- a `*.env` name, which the three rules below did
+# not cover, so it would have been tracked by default if copied in here.
+# `.env.*` is here as much for backups as for originals: a stray `*.env.bak`
+# holding a real key has leaked on the backend before.
+# The negations must stay LAST -- gitignore is last-match-wins, so a
+# `!.env.example` placed above `*.env.*` would silently do nothing.
 .env
 .env.local
 .env.*.local
+*.env
+*.env.*
+!.env.example
+!.env.sample
+!.env.template
 
 # macos
 .DS_Store
