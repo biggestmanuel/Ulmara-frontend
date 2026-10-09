@@ -88,11 +88,32 @@ export const useWalletStore = create<WalletState>((set, get) => ({
     if (chainIds.length === 0) return;
 
     set({ isLoadingBalances: true, warning: null });
+    // Declared before the native read, not after. The unreadable-chain warning is
+    // produced while building `native`, so it has to exist by then.
+    const warnings: string[] = [];
     try {
       const serverBalances = await fetchWalletBalances();
+      // A chain whose balance came back null is NOT a zero balance.
+      //
+      // The backend returns `balance: null` from exactly one place, and it is
+      // deliberate (wallet.service.ts): the chain adapter threw, so it substitutes
+      // a null row rather than failing the whole read. A real zero arrives as the
+      // string "0.000…". So null means "a wallet exists here and I could not read
+      // it" — and dropping the row, as this used to, made an unreadable chain
+      // indistinguishable from one the account does not hold.
+      const unreadable: string[] = [];
       const native: AssetBalance[] = serverBalances.flatMap((entry) => {
         const chainId = toFrontendChainId(entry.chain);
-        if (!chainId || entry.balance === null) return [];
+        // A chain we cannot map to a ChainId is a wiring problem, not a balance
+        // problem, so it is counted as unreadable too rather than vanishing.
+        if (!chainId) {
+          unreadable.push(entry.chain);
+          return [];
+        }
+        if (entry.balance === null) {
+          unreadable.push(NATIVE_SYMBOLS[chainId] ?? chainId.toUpperCase());
+          return [];
+        }
         return [
           {
             id: `${chainId}:native`,
@@ -106,9 +127,34 @@ export const useWalletStore = create<WalletState>((set, get) => ({
         ];
       });
 
+      // Name the chains. "TON and BTC balances couldn't be read" is something the
+      // user can act on; a generic string is indistinguishable from any other
+      // partial failure. The warning is expected to appear for TON and BTC in
+      // this environment — no reachable RPC for either — and that is the fix
+      // working, not a regression.
+      if (unreadable.length > 0) {
+        warnings.push(
+          unreadable.length === 1
+            ? `${unreadable[0]} balance could not be read right now.`
+            : `${unreadable.slice(0, -1).join(', ')} and ${unreadable[unreadable.length - 1]} balances could not be read right now.`
+        );
+      }
+
       let assets: AssetBalance[] = native;
-      if (native.length === 0) {
-        // Backend balances unavailable; fall back to direct reads per chain.
+      if (serverBalances.length === 0) {
+        // The backend answered, and its answer was "no rows". That is a complete
+        // answer — an account with no wallets, or none the backend recognises —
+        // not an outage, so it is trusted and NOT re-read.
+        //
+        // The previous test was `native.length === 0`, which conflated three
+        // different things: an empty answer, an answer whose every row was
+        // unreadable, and a genuine failure. Only the third earns a fallback. In
+        // practice the first two are what occur — a real account returns 8 rows
+        // with 6 readable and 2 null — so that test fired for the wrong reason
+        // and, where it did fire, hid the nulls it was supposed to report.
+      } else if (native.length === 0) {
+        // Every row was unreadable, so the direct reads are a genuine retry of a
+        // read that failed rather than a re-read of a real answer.
         const results = await Promise.allSettled(
           chainIds.map(async (chainId): Promise<AssetBalance> => {
             const address = addresses[chainId]!;
@@ -131,7 +177,8 @@ export const useWalletStore = create<WalletState>((set, get) => ({
       }
 
       // --- ERC-20 balances -----------------------------------------------------
-      const warnings: string[] = [];
+      // `warnings` is declared above the native read, so the unreadable-native
+      // entry is already in it by now.
       const tokenResults = await Promise.allSettled(
         chainIds
           .filter((chainId) => isEvmChain(chainId) && addresses[chainId])
@@ -181,7 +228,17 @@ export const useWalletStore = create<WalletState>((set, get) => ({
       const merged = new Map<string, AssetBalance>();
       for (const entry of [...assets, ...tokens]) merged.set(entry.id, entry);
 
-      set({ balances: [...merged.values()], warning: warnings[0] ?? null });
+      // `warning` is a single string, so joining is the only way to keep more than one
+      // problem visible. Taking `warnings[0]` dropped the rest silently — with an
+      // unreadable native chain AND an unreadable token, the user was told about
+      // only one of them and had no way to learn the other existed. The
+      // unreadable-native entry is pushed first, so it leads the sentence, which
+      // is the more consequential of the two: it is a native holding, not an
+      // optional token.
+      set({
+        balances: [...merged.values()],
+        warning: warnings.length > 0 ? warnings.join(' ') : null,
+      });
     } catch (err) {
       console.error('Failed to refresh balances:', err);
       set({ warning: 'We could not refresh your balances. Pull down to try again.' });

@@ -2430,6 +2430,122 @@ console.log('\n== verification screens: never claim a delivery we cannot prove =
   );
 }
 
+console.log('\n== a null balance is not a zero balance: name the chains, do not drop them ==');
+{
+  const { readFileSync } = await import('node:fs');
+  const { join: pathJoin } = await import('node:path');
+  const root = process.argv[2] ?? '.';
+  const lf = (p) => readFileSync(p, 'utf8').replace(/\r\n/g, '\n');
+  const src = lf(pathJoin(root, 'stores/walletStore.ts'));
+
+  // The backend substitutes `balance: null` from exactly one place, and it is
+  // deliberate: the chain adapter threw, so a null row is returned rather than
+  // failing the whole read (wallet.service.ts). A real zero arrives as "0.000…".
+  // So null means "a wallet exists here and I could not read it", and dropping
+  // the row made an unreadable chain indistinguishable from one not held.
+  eq(
+    /if \(!chainId \|\| entry\.balance === null\) return \[\];/.test(src),
+    false,
+    'a null balance is no longer discarded together with an unmapped chain'
+  );
+  eq(
+    /unreadable\.push/.test(src),
+    true,
+    'unreadable chains are collected rather than dropped'
+  );
+  // The two conditions are separated so an unmapped chain is also reported.
+  eq(
+    /if \(!chainId\) \{\s*unreadable\.push\(entry\.chain\);/.test(src),
+    true,
+    'an unmapped chain is counted as unreadable, not silently skipped'
+  );
+  eq(
+    /if \(entry\.balance === null\) \{/.test(src),
+    true,
+    'the null-balance case is handled on its own'
+  );
+
+  // The message names the chains. A generic string is indistinguishable from any
+  // other partial failure and gives the user nothing to act on.
+  eq(
+    /balance could not be read/.test(src),
+    true,
+    'the warning says what could not be read'
+  );
+  eq(
+    /\$\{unreadable\[0\]\} balance could not be read/.test(src),
+    true,
+    'the single-chain case names the chain'
+  );
+  eq(
+    /unreadable\.slice\(0, -1\)\.join\(', '\)/.test(src),
+    true,
+    'the multi-chain case enumerates them rather than saying "some"'
+  );
+  eq(
+    /Some (native )?balances could not be read/.test(src),
+    false,
+    'the warning is not a generic some-balances message'
+  );
+
+  // `warnings` has to exist before the native read, since that is where the
+  // unreadable entry is pushed.
+  const decl = src.indexOf('const warnings: string[] = [];');
+  const push = src.indexOf('unreadable.length > 0');
+  const nativeDecl = src.indexOf('const native: AssetBalance[]');
+  eq(decl > 0 && nativeDecl > 0 && push > 0, true, 'all three sites are locatable');
+  eq(
+    decl < nativeDecl && decl < push,
+    true,
+    'warnings is declared above the native block that pushes to it'
+  );
+
+  // `warning` is a single string, so warnings[0] silently dropped the rest. With
+  // an unreadable native chain AND an unreadable token, the user was told about
+  // one and never learned the other existed.
+  eq(
+    /warning: warnings\[0\] \?\? null/.test(src),
+    false,
+    'only the first warning is no longer shown'
+  );
+  eq(
+    /warnings\.join\(' '\)/.test(src),
+    true,
+    'multiple warnings are joined so both are visible'
+  );
+  eq(
+    /warnings\.length > 0 \? warnings\.join/.test(src),
+    true,
+    'an empty warning list still yields null, not an empty string'
+  );
+  // The native entry is pushed first, so it leads -- a native holding is more
+  // consequential than an optional token.
+  eq(
+    decl < src.indexOf('const tokenResults'),
+    true,
+    'the unreadable-native warning is pushed before the token warnings'
+  );
+
+  // The fallback: an empty answer is a real answer, not an outage.
+  eq(
+    /if \(serverBalances\.length === 0\)/.test(src),
+    true,
+    'the empty-answer case is handled explicitly'
+  );
+  eq(
+    /if \(native\.length === 0\)/.test(src),
+    true,
+    'the all-unreadable case still earns a direct-read retry'
+  );
+  eq(
+    /if \(native\.length === 0\) \{\s*\/\/ Backend balances unavailable/s.test(src),
+    false,
+    'the stale "balances unavailable" comment no longer misdescribes the branch'
+  );
+}
+
+console.log('\n== the two account endpoints: assert the wallet shapes are not the same ==');
+
 console.log('\n== the two account endpoints: assert the wallet shapes are not the same ==');
 
 console.log('\n== the two account endpoints: assert the wallet shapes are not the same ==');
