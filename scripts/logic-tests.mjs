@@ -154,7 +154,15 @@ const STUBS = {
   `,
   'expo-secure-store': `
     const m = new Map();
-    export const getItemAsync = async (k) => (m.has(k) ? m.get(k) : null);
+    let hang = false;
+    // Test hook: makes reads return a promise that never settles. This is not a
+    // failure expo-secure-store can produce by throwing, so nothing else in the
+    // suite can reach that branch.
+    export const __setHang = (v) => { hang = v; };
+    export const getItemAsync = async (k) => {
+      if (hang) return new Promise(() => {});
+      return m.has(k) ? m.get(k) : null;
+    };
     export const setItemAsync = async (k, v) => { m.set(k, v); };
     export const deleteItemAsync = async (k) => { m.delete(k); };
   `,
@@ -581,6 +589,36 @@ console.log('\n== stores/authGateStore: gate state machine ==');
   await gate().check();
   eq(gate().status, 'guest', 'logging out resolves to guest');
   eq(gate().pinMissing, false, 'logging out clears pinMissing');
+}
+
+console.log('\n== lib/storage/secureStorage: a keystore read that never settles ==');
+{
+  // A *thrown* read already fails closed: getSecureItem catches and returns
+  // null. The one failure it could not survive was a read that never settles,
+  // because a promise that never settles never rejects, so no catch clause can
+  // ever see it. That left the boot gate on 'checking' forever, the root
+  // layout's redirect never firing, and the app frozen on the splash with no
+  // error of any kind to explain why.
+  const stub = await import(
+    pathToFileURL(join(work, 'stubs', 'expo-secure-store', 'index.mjs')).href
+  );
+  const { getSecureItem } = await load('lib/storage/secureStorage.ts');
+
+  stub.__setHang(true);
+  const startedAt = Date.now();
+  let settledTo;
+  try {
+    settledTo = await getSecureItem('session_token');
+  } finally {
+    stub.__setHang(false);
+  }
+  const elapsed = Date.now() - startedAt;
+
+  eq(settledTo, null, 'a read that never settles resolves to null instead of hanging forever');
+  // 1900 rather than 2000: this should fail on a missing deadline, not on timer
+  // jitter, so the floor sits just under the real constant.
+  ok(elapsed >= 1900, `the hung read waited for the deadline rather than failing instantly (${elapsed}ms)`);
+  ok(elapsed < 10000, 'the hung read gave up promptly, so the gate still reaches a terminal state');
 }
 
 
