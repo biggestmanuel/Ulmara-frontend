@@ -87,10 +87,34 @@ function webDelete(key: SecureStorageKey): void {
   }
 }
 
+/**
+ * How long a keystore read may take before it is treated as failed.
+ *
+ * This exists because of a boot freeze, not because reads are slow. The auth
+ * gate awaits two of these before it will redirect anywhere; on a cold start
+ * `status` stays 'checking' and the router never fires, so the app sits on the
+ * splash with no error at all. The call below has its own try/catch that
+ * returns null, so a *thrown* read already fails closed to 'guest' — a read
+ * that never settles is the only case that could wedge it, and a promise that
+ * never settles never rejects, so no catch clause can save it.
+ *
+ * The read is abandoned, not cancelled: there is no way to cancel a native
+ * bridge call, so a late resolution is simply ignored by Promise.race.
+ */
+const SECURE_READ_TIMEOUT_MS = 2000;
+
 export async function getSecureItem(key: SecureStorageKey): Promise<string | null> {
   if (isWeb) return webGet(key);
   try {
-    return await SecureStore.getItemAsync(key);
+    return await Promise.race([
+      SecureStore.getItemAsync(key),
+      new Promise<null>((resolve) =>
+        setTimeout(() => {
+          console.error(`SecureStore read timed out for ${key} after ${SECURE_READ_TIMEOUT_MS}ms`);
+          resolve(null);
+        }, SECURE_READ_TIMEOUT_MS),
+      ),
+    ]);
   } catch (err) {
     console.error(`SecureStore get failed for ${key}:`, err);
     return null;
